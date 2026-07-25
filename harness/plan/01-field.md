@@ -63,8 +63,18 @@ validated on real ground before a line of game-server code is written.
     no prompt — see decision 0013. Nothing in this project may leave a
     hard-won field living only in memory.
 
-- `1.6` todo: Client build (`scripts/build-client.mjs`)
+- `1.6` done: Client build (`scripts/build-client.mjs`)
   - esbuild bundle, dev watch mode, no framework
+  - Built out of numeric order, before `1.2` and `1.3`. Writing two view modules
+    with no way to run them, then discovering at `1.6` that the pipeline is
+    wrong, is the expensive order. With `--serve` plus `?sim=1` a view can be
+    driven in a real browser in the container, which is how the rest of phase 1
+    gets verified.
+  - `1.6.1` done: esbuild bundle to `public/app.js`, `--watch` for rebuilds
+  - `1.6.2` done: `--serve` static server on :8788, because `wrangler dev` needs
+    a worker that does not exist until phase 3
+  - `1.6.3` done: `src/client/main.ts` — provider selection, and a GPS readout
+    that the calibration flow replaces
 
 - `1.9` todo: First deploy
   - Deliberately early. The riskiest assumption in the project is that consumer

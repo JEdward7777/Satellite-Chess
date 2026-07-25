@@ -1,0 +1,99 @@
+/*
+ * Base chrome. The board brings its own colours (stage 1.3).
+ *
+ * Written for a phone held at arm's length in direct sun, which is the only
+ * lighting condition this game is ever played in: maximum contrast, large type,
+ * and nothing that relies on a subtle shade to carry meaning.
+ */
+
+:root {
+  --bg: #0d1117;
+  --fg: #ffffff;
+  --dim: #9aa4b2;
+  --line: #2b3441;
+  --good: #3fb950;
+  --fair: #d29922;
+  --poor: #f85149;
+  --accent: #58a6ff;
+
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Big. Every label here is read while moving. */
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  /* The board is dragged and tapped; the page itself never scrolls or bounces. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  min-height: 100%;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 1rem;
+}
+
+button {
+  /* 48px is the smallest thing a thumb reliably hits while walking. */
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0.6rem 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  opacity: 0.4;
+}
+
+.readout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.readout dt {
+  color: var(--dim);
+}
+
+.quality-good {
+  color: var(--good);
+}
+.quality-fair {
+  color: var(--fair);
+}
+.quality-poor,
+.quality-unusable {
+  color: var(--poor);
+}
+
+.notice {
+  margin: 1rem 0;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--poor);
+  border-radius: 10px;
+  background: #2d1418;
+}

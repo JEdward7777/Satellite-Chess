@@ -139,11 +139,11 @@ export function describeGpsError(code: GpsErrorCode, platform: Platform = 'other
         message:
           platform === 'ios'
             ? 'Location is blocked for this site. Tap the "AA" button in Safari\'s address bar ' +
-              '-> Website Settings -> Location -> Allow, then reload. If it is not offered ' +
-              'there, check Settings -> Privacy & Security -> Location Services is on.'
+              '→ Website Settings → Location → Allow, then reload. If it is not offered ' +
+              'there, check Settings → Privacy & Security → Location Services is on.'
             : platform === 'android'
-              ? 'Location is blocked for this site. Tap the padlock in the address bar -> ' +
-                'Permissions -> Location -> Allow, then reload.'
+              ? 'Location is blocked for this site. Tap the padlock in the address bar → ' +
+                'Permissions → Location → Allow, then reload.'
               : 'Location is blocked for this site. Allow it in your browser\'s site settings, ' +
                 'then reload.',
       };
@@ -173,13 +173,13 @@ export function describeGpsError(code: GpsErrorCode, platform: Platform = 'other
         message:
           platform === 'ios'
             ? 'Your phone is only giving an approximate location — accurate to about a ' +
-              'kilometre, which is a hundred boards wide. Turn on Settings -> Privacy & ' +
-              'Security -> Location Services -> Safari Websites -> Precise Location. If you ' +
+              'kilometre, which is a hundred boards wide. Turn on Settings → Privacy & ' +
+              'Security → Location Services → Safari Websites → Precise Location. If you ' +
               'added this game to your home screen, look for Satellite Chess in that list ' +
               'instead of Safari.'
             : platform === 'android'
               ? 'Your phone is only giving an approximate location, accurate to about a ' +
-                'kilometre. Turn on Settings -> Location -> Location Services -> Google ' +
+                'kilometre. Turn on Settings → Location → Location Services → Google ' +
                 'Location Accuracy, and allow this site precise location.'
               : 'Your phone is only giving an approximate location, accurate to about a ' +
                 'kilometre. Look for a "precise location" setting for this site and turn it on.',
