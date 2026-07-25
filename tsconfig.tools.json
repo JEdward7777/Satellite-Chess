@@ -1,0 +1,11 @@
+{
+  // Tests and build scripts. Tests exercise both halves and run under vitest, and
+  // the scripts are plain node, so this is the one place both global sets are
+  // allowed to coexist.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["test", "scripts", "vitest.config.ts"]
+}

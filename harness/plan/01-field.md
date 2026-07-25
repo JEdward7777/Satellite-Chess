@@ -94,6 +94,25 @@ validated on real ground before a line of game-server code is written.
   - `1.6.3` done: `src/client/main.ts` — provider selection, and a GPS readout
     that the calibration flow replaces
 
+- `1.7` done: Split the tsconfigs by runtime (decision 0021, resolves O-05)
+  - Pulled forward out of "before phase 3" because worker code was about to start
+    existing, which is the point where a shadowed global stops being confusing and
+    starts risking code written against the wrong type.
+  - `1.7.1` done: `tsconfig.base.json` naming no `lib` or `types`
+  - `1.7.2` done: Client, worker and tools projects with scoped globals; root is a
+    solution file of references
+  - `1.7.3` done: Verified by deleting the phase-1 workaround in `views/sim-panel.ts`
+    rather than by asserting the fix
+
+- `1.8` done: Stub worker, so a deploy is possible before phase 3 exists
+  - `wrangler.jsonc` points `main` at `src/worker/index.ts`. Until that file exists
+    every deploy fails, which would block `1.9.3` — walking a real field — on work
+    that has nothing to do with it.
+  - `1.8.1` done: Minimal worker serving the static assets, shaped so phase 3 grows
+    into it rather than replacing it
+  - `1.8.2` done: Durable Object classes exported as stubs, because the bindings and
+    the `new_sqlite_classes` migration in `wrangler.jsonc` name them at deploy time
+
 - `1.9` todo: First deploy
   - Deliberately early. The riskiest assumption in the project is that consumer
     GPS can tell 8 m squares apart on grass; that has to be tested on a phone on

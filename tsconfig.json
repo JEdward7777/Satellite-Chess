@@ -1,17 +1,15 @@
 {
-  "compilerOptions": {
-    "target": "es2022",
-    "lib": ["es2022", "dom", "dom.iterable", "webworker"],
-    "module": "es2022",
-    "moduleResolution": "bundler",
-    "types": ["@cloudflare/workers-types"],
-    "strict": true,
-    "noUncheckedIndexedAccess": false,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "allowImportingTsExtensions": true
-  },
-  "include": ["src", "test", "scripts"]
+  // Root config: a solution file that only points at the three real ones, so an
+  // editor can resolve any file to the project that owns it. There is no `include`
+  // here on purpose — every file must belong to exactly one project below, which is
+  // what stops Worker and DOM globals leaking into each other (O-05).
+  //
+  // `npm run typecheck` invokes the three with `-p` rather than using `tsc --build`,
+  // because these are all `noEmit` projects and have no build outputs to sequence.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.client.json" },
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.tools.json" }
+  ]
 }

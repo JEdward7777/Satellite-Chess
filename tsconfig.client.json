@@ -1,0 +1,10 @@
+{
+  // Browser code. DOM globals only — no Workers types, so `document.body` is an
+  // HTMLElement and `.append()` is the DOM's, not HTMLRewriter's.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": []
+  },
+  "include": ["src/client", "src/shared"]
+}

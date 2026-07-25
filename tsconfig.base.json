@@ -1,0 +1,18 @@
+{
+  // Settings shared by every part of the project. Deliberately says nothing about
+  // `lib` or `types` — that is the whole point of the split (see O-05 / decision
+  // 0021): a Worker global that shadows its DOM namesake produces errors naming
+  // types that have nothing to do with the code.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true
+  }
+}

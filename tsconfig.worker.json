@@ -1,0 +1,11 @@
+{
+  // Worker code. Workers types only — no DOM, so a stray `document` or
+  // `localStorage` in server code is a compile error rather than a runtime crash
+  // in production.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2022"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/worker", "src/shared"]
+}

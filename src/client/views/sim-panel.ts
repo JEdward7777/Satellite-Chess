@@ -58,11 +58,7 @@ export function mountSimPanel(deps: SimPanelDeps): SimPanelHandle {
       <button data-nudge="s">↓</button>
     </div>
   `;
-  // `append` resolves to HTMLRewriter's, not the DOM's: this project compiles
-  // with `@cloudflare/workers-types`, whose globals shadow several DOM ones.
-  // `appendChild` is unambiguous.
-  const host = document.getElementsByTagName('body')[0] ?? document.documentElement;
-  host.appendChild(panel);
+  document.body.append(panel);
 
   let active = deps.me;
 

@@ -47,20 +47,18 @@ claim-the-win timer, a mutual-abandon draw, and the interaction with the permane
 record all have to be settled together. Promote to a stage in phase 5 once the
 suspension path exists to hang it on.
 
-### O-05 — `@cloudflare/workers-types` shadows DOM globals in client code
-**Spotted:** 2026-07-25, stages 1.1–1.6
-**Why it matters:** One `tsconfig.json` covers both `src/client/` and
-`src/worker/`, and it loads `@cloudflare/workers-types` globally. Several Workers
-globals then shadow their DOM namesakes in client files: `document.body` types as
-the Fetch API's `Body`, and `.append()` resolves to `HTMLRewriter`'s, whose
-parameter is `string | ReadableStream | Response`. The resulting errors name types
-that have nothing to do with the code and read as compiler nonsense. Worked around
-in `views/sim-panel.ts` with `appendChild` and `getElementsByTagName`, which are
-unambiguous — but that is a workaround, and the next person will lose the same
-half hour on a different global.
-**Not doing yet because:** The fix is a `tsconfig.client.json` / `tsconfig.worker.json`
-split with `types` scoped to each, and a root config that references both. That is
-half an hour of build plumbing that would have interrupted phase 1 for no gain
-while `src/worker/` is still empty. **Worth doing before phase 3**, which is when
-worker code starts existing alongside client code and the collision stops being
-merely confusing and starts being a real risk of writing against the wrong type.
+### O-06 — Shell asset paths are relative, so deep links will break
+**Spotted:** 2026-07-25, stage 1.8
+**Why it matters:** `public/index.html` references `app.css`, `app.js`,
+`manifest.webmanifest` and `icons/…` relatively, and `sw.js` precaches the same
+paths as `./…`. Served from `/` that is fine. Served from `/j/ABC123` — the QR deep
+link in phase 6 — the browser would resolve `app.js` to `/j/app.js` and the app
+would not load at all. The same applies to the `/f/<blob>` field-share link
+(decision 0016).
+**Not doing yet because:** It is not merely a search-and-replace to absolute paths:
+the service worker's precache list and its cache-first matching have to agree, and
+the offline behaviour then needs re-verifying in a browser, which is how 1.5.2 was
+validated. Phase 6 has to build and test deep-link routing anyway, so the fix
+belongs there rather than being done blind now. Nothing before phase 6 serves any
+path other than `/`, so this cannot bite in the meantime. **Do it as the first
+stage of phase 6**, before the QR encoder, or the first scan will fail in a field.
