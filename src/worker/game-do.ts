@@ -24,7 +24,6 @@
 
 import { DurableObject } from 'cloudflare:workers';
 
-import type { Env } from './env.js';
 import { notImplemented } from './http.js';
 
 export class GameDO extends DurableObject<Env> {

@@ -13,7 +13,6 @@
 
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
-import type { Env } from './env.js';
 import { json, notImplemented } from './http.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.

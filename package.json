@@ -12,7 +12,9 @@
     "plan": "node scripts/plan.mjs",
     "plan:check": "node scripts/plan.mjs --check",
     "plan:next": "node scripts/plan.mjs --next",
-    "check": "npm run typecheck && npm test && npm run plan:check"
+    "check": "npm run types:check && npm run typecheck && npm test && npm run plan:check",
+    "types": "wrangler types --include-runtime=false src/worker/worker-env.d.ts",
+    "types:check": "wrangler types --include-runtime=false --check src/worker/worker-env.d.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0"

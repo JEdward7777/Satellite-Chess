@@ -3,7 +3,26 @@
 Two clients connect to one authoritative object and see each other move around
 the field. No chess yet — proving the plumbing in isolation.
 
-- `3` todo: GameDO and the WebSocket transport
+- `3` active: GameDO and the WebSocket transport
+
+- `3.0` done: Test harness for Durable Objects
+  - Numbered `3.0` and done first, out of order, for the same reason phase 1 built
+    `1.6` before its views: writing a hibernating, SQLite-backed, alarm-driven
+    object with no way to run it is the expensive order. `3.7` remains the stage
+    for the substantial integration tests.
+  - `3.0.1` done: Two vitest projects — `model` in node for pure logic, `worker`
+    in the real `workerd` runtime via `@cloudflare/vitest-pool-workers`. The
+    runtime behaviours this phase depends on (hibernation, SQLite, alarms) are
+    exactly the ones a mock would get wrong.
+  - `3.0.2` done: `Env` generated from `wrangler.jsonc` by
+    `wrangler types --include-runtime=false` into `src/worker/worker-env.d.ts`,
+    548 bytes rather than the 550 KB the default emits. `npm run check` runs
+    `--check` first, so a binding added to `wrangler.jsonc` without regenerating
+    fails the build instead of drifting. Scoped to the worker and tools tsconfig
+    projects, never the client — the full runtime types are what caused O-05.
+  - `3.0.3` done: Smoke tests proving the wiring: health, the `/api` namespace
+    returning honest 501s rather than the shell, both DO namespaces present,
+    `idFromName` deterministic (decision 0007), and both stubs constructible
 
 - `3.1` todo: GameDO skeleton (`src/worker/game-do.ts`)
   - `3.1.1` todo: SQLite schema — `game`, `moves`, `presence`, `timers`
