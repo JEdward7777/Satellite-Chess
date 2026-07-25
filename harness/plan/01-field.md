@@ -6,7 +6,7 @@ validated on real ground before a line of game-server code is written.
 
 - `1` active: Field calibration and local board render
 
-- `1.1` active: GPS abstraction (`src/client/gps.ts`)
+- `1.1` done: GPS abstraction (`src/client/gps.ts`)
   - One interface with two implementations, so every later stage can be tested
     without a satellite. The simulator is not a nicety; nothing in this project
     is testable in a container without it.
@@ -16,17 +16,16 @@ validated on real ground before a line of game-server code is written.
   - `1.1.3` done: Detect iOS "Precise Location" being off — accuracy pinned in
     the ~1000 m range with permission apparently granted. The generic permission
     prompt does not help someone find that toggle, so name it explicitly.
-  - `1.1.4` active: Simulated provider behind `?sim=1` — drag to walk, accuracy
+  - `1.1.4` done: Simulated provider behind `?sim=1` — drag to walk, accuracy
     slider, optional jitter, and a second simulated player for two-phone flows
-    - The provider and its controls exist and are driven programmatically. The
-      on-screen half is split out below, because there is no board to drag on
-      until `1.3`, and `?sim=1` cannot be read until an app shell exists (`1.5`).
-      `simRequested()` is in place for that shell to call.
+    - Split into the provider and the on-screen half, because the provider had
+      to exist before there was a board to drag on or a shell to read `?sim=1`.
     - `1.1.4.1` done: Simulated provider — walk at a pace, teleport, accuracy,
       jitter, seeded so a wobble repeats
     - `1.1.4.2` done: Two players on one explicit clock, for two-phone flows
-    - `1.1.4.3` todo: On-screen controls — drag to walk, accuracy slider, jitter
-      toggle, switch between the two players. Build alongside `1.3`.
+    - `1.1.4.3` done: On-screen controls — drag to walk, accuracy and jitter
+      sliders, an arrow pad for a plausible walk, and a switch between the two
+      players (`src/client/views/sim-panel.ts`)
   - `1.1.5` done: Cumulative distance-travelled accumulator with a jitter floor,
     so standing still does not clock up kilometres
 
@@ -56,15 +55,23 @@ validated on real ground before a line of game-server code is written.
     - Judged from screenshots at phone size, which is as far as a container can
       take it. Whether it survives actual sunlight is a question for `1.9.3`.
 
-- `1.4` todo: Screen Wake Lock
+- `1.4` done: Screen Wake Lock (`src/client/wakelock.ts`)
   - Non-negotiable: the screen locking mid-sprint ends the game. Needs a
     re-acquire on visibility change, because the lock is dropped when the page is
     hidden and does not come back on its own.
+  - Held for exactly as long as the board view is mounted. Whether it actually
+    holds on a real phone is `1.9.2`.
 
-- `1.5` todo: App shell and PWA plumbing
-  - `1.5.1` todo: Manifest, icons, standalone display
-  - `1.5.2` todo: Service worker caching the shell and saved fields — a resumable
+- `1.5` done: App shell and PWA plumbing
+  - `1.5.1` done: Manifest, icons, standalone display
+    - Icons are drawn procedurally by `scripts/make-icons.mjs`, which encodes PNG
+      with `node:zlib` and no dependency at all. iOS will not take an SVG for
+      `apple-touch-icon`, so a vector alone was not enough.
+  - `1.5.2` done: Service worker caching the shell and saved fields — a resumable
     game is worth more than a perfectly fresh asset
+    - Stale-while-revalidate, so a deploy costs one launch of staleness rather
+      than a network round trip before the board appears. Verified by cutting the
+      network in a browser and reloading.
   - `1.5.3` done: Local storage of `player_id` and saved fields, anonymous-first.
     Fields go to IndexedDB the instant calibration is confirmed, with no login and
     no prompt — see decision 0013. Nothing in this project may leave a

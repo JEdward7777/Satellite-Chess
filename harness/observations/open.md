@@ -46,3 +46,21 @@ long.
 claim-the-win timer, a mutual-abandon draw, and the interaction with the permanent
 record all have to be settled together. Promote to a stage in phase 5 once the
 suspension path exists to hang it on.
+
+### O-05 — `@cloudflare/workers-types` shadows DOM globals in client code
+**Spotted:** 2026-07-25, stages 1.1–1.6
+**Why it matters:** One `tsconfig.json` covers both `src/client/` and
+`src/worker/`, and it loads `@cloudflare/workers-types` globally. Several Workers
+globals then shadow their DOM namesakes in client files: `document.body` types as
+the Fetch API's `Body`, and `.append()` resolves to `HTMLRewriter`'s, whose
+parameter is `string | ReadableStream | Response`. The resulting errors name types
+that have nothing to do with the code and read as compiler nonsense. Worked around
+in `views/sim-panel.ts` with `appendChild` and `getElementsByTagName`, which are
+unambiguous — but that is a workaround, and the next person will lose the same
+half hour on a different global.
+**Not doing yet because:** The fix is a `tsconfig.client.json` / `tsconfig.worker.json`
+split with `types` scoped to each, and a root config that references both. That is
+half an hour of build plumbing that would have interrupted phase 1 for no gain
+while `src/worker/` is still empty. **Worth doing before phase 3**, which is when
+worker code starts existing alongside client code and the collision stops being
+merely confusing and starts being a real risk of writing against the wrong type.

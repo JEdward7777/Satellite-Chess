@@ -67,6 +67,8 @@ export interface SimGpsControls {
   halt(): void;
   /** True while a walk is still in progress. */
   readonly walking: boolean;
+  /** Where the current walk is headed, or null when standing still. */
+  readonly target: LatLng | null;
   setAccuracy(accuracyM: number): void;
   setJitter(jitterM: number): void;
 }
@@ -80,7 +82,7 @@ class SimGpsPlayer implements GpsProvider, SimGpsControls {
   private pos: LatLng;
   private accuracyM: number;
   private jitterM: number;
-  private target: LatLng | null = null;
+  private destination: LatLng | null = null;
   private speedMps = DEFAULT_WALK_SPEED_MPS;
   private sinceFixMs = 0;
   private running = false;
@@ -121,21 +123,25 @@ class SimGpsPlayer implements GpsProvider, SimGpsControls {
   }
 
   get walking(): boolean {
-    return this.target !== null;
+    return this.destination !== null;
+  }
+
+  get target(): LatLng | null {
+    return this.destination;
   }
 
   moveTo(pos: LatLng): void {
     this.pos = pos;
-    this.target = null;
+    this.destination = null;
   }
 
   walkTo(target: LatLng, opts: { speedMps?: number } = {}): void {
-    this.target = target;
+    this.destination = target;
     this.speedMps = opts.speedMps ?? DEFAULT_WALK_SPEED_MPS;
   }
 
   halt(): void {
-    this.target = null;
+    this.destination = null;
   }
 
   setAccuracy(accuracyM: number): void {
@@ -159,7 +165,7 @@ class SimGpsPlayer implements GpsProvider, SimGpsControls {
   }
 
   private walkStep(dtMs: number): void {
-    const target = this.target;
+    const target = this.destination;
     if (!target) return;
 
     const toTarget = toLocal(this.pos, target);
@@ -167,7 +173,7 @@ class SimGpsPlayer implements GpsProvider, SimGpsControls {
     const stepM = (this.speedMps * dtMs) / 1000;
     if (stepM >= remainingM) {
       this.pos = target;
-      this.target = null;
+      this.destination = null;
       return;
     }
     this.pos = fromLocal(this.pos, scale(normalise(toTarget), stepM));

@@ -4,45 +4,64 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `claude/satellite-chess-game-bigkb8`
-**Active stage**: none — phase 0 complete, phase 1 not started
-**Next action**: stage `1.1.1` — the `watchPosition` wrapper in `src/client/gps.ts`
-**Last session**: `harness/sessions/2026-07-25-01.md`
+**Active stage**: `1.9` — first deploy. **Blocked on the operator**, see below.
+**Next action**: `wrangler login` and `npm run deploy` (stage `1.9.1`)
+**Last session**: `harness/sessions/2026-07-25-02.md`
 
 ## In one paragraph
 
-Phase 0 is done: the whole pure model exists and is tested — projection, field
-calibration, reach, the carry rule, clock arithmetic, join codes, wire protocol —
-76 tests passing. Every platform assumption the design rests on has been verified
-against a real `wrangler dev`, not inferred from docs. The harness exists. **No
-client and no server code has been written yet**; `src/worker/` and `src/client/`
-are empty, and `wrangler.jsonc` points at a `src/worker/index.ts` that does not
-exist, so `npm run dev` will not start until stage 1.6/3.5.
+Phases 0 and 1 are done bar the deploy. The whole pure model exists and is tested,
+and so does a working client: walk to a1 and tap, walk to h8 and tap, review the
+board those two corners imply, save it, and stand on it — with your reach circle
+and the squares you could touch drawn around you. All of it is drivable indoors
+through `?sim=1`, which is how every view in this phase was verified. 148 tests.
+**`src/worker/` is still empty**, so `wrangler dev` will not start; use
+`node scripts/build-client.mjs --serve` (port 8788) until phase 3.
 
 ## What to do next, concretely
 
-Phase 1 builds the thing the whole concept depends on: walk a field, tap two
-corners, see 64 squares and your reach circle. Start at `1.1` (the GPS
-abstraction), because nothing else in the project is testable in a container
-without the simulator that stage provides.
+**Everything remaining in phase 1 needs a human with a phone and a field.**
 
-Then `1.9` deploys it, early and deliberately, so the riskiest assumption in the
-project — that consumer GPS can tell 8 m squares apart on grass — gets tested on a
-real phone before anything is built on top of it.
+1. `1.9.1` — `wrangler login`, confirm the account, `npm run deploy`. There is no
+   Cloudflare account reachable from a container, so this cannot be automated.
+   Note that `wrangler.jsonc` points `main` at `src/worker/index.ts`, which does
+   not exist yet — **the deploy will need a stub worker, or `1.9.1` waits for
+   phase 3**. Decide which when you get there; a stub that only serves the static
+   assets is a few lines and unblocks `1.9.3`, which is the valuable part.
+2. `1.9.2` — install the PWA on a real phone, check the wake lock actually holds.
+3. `1.9.3` — **walk a real field.** This is the stage the project has been built
+   toward. The riskiest assumption is that consumer GPS can tell 8 m squares apart
+   on grass; the answer reshapes phase 9 and possibly the reach constants.
+
+Then O-05 (split the tsconfigs) before phase 3, and phase 2 or 3 after.
 
 ## Things a new thread should know before touching anything
 
-- **A move is a lift, a walk, and a place** (decision 0001). The brief's
-  single-instant reading of "both ends" makes every long move physically
-  impossible; this was measured, not guessed.
-- **Sign-in is mandatory** (decision 0014), which moved identity from late in the
-  brief to phase 2. There is no anonymous play.
-- **Location privacy is load-bearing here**, because a field is a precise place.
-  Decisions 0017, 0018 and 0019 are the rules; read them before building anything
-  social. The short version: history is indexed by player and never by place,
-  bragging is push-only and drawn in board space with no map, and distance is the
-  metric rather than games played.
+- **A move is a lift, a walk, and a place** (decision 0001).
+- **Distance walked is measured, not summed** (decision 0020). A naive sum credits
+  19–32 km an hour to a phone on a bench. Three mechanisms each worth a factor of
+  ten. Do not simplify it back.
+- **Sign-in is mandatory** (decision 0014). No anonymous play.
+- **Location privacy is load-bearing.** Decisions 0017, 0018, 0019 before anything
+  social.
 - **Nothing timing-related may live in memory.** The DO hibernates.
+- **Views are split model-from-DOM**, and the DOM half is verified by driving
+  Chromium against `?sim=1` — not by unit tests. Every view bug in phase 1 was
+  invisible to tests and obvious in a screenshot. Keep doing it.
+- **`@cloudflare/workers-types` shadows DOM globals** in client code and produces
+  errors that read as nonsense. See O-05.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.
+
+## Running it
+
+```bash
+node scripts/build-client.mjs --serve   # http://127.0.0.1:8788/?sim=1
+```
+
+`?sim=1` gives a fake GPS with on-screen controls: an arrow pad that walks, drag
+on the board to teleport, sliders for accuracy and jitter, and a switch between
+two simulated players. `globalThis.satchess` exposes the same thing to a console
+or a browser test.
 
 ## If pushing ever 403s again: install the GitHub App
 

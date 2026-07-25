@@ -7,12 +7,14 @@
  * circle reads as a fair statement of what you can touch.
  */
 
-import { type FieldSpec, deriveGeometry } from '../../shared/field.js';
+import { type FieldSpec, deriveGeometry, fromBoardPoint } from '../../shared/field.js';
+import type { LatLng } from '../../shared/geo.js';
 import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/reach.js';
 import { type Color, toSquare } from '../../shared/squares.js';
 import { toBoardPoint } from '../../shared/field.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
-import { drawBoard, squareUnderFoot, startingPieces } from '../render.js';
+import { type Projection, drawBoard, squareUnderFoot, startingPieces } from '../render.js';
+import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
 export interface BoardDeps {
   gps: GpsProvider;
@@ -20,6 +22,11 @@ export interface BoardDeps {
   /** Whose side is at the bottom. No game yet, so this is just a preference. */
   orientation?: Color;
   onBack(): void;
+  /**
+   * Called after the first paint with a way to turn a canvas touch into a
+   * place on the field. Only the simulator uses it.
+   */
+  onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;
 }
 
 export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
@@ -44,14 +51,20 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   const canvas = root.querySelector<HTMLCanvasElement>('[data-board]')!;
   root.querySelector<HTMLButtonElement>('[data-back]')?.addEventListener('click', deps.onBack);
 
+  // The board is the screen you walk with, so it is the screen that must not
+  // sleep. Held for exactly as long as this view is mounted.
+  const screenLock = createScreenLock(browserScreenLockOptions());
+  void screenLock.acquire();
+
   let state: GpsState = deps.gps.state;
+  let projection: Projection | null = null;
 
   const paint = () => {
     const fix = state.fix;
     const accuracyM = fix?.accuracyM ?? 0;
     const reachM = effectiveReachM(accuracyM);
 
-    drawBoard(canvas, {
+    projection = drawBoard(canvas, {
       geo,
       orientation,
       pieces,
@@ -82,6 +95,11 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
     paint();
   });
 
+  paint();
+  deps.onCanvas?.(canvas, (x, y) =>
+    projection ? fromBoardPoint(geo, projection.toBoard(x, y)) : deps.field.a1,
+  );
+
   // The canvas is sized from its box, so a rotation has to redraw it.
   const onResize = () => paint();
   addEventListener('resize', onResize);
@@ -89,6 +107,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   return () => {
     unsubscribe();
     removeEventListener('resize', onResize);
+    void screenLock.release();
     root.innerHTML = '';
   };
 }

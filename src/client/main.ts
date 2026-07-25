@@ -19,6 +19,7 @@ import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
+import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
 /**
  * Where the simulator starts. Arbitrary open ground — it only has to be
@@ -59,12 +60,13 @@ async function boot(): Promise<void> {
   const root: HTMLElement = found;
 
   let gps: GpsProvider;
+  let simPanel: SimPanelHandle | null = null;
   if (simRequested(location.search)) {
     const started = startSim();
     gps = started.gps;
-    // Deliberately global: the simulator is a debugging instrument, and being
-    // able to drive it from a console — or from a browser test — is the point.
-    // The on-screen controls arrive with the board in stage 1.1.4.3.
+    simPanel = mountSimPanel({ me: started.sim.me, opponent: started.sim.opponent });
+    // Deliberately global as well as on screen: driving the simulator from a
+    // console, or from a browser test, is how the rest of phase 1 was verified.
     Object.assign(globalThis, { satchess: started.sim });
   } else {
     gps = createGeolocationGps(browserGeolocationOptions());
@@ -96,7 +98,23 @@ async function boot(): Promise<void> {
   };
 
   function showBoard(field: FieldSpec): void {
-    swap(() => mountBoard(root, { gps, field, onBack: () => void showHome() }));
+    swap(() => {
+      let detachDrag: (() => void) | null = null;
+      const teardown = mountBoard(root, {
+        gps,
+        field,
+        onBack: () => void showHome(),
+        onCanvas: (canvas, toLatLng) => {
+          const panel = simPanel;
+          if (!panel) return;
+          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng });
+        },
+      });
+      return () => {
+        detachDrag?.();
+        teardown();
+      };
+    });
   }
 
   function showCalibrate(existing?: FieldSpec): void {
@@ -187,4 +205,16 @@ function escapeHtml(text: string): string {
   );
 }
 
+/**
+ * Registered after boot, never before: a failing service worker must not be able
+ * to stop the game starting.
+ */
+function registerServiceWorker(): void {
+  if (!('serviceWorker' in navigator)) return;
+  addEventListener('load', () => {
+    void navigator.serviceWorker.register('sw.js').catch(() => undefined);
+  });
+}
+
 void boot();
+registerServiceWorker();

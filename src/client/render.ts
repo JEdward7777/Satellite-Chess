@@ -95,6 +95,8 @@ const PADDING = 0.06;
 export interface Projection {
   scale: number;
   toScreen(bp: BoardPoint): { x: number; y: number };
+  /** The inverse, for turning a touch on the canvas back into a place. */
+  toBoard(x: number, y: number): BoardPoint;
 }
 
 export function projectionFor(
@@ -118,6 +120,14 @@ export function projectionFor(
       const u = orientation === 'w' ? bp.u - extent.minU : extent.maxU - bp.u;
       const v = orientation === 'w' ? extent.maxV - bp.v : bp.v - extent.minV;
       return { x: offsetX + u * scale, y: offsetY + v * scale };
+    },
+    toBoard(x: number, y: number) {
+      const u = (x - offsetX) / scale;
+      const v = (y - offsetY) / scale;
+      return {
+        u: orientation === 'w' ? u + extent.minU : extent.maxU - u,
+        v: orientation === 'w' ? extent.maxV - v : v + extent.minV,
+      };
     },
   };
 }
@@ -153,8 +163,13 @@ export function startingPieces(): PieceMap {
   return pieces;
 }
 
-/** Size the backing store to the element and the device, then draw. */
-export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): void {
+/**
+ * Size the backing store to the element and the device, then draw.
+ *
+ * Returns the projection it used, so a caller can turn a touch back into a
+ * place on the field without recomputing it.
+ */
+export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projection | null {
   const dpr = globalThis.devicePixelRatio ?? 1;
   const width = canvas.clientWidth || canvas.width;
   const height = canvas.clientHeight || canvas.height;
@@ -164,7 +179,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): void {
   }
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx) return null;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -175,6 +190,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): void {
   drawPieces(ctx, view, projection);
   drawNorth(ctx, view, width, height);
   if (here) drawPlayer(ctx, view, projection, here);
+  return projection;
 }
 
 function squareRect(
