@@ -329,7 +329,7 @@ describe('WebSockets', () => {
     ws.close();
   });
 
-  it('names an unimplemented message rather than going silent', async () => {
+  it('names an unrecognised message rather than going silent', async () => {
     const joinCode = nextCode();
     const stub = await createGame(joinCode);
     await stub.join(BLACK);
@@ -337,9 +337,11 @@ describe('WebSockets', () => {
     await ws.next((m) => m.t === 'state');
 
     // Silence would look like a dropped message to a client in a field.
-    ws.ws.send(JSON.stringify({ t: 'lift', from: 'e2' }));
+    ws.ws.send(JSON.stringify({ t: 'offer_draw' }));
     const err = await ws.next((m) => m.t === 'error');
-    expect(String(err.message)).toContain('not implemented');
+    expect(err.code).toBe('bad_message');
+    // The reply names the message, so a stale client can say what it tried.
+    expect(String(err.message)).toContain('offer_draw');
     ws.close();
   });
 

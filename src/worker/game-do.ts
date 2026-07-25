@@ -795,25 +795,16 @@ export class GameDO extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const verdict = checkCarry(
-      geometryFromSnapshot(this.fieldOf(game)),
-      { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at },
-      { pos, accuracyM: pos.acc, at: now },
-      carry.from_sq as Square,
-      to as Square,
-      DEFAULT_REACH,
-      this.reachBonus(game, who.color),
-    );
-    if (!verdict.ok) {
-      this.send(ws, {
-        t: 'error',
-        code: verdict.code ?? 'out_of_reach',
-        message: verdict.message ?? 'Out of reach.',
-        move: { from: carry.from_sq as Square, to: to as Square },
-      });
-      return;
-    }
 
+    // Chess legality first, and the order matters.
+    //
+    // Legality does not depend on where anyone is standing, so it is both the
+    // cheaper check and the clearer one. Run the other way round, a player who
+    // tries an illegal move quickly enough is told "your GPS jumped" — the carry
+    // check sees a long walk in no time and cries `implausible`, which is a
+    // baffling thing to read when the real problem is that bishops do not move
+    // like that.
+    //
     // The server's own rules engine decides. The client runs the same library for
     // instant highlighting, but its opinion is only a hint.
     const chess = new Chess(game.fen);
@@ -831,6 +822,25 @@ export class GameDO extends DurableObject<Env> {
         t: 'error',
         code: 'illegal_move',
         message: `${carry.from_sq}–${to} is not a legal move.`,
+        move: { from: carry.from_sq as Square, to: to as Square },
+      });
+      return;
+    }
+
+    const verdict = checkCarry(
+      geometryFromSnapshot(this.fieldOf(game)),
+      { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at },
+      { pos, accuracyM: pos.acc, at: now },
+      carry.from_sq as Square,
+      to as Square,
+      DEFAULT_REACH,
+      this.reachBonus(game, who.color),
+    );
+    if (!verdict.ok) {
+      this.send(ws, {
+        t: 'error',
+        code: verdict.code ?? 'out_of_reach',
+        message: verdict.message ?? 'Out of reach.',
         move: { from: carry.from_sq as Square, to: to as Square },
       });
       return;

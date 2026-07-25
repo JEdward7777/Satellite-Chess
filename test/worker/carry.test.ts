@@ -131,6 +131,21 @@ async function startedGame(opts: { initialMs?: number; incrementMs?: number } = 
   return { stub, white, black, joinCode };
 }
 
+/**
+ * Backdate the pending lift, as though the player had spent `seconds` walking.
+ *
+ * A test sends `lift` and `place` in the same millisecond, which the server is
+ * right to reject: covering ground in no time is exactly the teleport
+ * `isPlausibleStep` exists to catch (decision 0001). Rather than weaken a real
+ * anti-cheat rule to suit the tests, or sleep for whole seconds in each of them,
+ * this moves the lift into the past so the walk becomes physically possible.
+ */
+async function walked(stub: DurableObjectStub<GameDO>, seconds = 10): Promise<void> {
+  await runInDurableObject(stub, (_i, state) => {
+    state.storage.sql.exec(`UPDATE carry SET lift_at = lift_at - ?`, seconds * 1000);
+  });
+}
+
 describe('the start handshake', () => {
   it('does not start until both players are on their own back rank', async () => {
     const joinCode = nextCode();
@@ -314,6 +329,7 @@ describe('placing a piece', () => {
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
     white.clear();
+    await walked(stub);
     white.send({ t: 'place', to: 'e4', pos: at('e3') });
     const moved = await white.next(
       (m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null,
@@ -340,6 +356,7 @@ describe('placing a piece', () => {
     const { white, black, stub } = await startedGame();
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await walked(stub);
     white.send({ t: 'place', to: 'e4', pos: at('e4') });
     await white.next((m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null);
 
@@ -399,6 +416,7 @@ describe('placing a piece', () => {
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
     await new Promise((r) => setTimeout(r, 120));
+    await walked(stub);
     white.send({ t: 'place', to: 'e4', pos: at('e4') });
     await white.next((m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null);
 
@@ -406,7 +424,10 @@ describe('placing a piece', () => {
     // Spent a fraction of a second walking, then gained ten seconds of increment.
     expect(clocks.w).toBeGreaterThan(600_000);
     expect(clocks.w).toBeLessThan(610_000);
-    expect(clocks.b).toBe(600_000);
+    // Black's clock is running by now, so it is already ticking down — what
+    // matters is that black was not charged for white's move.
+    expect(clocks.b).toBeGreaterThan(599_000);
+    expect(clocks.b).toBeLessThanOrEqual(600_000);
     expect(clocks.running).toBe(true);
 
     white.close();
@@ -422,6 +443,7 @@ describe('placing a piece', () => {
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
     await new Promise((r) => setTimeout(r, 60));
+    await walked(stub);
     white.send({ t: 'place', to: 'e4', pos: at('e4') });
     await white.next((m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null);
 
@@ -439,11 +461,13 @@ describe('placing a piece', () => {
 
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await walked(stub);
     white.send({ t: 'place', to: 'e4', pos: at('e4') });
     await black.next((m) => m.t === 'state' && ((m.game as Msg).clock as Msg).active === 'b');
 
     black.send({ t: 'lift', from: 'e7', pos: at('e7') });
     await black.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await walked(stub);
     black.send({ t: 'place', to: 'e5', pos: at('e5') });
     await white.next(
       (m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg)?.san === 'e5',
@@ -558,13 +582,16 @@ describe('checkmate', () => {
     await runInDurableObject(stub, (_i, state) => {
       state.storage.sql.exec(
         `UPDATE game SET fen = ? WHERE id = 1`,
-        // White queen on h5, black king boxed in: Qxf7#.
-        'rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 0 1',
+        // Scholar's mate, one move short: 1.e4 e5 2.Bc4 Nc6 3.Qh5 Nf6?? and
+        // now Qxf7#. The bishop on c4 is what makes it mate rather than a
+        // blunder — without it the king just takes the queen.
+        'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1',
       );
     });
 
     white.send({ t: 'lift', from: 'h5', pos: at('h5') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await walked(stub);
     white.send({ t: 'place', to: 'f7', pos: at('f7') });
 
     const ended = await white.next(
