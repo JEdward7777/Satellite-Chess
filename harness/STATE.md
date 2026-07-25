@@ -3,7 +3,12 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: clean, pushed to `claude/satellite-chess-game-bigkb8`
+**Tree state**: committed locally on `claude/satellite-chess-game-bigkb8`, **NOT
+PUSHED** — the remote rejects both `git push` and the GitHub API with 403
+("Resource not accessible by integration"), and the branch does not exist on the
+remote yet. The GitHub integration appears to lack write access to this repo. Two
+commits are at risk if the container is reclaimed. Retry the push first thing;
+if it still 403s, that needs fixing on the GitHub side, not here.
 **Active stage**: none — phase 0 complete, phase 1 not started
 **Next action**: stage `1.1.1` — the `watchPosition` wrapper in `src/client/gps.ts`
 **Last session**: `harness/sessions/2026-07-25-01.md`
