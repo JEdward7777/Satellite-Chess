@@ -68,4 +68,9 @@ the field. No chess yet — proving the plumbing in isolation.
   - `3.6.2` todo: Finished and abandoned games deleted on an alarm. A DO with
     entirely empty storage ceases to exist, which is the goal.
 
-- `3.7` todo: DO integration tests with `@cloudflare/vitest-pool-workers`
+- `3.7` active: DO integration tests with `@cloudflare/vitest-pool-workers`
+  - 64 tests against the real runtime across `test/worker/game-do.test.ts` and
+    `test/worker/carry.test.ts`: create/join, hibernation, alarms, the start
+    handshake, the whole carry, flag-fall and checkmate. What is still missing is
+    the end-to-end shape — a full game played move by move (`4.5.1`) and the
+    special moves (`4.5.2`).

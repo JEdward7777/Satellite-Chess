@@ -4,36 +4,33 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `claude/satellite-chess-game-bigkb8`
-**Active stage**: `1.9` — first deploy. **Blocked on the operator**, see below.
-**Next action**: `wrangler login` and `npm run deploy` (stage `1.9.1`)
-**Last session**: `harness/sessions/2026-07-25-02.md`
+**Active stage**: `4.2` — the carry, server side. Done bar `4.2.6`.
+**Next action**: `4.2.6` — suspension must cancel a carry (decision 0009)
+**Last session**: `harness/sessions/2026-07-25-03.md`
 
 ## In one paragraph
 
-Phases 0 and 1 are done bar the deploy. The whole pure model exists and is tested,
-and so does a working client: walk to a1 and tap, walk to h8 and tap, review the
-board those two corners imply, save it, and stand on it — with your reach circle
-and the squares you could touch drawn around you. All of it is drivable indoors
-through `?sim=1`, which is how every view in this phase was verified. 148 tests.
-**`src/worker/` is still empty**, so `wrangler dev` will not start; use
-`node scripts/build-client.mjs --serve` (port 8788) until phase 3.
+Phases 0 and 1 are done bar the deploy, and phase 3 is essentially complete: a
+real GameDO with join-code addressing, hibernating WebSockets, multiplexed alarms
+and presence. Phase 4's server half is done too — lift, carry, place, terminal
+detection, clock handover — all against the real `workerd` runtime. **218 tests
+pass.** What does not exist yet is the client half of the carry (`4.3`), so the
+PWA can draw a board and put you on it but cannot yet move a piece.
 
 ## What to do next, concretely
 
-**Everything remaining in phase 1 needs a human with a phone and a field.**
-
-1. `1.9.1` — `wrangler login`, confirm the account, `npm run deploy`. There is no
-   Cloudflare account reachable from a container, so this cannot be automated.
-   Note that `wrangler.jsonc` points `main` at `src/worker/index.ts`, which does
-   not exist yet — **the deploy will need a stub worker, or `1.9.1` waits for
-   phase 3**. Decide which when you get there; a stub that only serves the static
-   assets is a few lines and unblocks `1.9.3`, which is the valuable part.
-2. `1.9.2` — install the PWA on a real phone, check the wake lock actually holds.
-3. `1.9.3` — **walk a real field.** This is the stage the project has been built
-   toward. The riskiest assumption is that consumer GPS can tell 8 m squares apart
-   on grass; the answer reshapes phase 9 and possibly the reach constants.
-
-Then O-05 (split the tsconfigs) before phase 3, and phase 2 or 3 after.
+1. **`4.2.6` — suspension does not cancel a carry.** Confirmed missing by reading
+   `suspendForDisconnect`: it banks the clock and cancels the flag timer, but
+   leaves the `carry` row standing, so a player who drops mid-carry resumes still
+   holding the piece. Decision 0009 says it goes back.
+2. `4.4` — resign and draw. Currently wired to an explicit "not implemented"
+   reply, which is better than silence but is not the feature.
+3. `4.5.1` / `4.5.2` — a full game through the DO, then castling and en passant.
+   Those are where the reach rules have the most room to be subtly wrong.
+4. `4.3` — the client half. This is what makes the game playable end to end in
+   the simulator.
+5. `1.9.2` and `1.9.3` still need a real phone on real ground, and `1.9.3` is
+   still the highest-information stage in the project.
 
 ## Things a new thread should know before touching anything
 
@@ -45,11 +42,22 @@ Then O-05 (split the tsconfigs) before phase 3, and phase 2 or 3 after.
 - **Location privacy is load-bearing.** Decisions 0017, 0018, 0019 before anything
   social.
 - **Nothing timing-related may live in memory.** The DO hibernates.
+- **Chess legality is checked before the carry verdict**, and the order matters.
+  Legality does not depend on where anyone stands, so it is the cheaper and the
+  honest check — the other way round, an illegal move is reported as
+  `implausible`, telling a player their GPS jumped when the real problem is that
+  bishops do not move like that.
+- **Update this file as you go, not at the end.** A context compaction mid-session
+  left a stale STATE.md saying "active stage 1.9", and the next thing I did was
+  read my own uncommitted work as another session's and nearly hand it off. The
+  file is the only defence against that.
 - **Views are split model-from-DOM**, and the DOM half is verified by driving
   Chromium against `?sim=1` — not by unit tests. Every view bug in phase 1 was
   invisible to tests and obvious in a screenshot. Keep doing it.
-- **`@cloudflare/workers-types` shadows DOM globals** in client code and produces
-  errors that read as nonsense. See O-05.
+- **Three tsconfigs, one per runtime** (decision 0021). Client gets DOM only,
+  worker gets Workers only, tools get both. Do not collapse them back into one —
+  the Workers globals shadow their DOM namesakes and the resulting errors name
+  types with no bearing on the code. Resolved O-05.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.
 
 ## Running it
