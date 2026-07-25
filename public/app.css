@@ -90,10 +90,66 @@ button:disabled {
   color: var(--poor);
 }
 
+/* Two buttons on one line need to be visibly separate targets, not a slab. */
+button + button {
+  margin-left: 0.6rem;
+}
+
+button.secondary {
+  color: var(--fg);
+  background: transparent;
+  border: 2px solid var(--line);
+}
+
+input[type="text"] {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  color: var(--fg);
+  background: #161b22;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+}
+
 .notice {
   margin: 1rem 0;
   padding: 0.8rem 1rem;
   border: 2px solid var(--poor);
   border-radius: 10px;
   background: #2d1418;
+}
+
+/* A warning is playable-but-know-this, so it must not read as a blocker. */
+.notice.warning {
+  border-color: var(--fair);
+  background: #2a2113;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fields {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fields li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dim {
+  color: var(--dim);
+  font-size: 0.85rem;
 }

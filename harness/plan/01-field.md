@@ -30,12 +30,17 @@ validated on real ground before a line of game-server code is written.
   - `1.1.5` done: Cumulative distance-travelled accumulator with a jitter floor,
     so standing still does not clock up kilometres
 
-- `1.2` todo: Calibration flow (`src/client/views/calibrate.ts`)
-  - `1.2.1` todo: Walk to a1, tap; walk to h8, tap; show live accuracy at each
-  - `1.2.2` todo: Show derived square size and board size before committing, and
+- `1.2` done: Calibration flow (`src/client/views/calibrate.ts`)
+  - The model is pure and tested in node; the view is DOM and is driven through a
+    real browser against `?sim=1`. Worth keeping that split for later views — the
+    whole input to this flow is a satellite, so nothing else is testable.
+  - `1.2.1` done: Walk to a1, tap; walk to h8, tap; show live accuracy at each
+  - `1.2.2` done: Show derived square size and board size before committing, and
     surface `checkCalibration` errors and warnings
-  - `1.2.3` todo: Re-tap either corner without restarting
-  - `1.2.4` todo: Name and save the field locally
+  - `1.2.3` done: Re-tap either corner without restarting
+  - `1.2.4` done: Name and save the field locally
+  - `1.2.5` done: Refuse a corner tap on a fix the move validator would refuse,
+    rather than warning about it after the board is built
 
 - `1.3` todo: Board render (`src/client/render.ts`)
   - Canvas, drawn in board space so the field appears as an ordinary chessboard
@@ -58,10 +63,14 @@ validated on real ground before a line of game-server code is written.
   - `1.5.1` todo: Manifest, icons, standalone display
   - `1.5.2` todo: Service worker caching the shell and saved fields — a resumable
     game is worth more than a perfectly fresh asset
-  - `1.5.3` todo: Local storage of `player_id` and saved fields, anonymous-first.
+  - `1.5.3` done: Local storage of `player_id` and saved fields, anonymous-first.
     Fields go to IndexedDB the instant calibration is confirmed, with no login and
     no prompt — see decision 0013. Nothing in this project may leave a
     hard-won field living only in memory.
+    - `src/client/store.ts`. Falls back to `localStorage` rather than to memory
+      when IndexedDB is refused, since a private-mode browser is exactly where
+      losing the field would hurt most. Persistence across a reload is verified
+      in a browser, not asserted.
 
 - `1.6` done: Client build (`scripts/build-client.mjs`)
   - esbuild bundle, dev watch mode, no framework

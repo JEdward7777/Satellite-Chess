@@ -1,11 +1,11 @@
 /**
- * Client entry point.
+ * Client entry point: pick a GPS provider, then show either the fields this
+ * phone has saved or the flow for walking out a new one.
  *
- * Its whole job for now is to choose a GPS provider and show what it is saying.
- * The calibration flow (stage 1.2) and the board (stage 1.3) replace the body of
- * this screen; the provider selection here is the part that stays.
+ * The board itself (stage 1.3) mounts from here too, once it exists.
  */
 
+import { type FieldSpec, deriveGeometry } from '../shared/field.js';
 import { fromLocal } from '../shared/geo.js';
 import {
   type GpsProvider,
@@ -16,6 +16,8 @@ import {
   simRequested,
 } from './gps.js';
 import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
+import { createFieldStore, getPlayerId } from './store.js';
+import { mountCalibrate } from './views/calibrate.js';
 
 /**
  * Where the simulator starts. Arbitrary open ground — it only has to be
@@ -48,9 +50,12 @@ function startSim(): { gps: GpsProvider; sim: SimHandle } {
   return { gps: me, sim: { world, me, opponent } };
 }
 
-function boot(): void {
-  const root = document.getElementById('app');
-  if (!root) throw new Error('no #app to mount into');
+async function boot(): Promise<void> {
+  const found = document.getElementById('app');
+  if (!found) throw new Error('no #app to mount into');
+  // Re-bound with an explicit type: `showCalibrate` is hoisted, so TypeScript
+  // will not carry the null-narrowing into it.
+  const root: HTMLElement = found;
 
   let gps: GpsProvider;
   if (simRequested(location.search)) {
@@ -65,35 +70,94 @@ function boot(): void {
     gps.start();
   }
 
-  gps.subscribe((state) => render(root, state));
+  // Made on first run, before any sign-in and before anything is saved against
+  // it (decision 0013).
+  getPlayerId();
+
+  const store = await createFieldStore();
+
+  /** Only one screen is mounted at a time, and each cleans up after itself. */
+  let teardown: (() => void) | null = null;
+  const swap = (mount: () => () => void) => {
+    teardown?.();
+    teardown = mount();
+  };
+
+  const showHome = async () => {
+    const fields = await store.list();
+    if (fields.length === 0) {
+      showCalibrate();
+      return;
+    }
+    swap(() => mountHome(root, { gps, fields, onCalibrate: showCalibrate }));
+  };
+
+  function showCalibrate(existing?: FieldSpec): void {
+    swap(() =>
+      mountCalibrate(root, {
+        gps,
+        store,
+        existing,
+        onSaved: () => void showHome(),
+      }),
+    );
+  }
+
+  await showHome();
 }
 
-function render(root: HTMLElement, state: GpsState): void {
-  const fix = state.fix;
-  root.innerHTML = `
-    <h1>Satellite Chess</h1>
-    <dl class="readout">
-      <dt>Signal</dt>
-      <dd class="quality-${state.quality}" data-quality>${
-        fix ? qualityLabel(state.quality) : waitingLabel(state)
-      }</dd>
-      <dt>Accuracy</dt>
-      <dd data-accuracy>${fix ? `±${fix.accuracyM.toFixed(0)} m` : '—'}</dd>
-      <dt>Position</dt>
-      <dd data-position>${
-        fix ? `${fix.pos.lat.toFixed(6)}, ${fix.pos.lng.toFixed(6)}` : '—'
-      }</dd>
-      <dt>Walked</dt>
-      <dd data-distance>${formatDistance(state.distanceM)}</dd>
-      <dt>Fixes</dt>
-      <dd data-fixes>${state.fixCount}</dd>
-    </dl>
-    ${state.error ? `<p class="notice" data-error="${state.error.code}">${state.error.message}</p>` : ''}
-  `;
+interface HomeDeps {
+  gps: GpsProvider;
+  fields: FieldSpec[];
+  onCalibrate(): void;
 }
 
-function waitingLabel(state: GpsState): string {
-  return state.status === 'error' ? 'No signal' : 'Waiting for a fix…';
+/**
+ * The saved fields, plus a live GPS readout.
+ *
+ * The readout stays because it is the thing you look at before deciding whether
+ * it is worth walking out a board at all.
+ */
+function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
+  const paint = (state: GpsState) => {
+    const fix = state.fix;
+    root.innerHTML = `
+      <h1>Satellite Chess</h1>
+      <dl class="readout">
+        <dt>Signal</dt>
+        <dd class="quality-${state.quality}" data-quality>${
+          fix ? qualityLabel(state.quality) : 'Waiting for a fix…'
+        }</dd>
+        <dt>Accuracy</dt>
+        <dd data-accuracy>${fix ? `±${fix.accuracyM.toFixed(0)} m` : '—'}</dd>
+        <dt>Walked</dt>
+        <dd data-distance>${formatDistance(state.distanceM)}</dd>
+      </dl>
+      ${state.error ? `<p class="notice" data-error="${state.error.code}">${state.error.message}</p>` : ''}
+      <h2>Your fields</h2>
+      <ul class="fields" data-fields>
+        ${deps.fields.map(fieldItem).join('')}
+      </ul>
+      <p><button data-calibrate>Calibrate a new field</button></p>
+    `;
+    root
+      .querySelector<HTMLButtonElement>('[data-calibrate]')
+      ?.addEventListener('click', deps.onCalibrate);
+  };
+
+  const unsubscribe = deps.gps.subscribe(paint);
+  return () => {
+    unsubscribe();
+    root.innerHTML = '';
+  };
+}
+
+function fieldItem(spec: FieldSpec): string {
+  const geo = deriveGeometry(spec);
+  return `<li data-field="${spec.id}">
+    <strong>${escapeHtml(spec.name)}</strong>
+    <span class="dim">${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side</span>
+  </li>`;
 }
 
 /** Metres until it is silly, then kilometres. */
@@ -101,4 +165,12 @@ export function formatDistance(metres: number): string {
   return metres < 1000 ? `${metres.toFixed(0)} m` : `${(metres / 1000).toFixed(2)} km`;
 }
 
-boot();
+function escapeHtml(text: string): string {
+  return text.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
+  );
+}
+
+void boot();
