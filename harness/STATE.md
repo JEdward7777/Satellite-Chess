@@ -3,7 +3,7 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: clean, pushed to `claude/satellite-chess-game-bigkb8`
+**Tree state**: clean, pushed to `main`
 **Active stage**: `4.2` — the carry, server side. Done bar `4.2.6`.
 **Next action**: `4.2.6` — suspension must cancel a carry (decision 0009)
 **Last session**: `harness/sessions/2026-07-25-03.md`

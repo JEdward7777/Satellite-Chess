@@ -153,15 +153,14 @@ partial.
 2. Update `harness/STATE.md` to match reality.
 3. Update stage statuses in `harness/plan/`, and run `npm run plan:check`.
 4. Log anything spotted-but-unscoped in `harness/observations/open.md`.
-5. Commit everything and push to the development branch, rebasing if the remote
-   has moved:
+5. Commit everything and push to **`main`**, rebasing if the remote has moved:
 
    ```bash
    git add -A
    git commit -m "<what changed, and why>"
-   git fetch origin claude/satellite-chess-game-bigkb8
-   git pull --rebase origin claude/satellite-chess-game-bigkb8
-   git push -u origin claude/satellite-chess-game-bigkb8
+   git fetch origin main
+   git pull --rebase origin main
+   git push -u origin main
    ```
 
    On a network failure, retry the push up to four times with exponential
@@ -169,6 +168,16 @@ partial.
    the rebase and force-push over someone else's work.
 
    The container is ephemeral and gets reclaimed. Uncommitted work is lost work.
+
+   **Work directly on `main`.** Earlier sessions used a
+   `claude/satellite-chess-game-bigkb8` feature branch; the owner folded it into
+   `main` on 2026-07-25 and asked for `main` from then on. There is one person on
+   this repository and the assistant is the one writing the code, so a review
+   branch was ceremony protecting nobody — and it meant `main` sat at the initial
+   commit while everything real lived elsewhere. Do not create a feature branch
+   again unless asked. The safety net is the harness and the test suite, not the
+   branch: `npm run check` must be green before you push, because there is no
+   longer a second chance to catch it in review.
 
 **Then tell the operator it is a good moment to start a fresh thread**, and say
 so explicitly, whenever all of these hold:

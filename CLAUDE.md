@@ -33,7 +33,7 @@ npm run plan:check   # validate stage numbering and parentage
 npm run deploy       # build client, wrangler deploy
 ```
 
-Development branch: `claude/satellite-chess-game-bigkb8`. Commit and push at the
+Development branch: `main`. Commit and push at the
 end of every session, rebasing if the remote moved — the container is ephemeral.
 See section 8 of `harness/AGENTS.md`.
 
