@@ -17,13 +17,13 @@ describe('the worker is wired up', () => {
   });
 
   it('claims the whole /api namespace rather than falling through to the shell', async () => {
-    // A 200 of text/html here would mean an unbuilt endpoint silently returns the
-    // app shell, which is far worse to debug than an honest 501.
-    for (const path of ['/api', '/api/game', '/api/game/ABC123/ws']) {
+    // A 200 of text/html here would mean an unknown endpoint silently returns the
+    // app shell, which is far worse to debug than an honest error.
+    for (const path of ['/api', '/api/nonsense', '/api/game/ABC123/nope']) {
       const res = await SELF.fetch(`https://example.com${path}`);
-      expect(res.status, path).toBe(501);
+      expect(res.status, path).toBe(404);
       expect(res.headers.get('content-type'), path).toContain('application/json');
-      expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+      expect(await res.json()).toMatchObject({ error: 'not_found' });
     }
   });
 
@@ -43,16 +43,18 @@ describe('the worker is wired up', () => {
     expect(a.toString()).not.toBe(other.toString());
   });
 
-  it('can construct a GameDO stub and get its honest 501', async () => {
+  it('routes only /ws to the game object, and requires an upgrade', async () => {
+    // Every other operation on GameDO is an RPC method; `fetch` exists purely
+    // because a Response carrying a WebSocket cannot cross the RPC boundary.
     const stub = env.GAME.getByName('ABC123');
-    const res = await stub.fetch('https://do/');
-    expect(res.status).toBe(501);
-    expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+    expect((await stub.fetch('https://game/anything-else')).status).toBe(404);
+    expect((await stub.fetch('https://game/ws?playerId=someone-1234')).status).toBe(426);
   });
 
-  it('can construct a UserDO stub', async () => {
+  it('still has UserDO as a stub, pending phase 2', async () => {
     const stub = env.USER.getByName('google-sub-123');
     const res = await stub.fetch('https://do/');
     expect(res.status).toBe(501);
+    expect(await res.json()).toMatchObject({ error: 'not_implemented' });
   });
 });

@@ -24,44 +24,47 @@ the field. No chess yet — proving the plumbing in isolation.
     returning honest 501s rather than the shell, both DO namespaces present,
     `idFromName` deterministic (decision 0007), and both stubs constructible
 
-- `3.1` todo: GameDO skeleton (`src/worker/game-do.ts`)
-  - `3.1.1` todo: SQLite schema — `game`, `moves`, `presence`, `timers`
-  - `3.1.2` todo: Schema creation guarded so it is idempotent across wakes
-  - `3.1.3` todo: `getByName(joinCode)` addressing, no lookup table (decision 0007)
-  - `3.1.4` todo: Create, join, and reject a third player
+- `3.1` done: GameDO skeleton (`src/worker/game-do.ts`)
+  - `3.1.1` done: SQLite schema — `game`, `moves`, `presence`, `timers`
+  - `3.1.2` done: Schema creation guarded so it is idempotent across wakes
+  - `3.1.3` done: `getByName(joinCode)` addressing, no lookup table (decision 0007)
+  - `3.1.4` done: Create, join, and reject a third player
 
-- `3.2` todo: Hibernatable WebSockets
-  - `3.2.1` todo: `ctx.acceptWebSocket` with per-socket `serializeAttachment`
+- `3.2` done: Hibernatable WebSockets
+  - `3.2.1` done: `ctx.acceptWebSocket` with per-socket `serializeAttachment`
     carrying player id and colour, since nothing survives in memory
-  - `3.2.2` todo: `setWebSocketAutoResponse` for ping/pong — keepalive that costs
+  - `3.2.2` done: `setWebSocketAutoResponse` for ping/pong — keepalive that costs
     no request and does not wake the object
-  - `3.2.3` todo: `webSocketMessage` dispatch with strict message validation
-  - `3.2.4` todo: `webSocketClose`/`webSocketError` marking presence
-  - `3.2.5` todo: Broadcast a full snapshot on change. Outbound messages are not
+  - `3.2.3` done: `webSocketMessage` dispatch with strict message validation
+  - `3.2.4` done: `webSocketClose`/`webSocketError` marking presence
+  - `3.2.5` done: Broadcast a full snapshot on change. Outbound messages are not
     billed, so a delta protocol would be complexity for nothing.
 
-- `3.3` todo: The multiplexed alarm scheduler
+- `3.3` done: The multiplexed alarm scheduler
   - A Durable Object has exactly one alarm, but we need three deadlines
     (flag-fall, disconnect grace, garbage collection). All feature code schedules
     through a `timers` table and the alarm is always set to the earliest due row.
-  - `3.3.1` todo: `schedule(kind, dueAt)` / `cancel(kind)` / `syncAlarm()`
-  - `3.3.2` todo: `alarm()` runs every due row, then reschedules
-  - `3.3.3` todo: Tests for overlapping and re-scheduled timers
+  - `3.3.1` done: `schedule(kind, dueAt)` / `cancel(kind)` / `syncAlarm()`
+  - `3.3.2` done: `alarm()` runs every due row, then reschedules
+  - `3.3.3` done: Tests for overlapping and re-scheduled timers
 
-- `3.4` todo: Coarse position relay
+- `3.4` active: Coarse position relay
   - `3.4.1` todo: Client sends only on >2 m movement, at most every 2.5 s
-  - `3.4.2` todo: Server-side rate limit as a backstop against a bad client
+  - `3.4.2` done: Server-side rate limit as a backstop against a bad client
   - `3.4.3` todo: Relay to the opponent; interpolate on receipt
-  - `3.4.4` todo: Persist last known position in `presence` for reconnect
+  - `3.4.4` done: Persist last known position in `presence` for reconnect
 
-- `3.5` todo: HTTP routes (`src/worker/index.ts`)
-  - `3.5.1` todo: `POST /api/game` create, `GET /api/game/:code` peek,
+- `3.5` active: HTTP routes (`src/worker/index.ts`)
+  - `3.5.1` done: `POST /api/game` create, `GET /api/game/:code` peek,
     `GET /api/game/:code/ws` upgrade
-  - `3.5.2` todo: Anonymous player identity from `localStorage`, no login
-  - `3.5.3` todo: Static assets for everything else, SPA fallback
+  - `3.5.2` todo: Player identity. The route takes a `playerId` and trusts it,
+    which is fine while nothing is deployed publicly and is exactly what stage
+    2.5 closes. Decision 0014 makes this the authenticated Google `sub`; the
+    original "anonymous, no login" wording is superseded.
+  - `3.5.3` done: Static assets for everything else, SPA fallback
 
-- `3.6` todo: Garbage collection
-  - `3.6.1` todo: Unclaimed join codes expire after ~30 min
+- `3.6` active: Garbage collection
+  - `3.6.1` done: Unclaimed join codes expire after ~30 min
   - `3.6.2` todo: Finished and abandoned games deleted on an alarm. A DO with
     entirely empty storage ceases to exist, which is the goal.
 
