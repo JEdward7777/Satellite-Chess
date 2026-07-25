@@ -3,11 +3,7 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: three commits on `claude/satellite-chess-game-bigkb8`, **NOT
-PUSHED**. `git push` and the GitHub API both return 403; `git ls-remote` shows only
-`main`, so the branch has never existed on the remote. Reads work, writes do not —
-the session's credential is read-scoped. **Retry the push first thing.** If it still
-403s, see "The push problem" below rather than re-diagnosing it.
+**Tree state**: clean, pushed to `claude/satellite-chess-game-bigkb8`
 **Active stage**: none — phase 0 complete, phase 1 not started
 **Next action**: stage `1.1.1` — the `watchPosition` wrapper in `src/client/gps.ts`
 **Last session**: `harness/sessions/2026-07-25-01.md`
@@ -48,27 +44,33 @@ real phone before anything is built on top of it.
 - **Nothing timing-related may live in memory.** The DO hibernates.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.
 
-## The push problem, diagnosed
+## If pushing ever 403s again: install the GitHub App
 
-Do not repeat the wrong diagnosis. Installing the Claude GitHub App is **not** the
-fix, however plausible it sounds — the official docs state that a cloud session can
-reach any repository the connecting GitHub account can see, and that App
-installation "enables PR webhooks for Auto-fix; it is not a session-level access
-control". Claude being absent from GitHub's Installed GitHub Apps list is expected.
+Resolved on 2026-07-25, and the resolution contradicts the documentation, so it is
+worth recording precisely.
 
-What governs push access is the credential of the connecting GitHub account. Two
-ways to supply one (docs: code.claude.com/docs/en/claude-code-on-the-web, "GitHub
-authentication options"):
+Symptom: `git push` returns 403 from the session's local git proxy, the GitHub API
+returns `403 Resource not accessible by integration`, and `git ls-remote` shows the
+development branch does not exist on the remote at all. Reads work fine.
 
-1. Authorize the Claude GitHub App during web onboarding at claude.ai, or
-2. Run `/web-setup` in a local terminal, which syncs the local `gh` CLI token.
+**Fix: install the Claude GitHub App on the repository** — github.com/settings/installations,
+or github.com/apps/claude if it is not listed. The push succeeded immediately
+afterwards, in the same session, with no restart and no new credentials fetched.
 
-The operator was walked through option 2 on 2026-07-25: `gh auth login`, then
-`/web-setup` from the Claude Code CLI, then **start a fresh session** — a running
-session's credentials are scoped at launch and will not pick up the change.
+This is worth flagging because the official docs say the opposite. `code.claude.com/docs/en/claude-code-on-the-web`
+("GitHub authentication options") states that a cloud session can reach any
+repository the connecting account can see, and that App installation "enables PR
+webhooks for Auto-fix; it is not a session-level access control". That was read,
+believed, and acted on — the operator was told *not* to install the App. They
+installed it anyway and the 403 vanished. So for the git proxy's write path, the App
+installation token is evidently what authenticates. Trust the observed behaviour
+over that paragraph.
 
-If pushing still fails after that, do not burn a session on it. Commit locally,
-`git bundle create <file> --all`, hand the bundle to the operator, and carry on with
+The other documented route, `/web-setup` from a local terminal to sync a `gh` token,
+was never needed and remains untested here.
+
+If a push somehow fails anyway, do not burn a session on it: commit locally,
+`git bundle create <file> --all`, hand the bundle to the operator, and get on with
 the actual work.
 
 ## The signing warnings
