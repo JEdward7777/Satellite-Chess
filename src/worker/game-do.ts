@@ -19,10 +19,19 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
+import { Chess, type Square } from 'chess.js';
 
-import { type ClockState, newClock, remainingMs, snapshot as clockSnapshot } from '../shared/clock.js';
+import {
+  type ClockState,
+  applyMove,
+  flagFallAt,
+  flaggedColor,
+  newClock,
+  remainingMs,
+  snapshot as clockSnapshot,
+} from '../shared/clock.js';
 import { type FieldSnapshot, geometryFromSnapshot } from '../shared/field.js';
-import { DEFAULT_REACH, inStartZone } from '../shared/reach.js';
+import { DEFAULT_REACH, checkCarry, checkReachTo, inStartZone } from '../shared/reach.js';
 import {
   DISCONNECT_GRACE_MS,
   type GameSnapshot,
@@ -31,13 +40,15 @@ import {
   PONG,
   POS_SERVER_MIN_INTERVAL_MS,
   PROTOCOL_VERSION,
+  FINISHED_GAME_TTL_MS,
   type PlayerView,
+  type PosFix,
   type ResultOutcome,
   type ResultReason,
   type ServerMsg,
   UNCLAIMED_GAME_TTL_MS,
 } from '../shared/protocol.js';
-import type { Color } from '../shared/squares.js';
+import { type Color, isSquare } from '../shared/squares.js';
 import { Timers } from './timers.js';
 import { applySchema, isInitialised } from './schema.js';
 
@@ -98,7 +109,69 @@ interface PresenceRow {
   [key: string]: SqlStorageValue;
 }
 
+interface CarryRow {
+  color: Color;
+  from_sq: string;
+  piece: string;
+  lift_lat: number;
+  lift_lng: number;
+  lift_acc: number;
+  lift_at: number;
+  [key: string]: SqlStorageValue;
+}
+
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/** Validate a client-supplied fix. Everything from a client is untrusted. */
+function asPosFix(value: unknown): PosFix | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const fix = value as Record<string, unknown>;
+  const lat = fix.lat;
+  const lng = fix.lng;
+  const acc = fix.acc;
+  if (typeof lat !== 'number' || typeof lng !== 'number' || typeof acc !== 'number') return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(acc)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || acc < 0) return null;
+  return { lat, lng, acc, ts: typeof fix.ts === 'number' ? fix.ts : 0 };
+}
+
+/**
+ * Promotion is a pure UI choice with no travel involved, so anything unrecognised
+ * becomes a queen rather than an error — that is what the player meant.
+ */
+function normalisePromotion(value: unknown): 'q' | 'r' | 'b' | 'n' {
+  return value === 'r' || value === 'b' || value === 'n' ? value : 'q';
+}
+
+/**
+ * Could `color` conceivably deliver mate with what is on the board?
+ *
+ * Used only for flag-fall: a lone king, or a king with a single bishop or knight,
+ * cannot force mate, so an opponent running out of time draws rather than loses.
+ * Deliberately the simple test rather than an exhaustive one — the rare
+ * king-and-two-knights case is theoretically winnable and counts as material here,
+ * which matches how the rule is usually applied.
+ */
+function hasMatingMaterial(chess: Chess, color: Color): boolean {
+  let minors = 0;
+  for (const row of chess.board()) {
+    for (const square of row) {
+      if (square === null || square.color !== color) continue;
+      switch (square.type) {
+        case 'k':
+          break;
+        case 'b':
+        case 'n':
+          minors += 1;
+          break;
+        default:
+          // A pawn, rook or queen is always enough.
+          return true;
+      }
+    }
+  }
+  return minors >= 2;
+}
 
 export class GameDO extends DurableObject<Env> {
   private readonly sql: SqlStorage;
@@ -368,15 +441,26 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'ready':
+        await this.onReady(ws, who, msg as { pos: PosFix });
+        return;
+
       case 'lift':
+        await this.onLift(ws, who, msg as { from: string; pos: PosFix });
+        return;
+
       case 'drop':
+        await this.onDrop(ws, who);
+        return;
+
       case 'place':
+        await this.onPlace(ws, who, msg as { to: string; promotion?: string; pos: PosFix });
+        return;
+
       case 'resign':
       case 'draw':
       case 'pause':
-        // Phase 4 (chess and the carry) and phase 5 (clock and suspension) fill
-        // these in. Answering explicitly is better than silence, which would look
-        // like a dropped message to a client standing in a field.
+        // Phase 4's remaining stages. Answering explicitly is better than
+        // silence, which would look like a dropped message to a client in a field.
         this.send(ws, {
           t: 'error',
           code: 'bad_message',
@@ -452,6 +536,429 @@ export class GameDO extends DurableObject<Env> {
   }
 
   // -------------------------------------------------------------------------
+  // The start and resume handshake (decision 0005)
+  // -------------------------------------------------------------------------
+
+  /**
+   * "I am standing on my own back rank."
+   *
+   * Body position is part of the game state and cannot be serialised, so it is
+   * reset rather than restored: both players return to their own back rank before
+   * the clock starts. The same handshake opens a fresh game and resumes a
+   * suspended one, so there is one code path and one rule to explain.
+   *
+   * The client only sends this when it believes it qualifies; the server checks
+   * again, because the client is untrusted.
+   */
+  private async onReady(ws: WebSocket, who: SocketAttachment, msg: { pos: PosFix }): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+
+    if (game.status !== 'staging' && game.status !== 'suspended') {
+      this.send(ws, {
+        t: 'error',
+        code: 'not_active',
+        message: `The game is ${game.status}; there is nothing to get ready for.`,
+      });
+      return;
+    }
+
+    const pos = asPosFix(msg?.pos);
+    if (pos === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: 'A position fix is required.' });
+      return;
+    }
+
+    const zone = this.startZoneCheck(game, who.color, pos);
+    this.sql.exec(
+      `UPDATE presence SET in_start_zone = ?, last_lat = ?, last_lng = ?, last_acc = ?,
+              last_pos_at = ?, last_seen_at = ? WHERE player_id = ?`,
+      zone.ok ? 1 : 0,
+      pos.lat,
+      pos.lng,
+      pos.acc,
+      Date.now(),
+      Date.now(),
+      who.playerId,
+    );
+
+    if (!zone.ok) {
+      this.send(ws, {
+        t: 'error',
+        code: 'out_of_reach',
+        message:
+          `You are ${zone.nearestM.toFixed(0)} m from your back rank and your reach is ` +
+          `${zone.reachM.toFixed(1)} m. Walk to your own end of the board.`,
+      });
+      this.bumpRev();
+      this.broadcastState();
+      return;
+    }
+
+    await this.startIfBothReady();
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /** Start the clock once both players are connected and on their back ranks. */
+  private async startIfBothReady(): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'staging' && game.status !== 'suspended') return;
+    if (!this.allConnected()) return;
+
+    const rows = this.presence();
+    if (rows.length !== 2 || !rows.every((row) => row.in_start_zone === 1)) return;
+
+    const now = Date.now();
+    this.sql.exec(
+      `UPDATE game SET status = 'active', last_clock_start_at = ?, updated_at = ? WHERE id = 1`,
+      now,
+      now,
+    );
+    await this.armFlag();
+  }
+
+  /**
+   * Point the flag deadline at the exact instant the active player expires.
+   *
+   * Re-armed after every move and after every resume, cleared whenever the clock
+   * stops. Nothing polls; the alarm is the only mechanism, and it survives
+   * hibernation.
+   */
+  private async armFlag(): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    const at = flagFallAt(this.clockOf(game));
+    if (at === null) {
+      await this.timers.cancel('flag');
+      return;
+    }
+    await this.timers.schedule('flag', at);
+  }
+
+  // -------------------------------------------------------------------------
+  // The carry: lift here, walk, place there (decision 0001)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Pick a piece up.
+   *
+   * Requires being within reach of its square *now*. The destination is checked
+   * later, at the place, because requiring both ends at one instant would make
+   * every long move physically impossible.
+   */
+  private async onLift(
+    ws: WebSocket,
+    who: SocketAttachment,
+    msg: { from: string; pos: PosFix },
+  ): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+
+    if (game.status !== 'active') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+    if (game.active_color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_your_turn', message: 'It is not your turn.' });
+      return;
+    }
+    if (this.carry() !== null) {
+      this.send(ws, {
+        t: 'error',
+        code: 'already_carrying',
+        message: 'You are already carrying a piece.',
+      });
+      return;
+    }
+
+    const from = msg?.from;
+    const pos = asPosFix(msg?.pos);
+    if (!isSquare(from) || pos === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: 'A square and a fix are required.' });
+      return;
+    }
+
+    const chess = new Chess(game.fen);
+    const piece = chess.get(from as Square);
+    if (!piece || piece.color !== who.color) {
+      this.send(ws, {
+        t: 'error',
+        code: 'illegal_move',
+        message: `There is no piece of yours on ${from}.`,
+        move: { from },
+      });
+      return;
+    }
+
+    // Nothing is gained by letting someone carry a piece that cannot go anywhere,
+    // and it would strand them mid-field having spent clock time.
+    const destinations = chess
+      .moves({ square: from as Square, verbose: true })
+      .map((move) => move.to);
+    if (destinations.length === 0) {
+      this.send(ws, {
+        t: 'error',
+        code: 'no_legal_moves',
+        message: `The piece on ${from} has no legal moves.`,
+        move: { from },
+      });
+      return;
+    }
+
+    const verdict = checkReachTo(
+      geometryFromSnapshot(this.fieldOf(game)),
+      pos,
+      pos.acc,
+      from as Square,
+      DEFAULT_REACH,
+      this.reachBonus(game, who.color),
+    );
+    if (!verdict.ok) {
+      this.send(ws, {
+        t: 'error',
+        code: verdict.code ?? 'out_of_reach',
+        message: verdict.message ?? 'Out of reach.',
+        move: { from },
+      });
+      return;
+    }
+
+    // Persisted, not held in memory: the walk may take a minute, during which the
+    // object will hibernate.
+    this.sql.exec(
+      `INSERT OR REPLACE INTO carry
+         (id, color, from_sq, piece, lift_lat, lift_lng, lift_acc, lift_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?)`,
+      who.color,
+      from,
+      piece.type,
+      pos.lat,
+      pos.lng,
+      pos.acc,
+      Date.now(),
+    );
+
+    this.bumpRev();
+    // Broadcast, so the opponent can see a queen coming for their king across the
+    // field. That visibility is most of the tension the game has to offer.
+    this.broadcastState();
+  }
+
+  /** Put it back. Free — the piece never moved, so it costs only clock time. */
+  private async onDrop(ws: WebSocket, who: SocketAttachment): Promise<void> {
+    const carry = this.carry();
+    if (carry === null || carry.color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_carrying', message: 'You are not carrying anything.' });
+      return;
+    }
+    this.clearCarry();
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /**
+   * Put the carried piece down, completing the move.
+   *
+   * This is where the move is finally judged: reach to the destination now, a
+   * physically possible walk since the lift, and legality according to chess.js —
+   * which is the authority, whatever the client believed.
+   */
+  private async onPlace(
+    ws: WebSocket,
+    who: SocketAttachment,
+    msg: { to: string; promotion?: string; pos: PosFix },
+  ): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+
+    if (game.status !== 'active') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+    const carry = this.carry();
+    if (carry === null || carry.color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_carrying', message: 'You are not carrying anything.' });
+      return;
+    }
+    if (game.active_color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_your_turn', message: 'It is not your turn.' });
+      return;
+    }
+
+    const to = msg?.to;
+    const pos = asPosFix(msg?.pos);
+    if (!isSquare(to) || pos === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: 'A square and a fix are required.' });
+      return;
+    }
+
+    const now = Date.now();
+    const verdict = checkCarry(
+      geometryFromSnapshot(this.fieldOf(game)),
+      { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at },
+      { pos, accuracyM: pos.acc, at: now },
+      carry.from_sq as Square,
+      to as Square,
+      DEFAULT_REACH,
+      this.reachBonus(game, who.color),
+    );
+    if (!verdict.ok) {
+      this.send(ws, {
+        t: 'error',
+        code: verdict.code ?? 'out_of_reach',
+        message: verdict.message ?? 'Out of reach.',
+        move: { from: carry.from_sq as Square, to: to as Square },
+      });
+      return;
+    }
+
+    // The server's own rules engine decides. The client runs the same library for
+    // instant highlighting, but its opinion is only a hint.
+    const chess = new Chess(game.fen);
+    let move;
+    try {
+      move = chess.move({
+        from: carry.from_sq,
+        to,
+        promotion: normalisePromotion(msg?.promotion),
+      });
+    } catch {
+      // chess.js 1.x throws on an illegal move where 0.x returned null. Catching
+      // is not optional: an uncaught throw here would fault the object.
+      this.send(ws, {
+        t: 'error',
+        code: 'illegal_move',
+        message: `${carry.from_sq}–${to} is not a legal move.`,
+        move: { from: carry.from_sq as Square, to: to as Square },
+      });
+      return;
+    }
+
+    const clockAfter = applyMove(this.clockOf(game), now);
+    const [seqRow] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
+    const seq = (seqRow?.n ?? 0) + 1;
+
+    this.sql.exec(
+      `INSERT INTO moves (
+         seq, color, uci, san, fen_after, from_sq, to_sq,
+         lift_lat, lift_lng, lift_acc, lift_at,
+         place_lat, place_lng, place_acc, place_at,
+         carried_m, carried_ms, server_ms, clock_ms_after
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      seq,
+      who.color,
+      move.lan,
+      move.san,
+      chess.fen(),
+      move.from,
+      move.to,
+      carry.lift_lat,
+      carry.lift_lng,
+      carry.lift_acc,
+      carry.lift_at,
+      pos.lat,
+      pos.lng,
+      pos.acc,
+      now,
+      verdict.carriedM,
+      verdict.carriedMs,
+      now,
+      who.color === 'w' ? clockAfter.whiteMs : clockAfter.blackMs,
+    );
+
+    this.sql.exec(
+      `UPDATE game
+          SET fen = ?, active_color = ?, white_ms_remaining = ?, black_ms_remaining = ?,
+              last_clock_start_at = ?, draw_offer_from = NULL, updated_at = ?
+        WHERE id = 1`,
+      chess.fen(),
+      clockAfter.active,
+      clockAfter.whiteMs,
+      clockAfter.blackMs,
+      clockAfter.startedAt,
+      now,
+    );
+    this.clearCarry();
+
+    const ended = this.detectTerminal(chess, now);
+    if (!ended) await this.armFlag();
+
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /** Record a result if the position is terminal. Returns whether it did. */
+  private detectTerminal(chess: Chess, now: number): boolean {
+    let outcome: ResultOutcome | null = null;
+    let reason: ResultReason | null = null;
+
+    if (chess.isCheckmate()) {
+      // chess.js reports whose turn it is *after* the move, and that side is mated.
+      outcome = chess.turn() === 'w' ? '0-1' : '1-0';
+      reason = 'checkmate';
+    } else if (chess.isStalemate()) {
+      outcome = '1/2-1/2';
+      reason = 'stalemate';
+    } else if (chess.isInsufficientMaterial()) {
+      outcome = '1/2-1/2';
+      reason = 'insufficient_material';
+    } else if (chess.isThreefoldRepetition()) {
+      outcome = '1/2-1/2';
+      reason = 'threefold_repetition';
+    } else if (chess.isDraw()) {
+      // Whatever is left is the fifty-move rule.
+      outcome = '1/2-1/2';
+      reason = 'fifty_move_rule';
+    }
+
+    if (outcome === null || reason === null) return false;
+    void this.finish(outcome, reason, now);
+    return true;
+  }
+
+  private async finish(outcome: ResultOutcome, reason: ResultReason, now: number): Promise<void> {
+    this.sql.exec(
+      `UPDATE game
+          SET status = 'finished', result_outcome = ?, result_reason = ?, result_at = ?,
+              last_clock_start_at = NULL, updated_at = ?
+        WHERE id = 1`,
+      outcome,
+      reason,
+      now,
+      now,
+    );
+    this.clearCarry();
+    await this.timers.cancel('flag');
+    await this.timers.cancel('disconnect');
+    // Finished games are kept for review, then collected.
+    await this.timers.schedule('gc', now + FINISHED_GAME_TTL_MS);
+  }
+
+  private carry(): CarryRow | null {
+    const [row] = [...this.sql.exec<CarryRow>(`SELECT * FROM carry WHERE id = 1`)];
+    return row ?? null;
+  }
+
+  private clearCarry(): void {
+    this.sql.exec(`DELETE FROM carry WHERE id = 1`);
+  }
+
+  private startZoneCheck(
+    game: GameRow,
+    color: Color,
+    pos: { lat: number; lng: number; acc: number },
+  ): { ok: boolean; nearestM: number; reachM: number } {
+    try {
+      const geo = geometryFromSnapshot(this.fieldOf(game));
+      return inStartZone(geo, pos, pos.acc, color, DEFAULT_REACH, this.reachBonus(game, color));
+    } catch {
+      return { ok: false, nearestM: Infinity, reachM: 0 };
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Alarm
   // -------------------------------------------------------------------------
 
@@ -466,12 +973,44 @@ export class GameDO extends DurableObject<Env> {
           await this.suspendForDisconnect(now);
           break;
         case 'flag':
-          // Phase 5. Deliberately not silently ignored — leaving a no-op here
-          // would look deliberate later.
+          await this.onFlagFall(now);
           break;
       }
     }
     await this.timers.sync();
+  }
+
+  /**
+   * The active player's clock has run out.
+   *
+   * The alarm was set to the exact expiry instant, so this normally fires with
+   * nothing left to check — but it re-derives the clock from stored timestamps
+   * anyway, because the alarm may fire late, or against a game that has since
+   * been suspended or finished.
+   */
+  private async onFlagFall(now: number): Promise<void> {
+    const game = this.game();
+    if (game === null || game.status !== 'active') return;
+
+    const flagged = flaggedColor(this.clockOf(game), now);
+    if (flagged === null) {
+      // Fired early, or the clock moved on. Re-arm rather than ending a game that
+      // still has time on it.
+      await this.armFlag();
+      return;
+    }
+
+    // A player who runs out of time but whose opponent could never deliver mate
+    // draws rather than loses, as over the board.
+    const winner: Color = flagged === 'w' ? 'b' : 'w';
+    if (!hasMatingMaterial(new Chess(game.fen), winner)) {
+      await this.finish('1/2-1/2', 'insufficient_material', now);
+    } else {
+      await this.finish(winner === 'w' ? '1-0' : '0-1', 'timeout', now);
+    }
+
+    this.bumpRev();
+    this.broadcastState();
   }
 
   /**
@@ -639,9 +1178,9 @@ export class GameDO extends DurableObject<Env> {
         w: this.playerView(game, 'w', rows.get('w')),
         b: this.playerView(game, 'b', rows.get('b')),
       },
-      lastMove: null,
+      lastMove: this.lastMove(),
       moveCount: moveCount?.n ?? 0,
-      carry: null,
+      carry: this.carryState(game),
       result:
         game.result_outcome === null
           ? null
@@ -652,6 +1191,54 @@ export class GameDO extends DurableObject<Env> {
             },
       drawOfferFrom: game.draw_offer_from,
       createdAt: game.created_at,
+    };
+  }
+
+  private lastMove(): GameSnapshot['lastMove'] {
+    const [row] = [...this.sql.exec<{
+      seq: number;
+      from_sq: string;
+      to_sq: string;
+      san: string;
+      color: Color;
+      carried_m: number;
+      [key: string]: SqlStorageValue;
+    }>(`SELECT seq, from_sq, to_sq, san, color, carried_m FROM moves ORDER BY seq DESC LIMIT 1`)];
+    if (row === undefined) return null;
+    return {
+      seq: row.seq,
+      from: row.from_sq as Square,
+      to: row.to_sq as Square,
+      san: row.san,
+      color: row.color,
+      carriedM: row.carried_m,
+    };
+  }
+
+  /**
+   * The piece currently in someone's hand, with its legal destinations.
+   *
+   * Sent to both players: watching a queen being carried across the field towards
+   * your king is most of the tension the game has to offer.
+   */
+  private carryState(game: GameRow): GameSnapshot['carry'] {
+    const carry = this.carry();
+    if (carry === null) return null;
+    let destinations: Square[] = [];
+    try {
+      destinations = new Chess(game.fen)
+        .moves({ square: carry.from_sq as Square, verbose: true })
+        .map((move) => move.to);
+    } catch {
+      // A carry whose origin no longer holds a piece should be impossible, but
+      // must not take the snapshot down.
+    }
+    return {
+      color: carry.color,
+      from: carry.from_sq as Square,
+      piece: carry.piece,
+      at: carry.lift_at,
+      destinations,
     };
   }
 
