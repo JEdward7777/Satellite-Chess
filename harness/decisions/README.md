@@ -55,3 +55,4 @@ The conditions under which this should be reopened.
 | [0017](0017-play-history-belongs-to-players-not-places.md) | Play history is indexed by player, never by place | accepted |
 | [0018](0018-bragging-without-broadcasting-location.md) | Bragging is push-only, and draws the walk in board space | accepted |
 | [0019](0019-distance-is-the-currency-not-games.md) | Distance is the currency, not games; small fields excluded | accepted |
+| [0020](0020-distance-is-measured-by-smoothed-anchor-hops.md) | Measure distance by smoothed anchor hops, not by summing fixes | accepted |

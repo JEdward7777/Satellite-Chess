@@ -4,21 +4,30 @@ Walk a field, tap two corners, see 64 squares and your own reach circle. No
 network, no chess. **This is where the concept succeeds or fails**, so it gets
 validated on real ground before a line of game-server code is written.
 
-- `1` todo: Field calibration and local board render
+- `1` active: Field calibration and local board render
 
-- `1.1` todo: GPS abstraction (`src/client/gps.ts`)
+- `1.1` active: GPS abstraction (`src/client/gps.ts`)
   - One interface with two implementations, so every later stage can be tested
     without a satellite. The simulator is not a nicety; nothing in this project
     is testable in a container without it.
-  - `1.1.1` todo: `watchPosition` wrapper with `enableHighAccuracy`, exposing
+  - `1.1.1` done: `watchPosition` wrapper with `enableHighAccuracy`, exposing
     position, accuracy, and a coarse quality verdict
-  - `1.1.2` todo: Permission and error states, each with an actionable message
-  - `1.1.3` todo: Detect iOS "Precise Location" being off — accuracy pinned in
+  - `1.1.2` done: Permission and error states, each with an actionable message
+  - `1.1.3` done: Detect iOS "Precise Location" being off — accuracy pinned in
     the ~1000 m range with permission apparently granted. The generic permission
     prompt does not help someone find that toggle, so name it explicitly.
-  - `1.1.4` todo: Simulated provider behind `?sim=1` — drag to walk, accuracy
+  - `1.1.4` active: Simulated provider behind `?sim=1` — drag to walk, accuracy
     slider, optional jitter, and a second simulated player for two-phone flows
-  - `1.1.5` todo: Cumulative distance-travelled accumulator with a jitter floor,
+    - The provider and its controls exist and are driven programmatically. The
+      on-screen half is split out below, because there is no board to drag on
+      until `1.3`, and `?sim=1` cannot be read until an app shell exists (`1.5`).
+      `simRequested()` is in place for that shell to call.
+    - `1.1.4.1` done: Simulated provider — walk at a pace, teleport, accuracy,
+      jitter, seeded so a wobble repeats
+    - `1.1.4.2` done: Two players on one explicit clock, for two-phone flows
+    - `1.1.4.3` todo: On-screen controls — drag to walk, accuracy slider, jitter
+      toggle, switch between the two players. Build alongside `1.3`.
+  - `1.1.5` done: Cumulative distance-travelled accumulator with a jitter floor,
     so standing still does not clock up kilometres
 
 - `1.2` todo: Calibration flow (`src/client/views/calibrate.ts`)
