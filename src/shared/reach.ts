@@ -88,10 +88,13 @@ export interface SquareReach {
   reachable: boolean;
 }
 
+/** Machine-readable failure reasons. A subset of the protocol's `ErrorCode`. */
+export type ReachFailure = 'accuracy' | 'out_of_reach' | 'implausible';
+
 export interface ReachVerdict {
   ok: boolean;
   /** Machine-readable failure, for the client to map to a specific message. */
-  code?: 'accuracy' | 'out_of_reach';
+  code?: ReachFailure;
   message?: string;
   reachM: number;
   squares: SquareReach[];

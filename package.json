@@ -8,7 +8,11 @@
     "dev": "npm run build:client && wrangler dev",
     "deploy": "npm run build:client && wrangler deploy",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "plan": "node scripts/plan.mjs",
+    "plan:check": "node scripts/plan.mjs --check",
+    "plan:next": "node scripts/plan.mjs --next",
+    "check": "npm run typecheck && npm test && npm run plan:check"
   },
   "dependencies": {
     "chess.js": "^1.4.0"
