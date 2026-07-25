@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "satellite-chess",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "GAME", "class_name": "GameDO" },
+      { "name": "USER", "class_name": "UserDO" }
+    ]
+  },
+  // The free plan requires the SQLite storage backend. `new_classes` (the legacy
+  // key-value backend) fails to deploy with error 10097.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GameDO", "UserDO"] }
+  ],
+  "observability": { "enabled": true }
+}
