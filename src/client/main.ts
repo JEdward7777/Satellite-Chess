@@ -17,6 +17,7 @@ import {
 } from './gps.js';
 import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { createFieldStore, getPlayerId } from './store.js';
+import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 
 /**
@@ -89,8 +90,14 @@ async function boot(): Promise<void> {
       showCalibrate();
       return;
     }
-    swap(() => mountHome(root, { gps, fields, onCalibrate: showCalibrate }));
+    swap(() =>
+      mountHome(root, { gps, fields, onCalibrate: () => showCalibrate(), onOpen: showBoard }),
+    );
   };
+
+  function showBoard(field: FieldSpec): void {
+    swap(() => mountBoard(root, { gps, field, onBack: () => void showHome() }));
+  }
 
   function showCalibrate(existing?: FieldSpec): void {
     swap(() =>
@@ -110,6 +117,7 @@ interface HomeDeps {
   gps: GpsProvider;
   fields: FieldSpec[];
   onCalibrate(): void;
+  onOpen(field: FieldSpec): void;
 }
 
 /**
@@ -143,6 +151,12 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
       ?.addEventListener('click', deps.onCalibrate);
+    for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
+      item.addEventListener('click', () => {
+        const field = deps.fields.find((f) => f.id === item.dataset.field);
+        if (field) deps.onOpen(field);
+      });
+    }
   };
 
   const unsubscribe = deps.gps.subscribe(paint);
@@ -154,7 +168,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
 
 function fieldItem(spec: FieldSpec): string {
   const geo = deriveGeometry(spec);
-  return `<li data-field="${spec.id}">
+  return `<li data-field="${spec.id}" tabindex="0" role="button">
     <strong>${escapeHtml(spec.name)}</strong>
     <span class="dim">${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side</span>
   </li>`;

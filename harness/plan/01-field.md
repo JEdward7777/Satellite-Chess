@@ -42,17 +42,19 @@ validated on real ground before a line of game-server code is written.
   - `1.2.5` done: Refuse a corner tap on a fix the move validator would refuse,
     rather than warning about it after the board is built
 
-- `1.3` todo: Board render (`src/client/render.ts`)
+- `1.3` done: Board render (`src/client/render.ts`)
   - Canvas, drawn in board space so the field appears as an ordinary chessboard
     however it is rotated on the ground.
-  - `1.3.1` todo: 64 squares, files and ranks labelled, own side at the bottom
-  - `1.3.2` todo: Player dot, heading-free, with the accuracy ring
-  - `1.3.3` todo: Translucent reach circle — the rule and its breathing both need
+  - `1.3.1` done: 64 squares, files and ranks labelled, own side at the bottom
+  - `1.3.2` done: Player dot, heading-free, with the accuracy ring
+  - `1.3.3` done: Translucent reach circle — the rule and its breathing both need
     to be legible, since it grows and shrinks with GPS quality
-  - `1.3.4` todo: Piece glyphs (decision 0011), and a north arrow so a player can
+  - `1.3.4` done: Piece glyphs (decision 0011), and a north arrow so a player can
     relate the screen to the ground
-  - `1.3.5` todo: Highlight the square under foot, and squares within reach
-  - `1.3.6` todo: Legible in sunlight — high contrast, large touch targets
+  - `1.3.5` done: Highlight the square under foot, and squares within reach
+  - `1.3.6` done: Legible in sunlight — high contrast, large touch targets
+    - Judged from screenshots at phone size, which is as far as a container can
+      take it. Whether it survives actual sunlight is a question for `1.9.3`.
 
 - `1.4` todo: Screen Wake Lock
   - Non-negotiable: the screen locking mid-sprint ends the game. Needs a

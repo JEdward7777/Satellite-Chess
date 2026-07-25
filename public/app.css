@@ -153,3 +153,35 @@ h2 {
   color: var(--dim);
   font-size: 0.85rem;
 }
+
+/*
+ * The board fills the screen. Everything else is a strip beneath it, because
+ * anything that competes with the board for space is the wrong trade — the
+ * board is what a player is actually looking at while walking.
+ */
+.board-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+.board-screen canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 70vh;
+  touch-action: none;
+}
+
+/*
+ * Three stacked rows, not a four-column strip. Squeezing "Good ±5 m" into a
+ * quarter of a phone's width wraps it, and a value that reflows as you walk is
+ * unreadable at a glance — which is the only way it is ever read.
+ */
+.board-status .readout {
+  grid-template-columns: 5rem 1fr;
+}
+
+.fields li[role="button"] {
+  cursor: pointer;
+}
