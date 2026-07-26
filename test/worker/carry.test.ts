@@ -680,3 +680,179 @@ describe('suspension puts the piece back (decision 0009)', () => {
     white.close();
   });
 });
+
+/**
+ * Play one move the way a player would: lift near the origin, walk, place near
+ * the destination. Resolves once the mover's own socket has seen the move land.
+ */
+async function move(
+  client: Client,
+  stub: DurableObjectStub<GameDO>,
+  from: string,
+  to: string,
+  opts: { promotion?: string } = {},
+): Promise<Msg> {
+  // Clear first, and match on *this* lift rather than on "a carry exists".
+  // `next()` searches already-received messages, and both players see every
+  // broadcast — so a state left over from the opponent's carry would satisfy a
+  // looser predicate instantly, `walked()` would backdate a row that does not
+  // exist yet, and the place would then read as a teleport. That failure is
+  // intermittent and blames the wrong thing, so it is worth being precise here.
+  client.clear();
+  client.send({ t: 'lift', from, pos: at(from) });
+  await client.next(
+    (m) => m.t === 'state' && ((m.game as Msg).carry as Msg | null)?.from === from,
+  );
+  await walked(stub);
+  client.send({ t: 'place', to, pos: at(to), ...opts });
+  const state = await client.next(
+    (m) =>
+      m.t === 'error' ||
+      (m.t === 'state' &&
+        ((m.game as Msg).lastMove as Msg | null) !== null &&
+        ((m.game as Msg).lastMove as Msg).to === to),
+  );
+  if (state.t === 'error') {
+    throw new Error(`${from}-${to} rejected: ${state.code} ${state.message}`);
+  }
+  client.clear();
+  return state;
+}
+
+/** Overwrite the position, for reaching an interesting one without playing to it. */
+async function setFen(stub: DurableObjectStub<GameDO>, fen: string): Promise<void> {
+  await runInDurableObject(stub, (_i, state) => {
+    state.storage.sql.exec(`UPDATE game SET fen = ?, active_color = ? WHERE id = 1`, fen, fen.split(' ')[1]);
+  });
+}
+
+async function fenOf(stub: DurableObjectStub<GameDO>): Promise<string> {
+  const [row] = await runInDurableObject(stub, (_i, state) =>
+    [...state.storage.sql.exec<{ fen: string }>(`SELECT fen FROM game WHERE id = 1`)],
+  );
+  return row.fen;
+}
+
+describe('a whole game, played on foot', () => {
+  it('plays Scholar\'s mate move by move and ends properly', async () => {
+    const { white, black, stub } = await startedGame();
+
+    await move(white, stub, 'e2', 'e4');
+    await move(black, stub, 'e7', 'e5');
+    await move(white, stub, 'f1', 'c4');
+    await move(black, stub, 'b8', 'c6');
+    await move(white, stub, 'd1', 'h5');
+    await move(black, stub, 'g8', 'f6');
+    await move(white, stub, 'h5', 'f7');
+
+    expect(await stub.peek()).toMatchObject({ status: 'finished' });
+
+    const moves = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ san: string }>(`SELECT san FROM moves ORDER BY seq`)].map((r) => r.san),
+    );
+    expect(moves).toEqual(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#']);
+
+    // Every move stored both ends of its carry, which is what the distance
+    // record and the replay are built from.
+    const fixes = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ lift_lat: number; place_lat: number; carried_m: number }>(
+        `SELECT lift_lat, place_lat, carried_m FROM moves ORDER BY seq`,
+      )],
+    );
+    expect(fixes).toHaveLength(7);
+    expect(fixes.every((f) => f.lift_lat !== f.place_lat)).toBe(true);
+    expect(fixes.every((f) => f.carried_m > 0)).toBe(true);
+
+    white.close();
+    black.close();
+  });
+
+  it('refuses to carry on once the game is over', async () => {
+    const { white, black, stub } = await startedGame();
+    await setFen(stub, 'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1');
+    await move(white, stub, 'h5', 'f7');
+
+    black.send({ t: 'lift', from: 'e8', pos: at('e8') });
+    const err = await black.next((m) => m.t === 'error');
+    expect(String(err.message)).toMatch(/finished|over/i);
+
+    white.close();
+    black.close();
+  });
+});
+
+describe('the special moves (decision 0001)', () => {
+  it('castles on the king\'s two squares alone — the rook is never carried', async () => {
+    const { white, black, stub } = await startedGame();
+    // Everything between king and rook cleared, castling rights intact.
+    await setFen(stub, 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1');
+
+    // Only ever e1 and g1 are supplied. If the rule required the rook's square
+    // this would have to mention h1, and it does not.
+    await move(white, stub, 'e1', 'g1');
+
+    const fen = await fenOf(stub);
+    // King on g1, rook on f1 — chess.js moved the rook, the player did not.
+    expect(fen.split(' ')[0]).toContain('RNBQ1RK1');
+
+    const [row] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ san: string; from_sq: string; to_sq: string }>(
+        `SELECT san, from_sq, to_sq FROM moves WHERE seq = 1`,
+      )],
+    );
+    expect(row.san).toBe('O-O');
+    expect([row.from_sq, row.to_sq]).toEqual(['e1', 'g1']);
+
+    white.close();
+    black.close();
+  });
+
+  it('takes en passant without ever going near the captured pawn', async () => {
+    const { white, black, stub } = await startedGame();
+    // Black has just played f7-f5; white's e5 pawn may take on f6.
+    await setFen(stub, 'rnbqkbnr/ppppp1pp/8/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3');
+
+    // The captured pawn is on f5. The player only visits e5 and f6.
+    await move(white, stub, 'e5', 'f6');
+
+    const fen = await fenOf(stub);
+    const ranks = fen.split(' ')[0].split('/');
+    // Rank 6 has the capturing pawn; rank 5 is now empty of the black pawn.
+    expect(ranks[2]).toContain('P');
+    expect(ranks[3]).toBe('8');
+
+    const [row] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ san: string }>(`SELECT san FROM moves WHERE seq = 1`)],
+    );
+    expect(row.san).toBe('exf6');
+
+    white.close();
+    black.close();
+  });
+
+  it('promotes at the destination, with no extra travel', async () => {
+    const { white, black, stub } = await startedGame();
+    await setFen(stub, 'k7/4P3/8/8/8/8/8/K7 w - - 0 1');
+
+    await move(white, stub, 'e7', 'e8', { promotion: 'q' });
+
+    const fen = await fenOf(stub);
+    expect(fen.split(' ')[0]).toContain('Q');
+    const [row] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ san: string }>(`SELECT san FROM moves WHERE seq = 1`)],
+    );
+    expect(row.san).toMatch(/^e8=Q/);
+
+    white.close();
+    black.close();
+  });
+
+  it('defaults an unspecified promotion to a queen rather than failing', async () => {
+    const { white, black, stub } = await startedGame();
+    await setFen(stub, 'k7/4P3/8/8/8/8/8/K7 w - - 0 1');
+    await move(white, stub, 'e7', 'e8');
+    expect(await fenOf(stub)).toContain('Q');
+    white.close();
+    black.close();
+  });
+});

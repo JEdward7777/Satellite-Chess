@@ -44,9 +44,12 @@ Object for the only answer that counts.
 
 - `4.4` todo: Resign and draw agreement
 
-- `4.5` active: Tests
-  - `4.5.1` todo: A full game played through the DO in a test
-  - `4.5.2` todo: Castling reaches king squares only; en passant ignores the
+- `4.5` done: Tests
+  - `4.5.1` done: A full game played through the DO in a test
+    - Scholar's mate, seven moves, each a real lift-walk-place. Confirms the move
+      list, the terminal detection and that both position fixes are stored for
+      every move — which is what the distance record and the replay are built on.
+  - `4.5.2` done: Castling reaches king squares only; en passant ignores the
     victim's square; a capture costs no more walking than a quiet move
   - `4.5.3` done: Rejections — wrong turn, out of reach at each end, implausible
     carry, illegal move, place without a lift
