@@ -705,12 +705,15 @@ async function move(
   );
   await walked(stub);
   client.send({ t: 'place', to, pos: at(to), ...opts });
+  // Both ends, not just the destination. `to` alone is not unique across a game:
+  // black's d7-d5 makes `lastMove.to === 'd5'` true, so a later white e4xd5
+  // matched the opponent's stale broadcast and reported the wrong move.
   const state = await client.next(
     (m) =>
       m.t === 'error' ||
       (m.t === 'state' &&
-        ((m.game as Msg).lastMove as Msg | null) !== null &&
-        ((m.game as Msg).lastMove as Msg).to === to),
+        ((m.game as Msg).lastMove as Msg | null)?.to === to &&
+        ((m.game as Msg).lastMove as Msg).from === from),
   );
   if (state.t === 'error') {
     throw new Error(`${from}-${to} rejected: ${state.code} ${state.message}`);
@@ -973,6 +976,111 @@ describe('resign and draw (stage 4.4)', () => {
     white.send({ t: 'resign' });
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('not_active');
+    white.close();
+    black.close();
+  });
+});
+
+describe('capturing a piece', () => {
+  it('takes an enemy piece off the board on an ordinary capture', async () => {
+    const { white, black, stub } = await startedGame();
+    await move(white, stub, 'e2', 'e4');
+    await move(black, stub, 'd7', 'd5');
+
+    // exd5 — placing onto an occupied square, which is the case the carry rule
+    // has to get right without any special handling: the victim's square *is*
+    // the destination, so it is already covered (decision 0001).
+    const state = await move(white, stub, 'e4', 'd5');
+    expect(((state.game as Msg).lastMove as Msg).san).toBe('exd5');
+
+    const placement = (await fenOf(stub)).split(' ')[0];
+    const board = placement.split('/');
+    // White pawn now on d5, and the square it came from is empty.
+    expect(board[3]).toBe('3P4');
+    expect(board[4]).toBe('8');
+    // And material really left the board, rather than chess.js merely printing
+    // an 'x': black had 8 pawns and now has 7.
+    expect((placement.match(/p/g) ?? []).length).toBe(7);
+    expect((placement.match(/P/g) ?? []).length).toBe(8);
+
+    white.close();
+    black.close();
+  });
+
+  it('allows the recapture, so a trade costs two walks', async () => {
+    const { white, black, stub } = await startedGame();
+    await move(white, stub, 'e2', 'e4');
+    await move(black, stub, 'd7', 'd5');
+    await move(white, stub, 'e4', 'd5');
+    const recapture = await move(black, stub, 'd8', 'd5');
+
+    expect(((recapture.game as Msg).lastMove as Msg).san).toBe('Qxd5');
+    const moves = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ san: string }>(`SELECT san FROM moves ORDER BY seq`)].map((r) => r.san),
+    );
+    expect(moves).toEqual(['e4', 'd5', 'exd5', 'Qxd5']);
+
+    white.close();
+    black.close();
+  });
+
+  it('charges a capture exactly what the same quiet move would cost', async () => {
+    // Decision 0001 claims a capture costs the same walking as a quiet move to
+    // the same square, because only the destination is required. Worth checking
+    // rather than assuming: if capturing were more expensive, players would
+    // avoid it and the game would be strange.
+    const quiet = await startedGame();
+    await move(quiet.white, quiet.stub, 'e2', 'e4');
+    await move(quiet.black, quiet.stub, 'h7', 'h6');
+    await move(quiet.white, quiet.stub, 'e4', 'e5');
+    const quietCarry = await runInDurableObject(quiet.stub, (_i, state) =>
+      [...state.storage.sql.exec<{ carried_m: number }>(`SELECT carried_m FROM moves WHERE seq = 3`)][0],
+    );
+
+    const taking = await startedGame();
+    await move(taking.white, taking.stub, 'e2', 'e4');
+    await move(taking.black, taking.stub, 'd7', 'd5');
+    await move(taking.white, taking.stub, 'e4', 'd5');
+    const captureCarry = await runInDurableObject(taking.stub, (_i, state) =>
+      [...state.storage.sql.exec<{ carried_m: number }>(`SELECT carried_m FROM moves WHERE seq = 3`)][0],
+    );
+
+    // e4-e5 is one square straight; e4-d5 is one square diagonally. Both are a
+    // single square's walk, and neither ever visits a third square.
+    expect(captureCarry.carried_m).toBeGreaterThan(0);
+    expect(Math.abs(captureCarry.carried_m - quietCarry.carried_m)).toBeLessThan(SQUARE_M);
+
+    quiet.white.close();
+    quiet.black.close();
+    taking.white.close();
+    taking.black.close();
+  });
+
+  it('lists a capture among the destinations offered at lift time', async () => {
+    const { white, black, stub } = await startedGame();
+    await move(white, stub, 'e2', 'e4');
+    await move(black, stub, 'd7', 'd5');
+
+    white.clear();
+    white.send({ t: 'lift', from: 'e4', pos: at('e4') });
+    const lifted = await white.next(
+      (m) => m.t === 'state' && ((m.game as Msg).carry as Msg | null)?.from === 'e4',
+    );
+    // The client draws these; a capture must appear or a player would think the
+    // move were illegal.
+    expect((((lifted.game as Msg).carry as Msg).destinations as string[])).toContain('d5');
+
+    white.close();
+    black.close();
+  });
+
+  it('refuses a capture of your own piece', async () => {
+    const { white, black, stub } = await startedGame();
+    white.clear();
+    white.send({ t: 'lift', from: 'a1', pos: at('a1') });
+    // The rook on a1 is boxed in by its own pawn, so there is nothing to lift for.
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('no_legal_moves');
     white.close();
     black.close();
   });

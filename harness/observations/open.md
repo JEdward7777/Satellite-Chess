@@ -62,3 +62,28 @@ validated. Phase 6 has to build and test deep-link routing anyway, so the fix
 belongs there rather than being done blind now. Nothing before phase 6 serves any
 path other than `/`, so this cannot bite in the meantime. **Do it as the first
 stage of phase 6**, before the QR encoder, or the first scan will fail in a field.
+
+### O-07 — A predicate over a shared broadcast stream must identify itself
+**Spotted:** 2026-07-26, stage 4.5.4
+**Why it matters:** Twice now, a test has failed in a way that blamed the product
+for a harness bug, and both had the same shape. `Client.next()` searches
+*already-received* messages, and the DO broadcasts every state change to **both**
+players, so any predicate loose enough to match the opponent's traffic matches it
+instantly and silently returns the wrong snapshot.
+
+The first instance: "wait until a carry exists" matched a state left over from the
+opponent's carry, so `walked()` backdated a row that did not exist yet and the
+place read as `implausible: 34 m in 0.0 s` — which looks exactly like a
+plausibility-guard bug. The second: `lastMove.to === 'd5'` was already true from
+black's `d7-d5`, so white's `e4xd5` returned black's move and the capture appeared
+not to have happened.
+
+Both were one-line predicate fixes. The danger is not the failure, it is the
+plausible false diagnosis: the obvious "fix" for the first was to weaken a real
+anti-cheat rule.
+**Not doing yet because:** The two known instances are fixed and the pattern is
+now written down, which may be enough. If a third appears, the fix is structural
+rather than per-call — give every state snapshot a monotonic `rev` (the column
+already exists) and have `next()` only consider messages newer than the caller's
+last-seen rev. That would make a stale match impossible rather than merely
+unlikely.

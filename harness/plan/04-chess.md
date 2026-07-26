@@ -59,5 +59,12 @@ Object for the only answer that counts.
       every move — which is what the distance record and the replay are built on.
   - `4.5.2` done: Castling reaches king squares only; en passant ignores the
     victim's square; a capture costs no more walking than a quiet move
+  - `4.5.4` done: Captures — ordinary capture, recapture, cost parity with a quiet
+    move, and the capture offered among the destinations at lift time
+    - Added because captures were only ever covered incidentally: `Qxf7#` (which
+      is also the mating move) and `exf6` (en passant, the special case). No test
+      had ever taken an ordinary piece mid-game. They work, and material really
+      leaves the board — asserted by counting pawns, not by trusting the 'x' in
+      the SAN.
   - `4.5.3` done: Rejections — wrong turn, out of reach at each end, implausible
     carry, illegal move, place without a lift
