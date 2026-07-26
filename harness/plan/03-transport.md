@@ -77,6 +77,12 @@ the field. No chess yet — proving the plumbing in isolation.
     entirely empty storage ceases to exist, which is the goal.
 
 - `3.7` active: DO integration tests with `@cloudflare/vitest-pool-workers`
+  - `test/worker/net-integration.test.ts` now runs the **real** `net.ts` against
+    the **real** GameDO: connect, sync, play a move both sockets see, surface a
+    rejection, and relay a position. The fake-socket tests prove the send policy;
+    only this one proves the protocol. It immediately earned its place by catching
+    a vacuous assertion of mine and by demonstrating the server's own relay
+    backstop discarding a message the client was right to send.
   - 64 tests against the real runtime across `test/worker/game-do.test.ts` and
     `test/worker/carry.test.ts`: create/join, hibernation, alarms, the start
     handshake, the whole carry, flag-fall and checkmate. What is still missing is
