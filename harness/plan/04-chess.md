@@ -13,8 +13,8 @@ Object for the only answer that counts.
     material, threefold repetition, fifty-move rule
   - `4.1.4` done: Persist every move to `moves` with both position fixes
 
-- `4.2` active: The carry, server side (decision 0001)
-  - Server half is done bar `4.2.6`. Legality is checked **before** the carry
+- `4.2` done: The carry, server side (decision 0001)
+  - Server half complete. Legality is checked **before** the carry
     verdict: it does not depend on where anyone stands, so it is both cheaper
     and clearer — the other order told a player who moved illegally that their
     GPS had jumped.
@@ -26,11 +26,11 @@ Object for the only answer that counts.
     walk, and legality of from→to; then apply
   - `4.2.4` done: Pending lift persisted in SQLite, so it survives hibernation
   - `4.2.5` done: `drop` — put the piece back, free, costing only clock time
-  - `4.2.6` todo: Suspension cancels a carry (decision 0009)
-    - **Confirmed missing**, not merely unwritten. `suspendForDisconnect` banks
-      the clock and cancels the flag timer but leaves the `carry` row standing,
-      so a player who drops mid-carry resumes still holding the piece. Decision
-      0009 says the piece goes back.
+  - `4.2.6` done: Suspension cancels a carry (decision 0009)
+    - `suspendForDisconnect` now clears the carry row along with the flag timer.
+      Body position cannot be serialised, so whoever resumes is standing
+      somewhere else — a pending lift would be unfinishable. The clock keeps what
+      it spent; nothing is refunded.
   - `4.2.7` done: Promotion resolved at place time, no travel involved
 
 - `4.3` todo: The carry, client side

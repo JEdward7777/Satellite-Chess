@@ -611,3 +611,72 @@ describe('checkmate', () => {
     black.close();
   });
 });
+
+describe('suspension puts the piece back (decision 0009)', () => {
+  it('clears a pending carry when a disconnect suspends the game', async () => {
+    const { white, black, stub } = await startedGame();
+
+    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+
+    // Black walks behind a building and the grace period expires. Drive the
+    // disconnect timer the way the runtime would.
+    black.close();
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(
+        `UPDATE presence SET connected = 0 WHERE color = 'b'`,
+      );
+      state.storage.sql.exec(
+        `INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('disconnect', ?)`,
+        Date.now() - 1,
+      );
+      await state.storage.setAlarm(Date.now() + 3_600_000);
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+
+    expect(await stub.peek()).toMatchObject({ status: 'suspended' });
+
+    // The whole point: whoever resumes will be standing somewhere else, so a
+    // pending lift would be unfinishable.
+    const carry = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec(`SELECT * FROM carry WHERE id = 1`)],
+    );
+    expect(carry).toHaveLength(0);
+
+    // And the board still has the pawn on e2 — it was never moved.
+    const [game] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ fen: string }>(`SELECT fen FROM game WHERE id = 1`)],
+    );
+    expect(game.fen).toContain('PPPPPPPP');
+
+    white.close();
+  });
+
+  it('leaves the clock alone — nothing refunded, nothing charged', async () => {
+    const { white, black, stub } = await startedGame({ initialMs: 600_000, incrementMs: 0 });
+
+    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await new Promise((r) => setTimeout(r, 150));
+
+    black.close();
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(`UPDATE presence SET connected = 0 WHERE color = 'b'`);
+      state.storage.sql.exec(
+        `INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('disconnect', ?)`,
+        Date.now() - 1,
+      );
+      await state.storage.setAlarm(Date.now() + 3_600_000);
+    });
+    await runDurableObjectAlarm(stub);
+
+    const clocks = await stub.clocks();
+    expect(clocks.running).toBe(false);
+    // White was charged for the time spent holding the piece, and no more.
+    expect(clocks.w).toBeLessThan(600_000);
+    expect(clocks.w).toBeGreaterThan(599_000);
+    expect(clocks.b).toBe(600_000);
+
+    white.close();
+  });
+});

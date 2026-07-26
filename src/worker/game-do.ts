@@ -1048,6 +1048,14 @@ export class GameDO extends DurableObject<Env> {
 
     // No clock is running, so no flag can fall.
     await this.timers.cancel('flag');
+
+    // Decision 0009: a carried piece goes back. Body position is part of the
+    // game state and cannot be serialised — whoever resumes will be standing
+    // somewhere else, quite possibly nowhere near the square they lifted from.
+    // Leaving the carry pending would mean resuming mid-move with no way to
+    // finish it legally. The clock keeps what it spent; nothing is refunded.
+    this.clearCarry();
+
     this.bumpRev();
     this.broadcastState();
   }
