@@ -10,13 +10,15 @@
   "durable_objects": {
     "bindings": [
       { "name": "GAME", "class_name": "GameDO" },
-      { "name": "USER", "class_name": "UserDO" }
+      { "name": "USER", "class_name": "UserDO" },
+      { "name": "SURVEY", "class_name": "SurveyDO" }
     ]
   },
   // The free plan requires the SQLite storage backend. `new_classes` (the legacy
   // key-value backend) fails to deploy with error 10097.
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["GameDO", "UserDO"] }
+    { "tag": "v1", "new_sqlite_classes": ["GameDO", "UserDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["SurveyDO"] }
   ],
   "observability": { "enabled": true }
 }

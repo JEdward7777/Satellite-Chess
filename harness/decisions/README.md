@@ -56,3 +56,5 @@ The conditions under which this should be reopened.
 | [0018](0018-bragging-without-broadcasting-location.md) | Bragging is push-only, and draws the walk in board space | accepted |
 | [0019](0019-distance-is-the-currency-not-games.md) | Distance is the currency, not games; small fields excluded | accepted |
 | [0020](0020-distance-is-measured-by-smoothed-anchor-hops.md) | Measure distance by smoothed anchor hops, not by summing fixes | accepted |
+| [0021](0021-split-tsconfigs-by-runtime.md) | One tsconfig per runtime, not one for the repo | accepted |
+| [0022](0022-survey-is-a-secret-gated-debug-facility.md) | The field survey is a secret-gated debug facility, off by default | accepted |

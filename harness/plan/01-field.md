@@ -113,12 +113,25 @@ validated on real ground before a line of game-server code is written.
   - `1.8.2` done: Durable Object classes exported as stubs, because the bindings and
     the `new_sqlite_classes` migration in `wrangler.jsonc` name them at deploy time
 
-- `1.9` todo: First deploy
+- `1.9` active: First deploy
   - Deliberately early. The riskiest assumption in the project is that consumer
     GPS can tell 8 m squares apart on grass; that has to be tested on a phone on
     real ground before anything is built on top of it.
   - `1.9.1` todo: `wrangler login`, confirm the account, first `wrangler deploy`
   - `1.9.2` todo: Verify the PWA installs and the wake lock holds on a real phone
-  - `1.9.3` todo: Walk a real field and record what actually happened — square
+  - `1.9.3` active: Walk a real field and record what actually happened — square
     size that felt right, accuracy observed, whether the reach circle read as
     fair. Findings go to `harness/observations/open.md` and phase 9.
+    - `1.9.3.1` done: Survey API — `POST /api/survey/trace` and read-back, behind
+      `SURVEY_SECRET`, storing raw traces in `SurveyDO` (decision 0022)
+    - `1.9.3.2` done: Guided survey protocol at `/?survey=<secret>`
+      (`src/client/views/survey.ts`). Guided rather than passive: "walk around
+      for ten minutes" produces a squiggle nobody can draw conclusions from.
+    - `1.9.3.3` done: `scripts/analyse-survey.mjs` — turns a trace into a verdict
+      on accuracy honesty, scatter, refusal rate by square size, and calibration
+      repeatability. Validated against synthetic traces before any real walk, so
+      a wasted field trip is not discovered afterwards.
+    - `1.9.3.4` todo: **Walk it.** Needs the operator, a phone and ~30 m of open
+      ground. Deploy, set the secret, open the link, follow the protocol.
+    - `1.9.3.5` todo: Fold the findings back — square-size default, reach
+      constants, and whether the displayed square needs its own smoothing.

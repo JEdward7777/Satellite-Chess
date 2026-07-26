@@ -4,8 +4,8 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `4.2` — the carry, server side. Done bar `4.2.6`.
-**Next action**: `4.2.6` — suspension must cancel a carry (decision 0009)
+**Active stage**: `1.9.3` — the field survey. Built; **needs the operator to walk it**.
+**Next action**: deploy, set `SURVEY_SECRET`, walk the protocol (`1.9.3.4`)
 **Last session**: `harness/sessions/2026-07-25-03.md`
 
 ## In one paragraph
@@ -16,6 +16,31 @@ and presence. Phase 4's server half is done too — lift, carry, place, terminal
 detection, clock handover — all against the real `workerd` runtime. **218 tests
 pass.** What does not exist yet is the client half of the carry (`4.3`), so the
 PWA can draw a board and put you on it but cannot yet move a piece.
+
+## The field survey is ready and waiting on a walk
+
+The riskiest assumption in the project — that consumer GPS can resolve 8 m
+squares on grass — now has an instrument pointed at it (decision 0022). The
+operator's part:
+
+```bash
+npx wrangler login
+npx wrangler secret put SURVEY_SECRET     # any long random string
+npm run deploy
+```
+
+Then on a phone, outdoors, with **about 30 m of open ground**:
+`https://<worker>.workers.dev/?survey=<secret>` and follow the ten steps. Twelve
+to fifteen minutes. Read it back with:
+
+```bash
+curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/traces"
+curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/trace/$ID" \
+  | node scripts/analyse-survey.mjs -
+```
+
+The analyser was validated against synthetic traces before any real walk, so a
+wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
@@ -51,6 +76,9 @@ PWA can draw a board and put you on it but cannot yet move a piece.
   left a stale STATE.md saying "active stage 1.9", and the next thing I did was
   read my own uncommitted work as another session's and nearly hand it off. The
   file is the only defence against that.
+- **The survey is deletable on purpose** (decision 0022). It is off unless
+  `SURVEY_SECRET` is set, and 404s rather than 401s so an unconfigured deployment
+  looks like one without the feature. Do not give it callers in the game.
 - **Views are split model-from-DOM**, and the DOM half is verified by driving
   Chromium against `?sim=1` — not by unit tests. Every view bug in phase 1 was
   invisible to tests and obvious in a screenshot. Keep doing it.

@@ -16,10 +16,12 @@ import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import type { Color } from '../shared/squares.js';
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
+import { SurveyDO } from './survey-do.js';
+import { surveyRoutes } from './survey.js';
 import { apiError, json } from './http.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
-export { GameDO, UserDO };
+export { GameDO, UserDO, SurveyDO };
 
 /**
  * How many fresh codes to try before giving up on a collision.
@@ -58,6 +60,11 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   if (path === '/api/health') {
     return json({ ok: true, service: 'satellite-chess', now: Date.now() });
   }
+
+  // Field survey (stage 1.9.3). Returns null unless the path is its own, and
+  // 404s entirely unless SURVEY_SECRET is configured.
+  const survey = await surveyRoutes(request, env, url);
+  if (survey) return survey;
 
   if (path === '/api/game' && request.method === 'POST') {
     return createGame(request, env);

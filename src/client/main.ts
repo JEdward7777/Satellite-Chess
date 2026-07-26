@@ -19,6 +19,7 @@ import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
+import { mountSurvey } from './views/survey.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
 /**
@@ -76,6 +77,17 @@ async function boot(): Promise<void> {
   // Made on first run, before any sign-in and before anything is saved against
   // it (decision 0013).
   getPlayerId();
+
+  // The field survey hijacks the whole app: it is a measuring instrument, not a
+  // screen of the game, and mixing it with the normal flow would risk shipping
+  // a location recorder to a player who never asked for one.
+  const surveySecret = new URLSearchParams(location.search).get('survey');
+  if (surveySecret) {
+    // Mounted for the lifetime of the page; the teardown is deliberately
+    // dropped, because nothing else ever gets to replace this screen.
+    mountSurvey(root, { gps, secret: surveySecret });
+    return;
+  }
 
   const store = await createFieldStore();
 
