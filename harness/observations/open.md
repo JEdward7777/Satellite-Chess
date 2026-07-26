@@ -87,3 +87,41 @@ rather than per-call — give every state snapshot a monotonic `rev` (the column
 already exists) and have `next()` only consider messages newer than the caller's
 last-seen rev. That would make a stale match impossible rather than merely
 unlikely.
+
+### O-08 — Standing on your back rank starts the game, with no confirmation
+**Spotted:** 2026-07-26, first end-to-end browser run
+**Why it matters:** Decision 0005 makes the start handshake *positional* —
+"standing in their own start zone, verified server-side", an observable condition
+rather than a button press. The implementation half-applied it: a relayed position
+set `in_start_zone` but never re-checked whether that completed the handshake, so
+two players who both simply walked to their ends waited forever, while one tapping
+Ready started the game on the strength of the other's position. Now consistent:
+`onPos` completes the handshake too.
+
+The consequence is that **the clock can start while nobody is looking at a phone**.
+Two people wandering near their back ranks while agreeing on a time control will
+find the game already running. The Ready button is now a nudge — "check me now" —
+rather than the thing that starts play.
+**Not doing yet because:** This is what decision 0005 specifies, and it is the more
+physical reading: you start by standing where you start. But it was decided before
+anyone had walked it, and it is exactly the kind of rule that feels different
+outdoors. Worth a deliberate look during `1.9.3`/phase 10 playtesting. If it does
+bite, the fix is small — require an explicit `ready` while `staging`, and keep the
+purely positional rule for `suspended`, where both players already know they are
+resuming.
+
+### O-09 — `carry.test.ts` fails roughly one run in ten, cause unidentified
+**Spotted:** 2026-07-26, stage 4.3
+**Why it matters:** "lets both players move in turn" failed twice across about
+fifteen runs of the suite, and passed thirteen. A test that fails one time in ten
+erodes trust in the whole suite and trains people to re-run rather than read.
+Two earlier flakes in this file had the same root cause — a predicate matching the
+opponent's stale broadcast (O-07) — and both were fixed; this is not obviously the
+same, because the failing test sends no `pos` messages and the most recent change
+was to `onPos`. Not yet reproduced under diagnosis: eight consecutive targeted runs
+came back clean.
+**Not doing yet because:** Chasing it blind costs more than it currently returns,
+and the suite is otherwise green at 285 tests. The structural fix proposed in O-07
+would very likely close it too: give `next()` a monotonic `rev` floor so a stale
+snapshot cannot satisfy any predicate. That is the thing to do if it recurs, rather
+than another per-call patch.

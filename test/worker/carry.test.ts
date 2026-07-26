@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { deriveGeometry, makeFieldSpec, snapshotField, squareCentreLatLng } from '../../src/shared/field.js';
 import { fromLocal } from '../../src/shared/geo.js';
+import { POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
 import { fromSquare } from '../../src/shared/squares.js';
 import type { GameDO } from '../../src/worker/game-do.js';
 
@@ -1081,6 +1082,69 @@ describe('capturing a piece', () => {
     // The rook on a1 is boxed in by its own pawn, so there is nothing to lift for.
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('no_legal_moves');
+    white.close();
+    black.close();
+  });
+});
+
+describe('the start handshake is positional (decision 0005)', () => {
+  it('starts when both players simply stand on their back ranks', async () => {
+    // Neither player ever sends `ready`. Decision 0005 makes the condition
+    // "standing in your own start zone, verified server-side" — an observable
+    // state, not a button press. This was half-applied: a relayed position set
+    // `in_start_zone` but never re-checked whether that completed the handshake,
+    // so two players who both just walked to their ends waited forever. Only an
+    // end-to-end run through the browser exposed it, because every other test
+    // sends `ready` explicitly.
+    const joinCode = nextCode();
+    const stub = env.GAME.getByName(joinCode);
+    await stub.create({
+      joinCode, creatorPlayerId: WHITE, creatorColor: 'w', field: FIELD,
+      initialMs: 600_000, incrementMs: 0,
+    });
+    await stub.join(BLACK);
+
+    const white = await openSocket(joinCode, WHITE);
+    const black = await openSocket(joinCode, BLACK);
+    await white.next((m) => m.t === 'state');
+    await black.next((m) => m.t === 'state');
+
+    const e1 = at('e1');
+    const e8 = at('e8');
+    white.send({ t: 'pos', lat: e1.lat, lng: e1.lng, acc: e1.acc });
+    // Past the server's own relay backstop, or the second fix is discarded.
+    await new Promise((r) => setTimeout(r, POS_SERVER_MIN_INTERVAL_MS + 50));
+    black.send({ t: 'pos', lat: e8.lat, lng: e8.lng, acc: e8.acc });
+
+    await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'active');
+    expect(await stub.peek()).toMatchObject({ status: 'active' });
+    expect((await stub.clocks()).running).toBe(true);
+
+    white.close();
+    black.close();
+  });
+
+  it('does not start on a position outside your own zone', async () => {
+    const joinCode = nextCode();
+    const stub = env.GAME.getByName(joinCode);
+    await stub.create({
+      joinCode, creatorPlayerId: WHITE, creatorColor: 'w', field: FIELD,
+      initialMs: 600_000, incrementMs: 0,
+    });
+    await stub.join(BLACK);
+    const white = await openSocket(joinCode, WHITE);
+    const black = await openSocket(joinCode, BLACK);
+    await white.next((m) => m.t === 'state');
+    await black.next((m) => m.t === 'state');
+
+    const e1 = at('e1');
+    const d4 = at('d4');
+    white.send({ t: 'pos', lat: e1.lat, lng: e1.lng, acc: e1.acc });
+    await new Promise((r) => setTimeout(r, POS_SERVER_MIN_INTERVAL_MS + 50));
+    black.send({ t: 'pos', lat: d4.lat, lng: d4.lng, acc: d4.acc });
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(await stub.peek()).toMatchObject({ status: 'staging' });
     white.close();
     black.close();
   });

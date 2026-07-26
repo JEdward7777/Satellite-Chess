@@ -48,6 +48,14 @@ export interface BoardView {
   accuracyM: number;
   /** Effective reach, already including the accuracy allowance and any handicap. */
   reachM: number;
+  /**
+   * A piece in hand, if anyone is carrying one.
+   *
+   * `destinations` comes from the server — it is the authority on legality, and
+   * sending it at lift time means the client never needs a rules engine of its
+   * own just to draw dots.
+   */
+  carry?: { from: Square; destinations: Square[]; mine: boolean } | null;
 }
 
 /**
@@ -66,6 +74,12 @@ const REACH_FILL = 'rgba(88, 166, 255, 0.22)';
 const REACH_EDGE = 'rgba(88, 166, 255, 0.9)';
 const IN_REACH_TINT = 'rgba(88, 166, 255, 0.28)';
 const UNDER_FOOT = 'rgba(255, 214, 10, 0.85)';
+/** Where the piece was lifted from — it is coming back here if you drop it. */
+const LIFTED_FROM = 'rgba(255, 214, 10, 0.5)';
+/** A legal destination you could reach right now. */
+const DESTINATION_NEAR = 'rgba(255, 255, 255, 0.92)';
+/** A legal destination you would have to walk to. */
+const DESTINATION_FAR = 'rgba(255, 255, 255, 0.34)';
 const ACCURACY_RING = 'rgba(255, 255, 255, 0.5)';
 const PLAYER_DOT = '#ffffff';
 const PLAYER_EDGE = '#0d1117';
@@ -187,6 +201,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   const here = view.pos ? toBoardPoint(view.geo, view.pos) : null;
 
   drawSquares(ctx, view, projection, here);
+  drawCarry(ctx, view, projection, here);
   drawPieces(ctx, view, projection);
   drawNorth(ctx, view, width, height);
   if (here) drawPlayer(ctx, view, projection, here);
@@ -291,6 +306,97 @@ function drawLabels(
     ctx.textBaseline = 'top';
     ctx.fillText(String(fr.rank + 1), rect.x + inset, rect.y + inset);
   }
+}
+
+/**
+ * The piece in hand: where it came from, and everywhere it could legally go.
+ *
+ * Destinations are drawn as dots rather than as square tints, because the square
+ * tint already means "in reach" and two overlapping tints would say neither
+ * clearly. A solid dot is somewhere you can reach *and* legally place; a faint
+ * one is legal but needs walking — which is the decision the whole game is made
+ * of, so it has to be readable at a glance while moving.
+ */
+function drawCarry(
+  ctx: CanvasRenderingContext2D,
+  view: BoardView,
+  projection: Projection,
+  here: BoardPoint | null,
+): void {
+  const carry = view.carry;
+  if (!carry) return;
+
+  const size = view.geo.squareM * projection.scale;
+  const origin = fromSquare(carry.from);
+  const rect = squareRect(view.geo, projection, origin);
+
+  ctx.strokeStyle = LIFTED_FROM;
+  ctx.lineWidth = Math.max(2, size * 0.08);
+  ctx.setLineDash([size * 0.15, size * 0.1]);
+  ctx.strokeRect(
+    rect.x + ctx.lineWidth / 2,
+    rect.y + ctx.lineWidth / 2,
+    rect.size - ctx.lineWidth,
+    rect.size - ctx.lineWidth,
+  );
+  ctx.setLineDash([]);
+
+  // Only your own carry gets destination dots. Seeing the opponent's options
+  // drawn on your board would be both confusing and a small act of espionage.
+  if (!carry.mine) return;
+
+  for (const square of carry.destinations) {
+    const fr = fromSquare(square);
+    const centre = projection.toScreen({
+      u: fr.file * view.geo.squareM,
+      v: fr.rank * view.geo.squareM,
+    });
+    const reachable =
+      here !== null && distanceFromBoardPointToSquareM(view.geo, here, fr) <= view.reachM;
+
+    ctx.beginPath();
+    ctx.arc(centre.x, centre.y, size * (reachable ? 0.17 : 0.11), 0, Math.PI * 2);
+    ctx.fillStyle = reachable ? DESTINATION_NEAR : DESTINATION_FAR;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(13, 17, 23, 0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+/**
+ * Read a FEN's placement field into a piece map.
+ *
+ * Deliberately not chess.js: the server is the only rules authority and sends
+ * legal destinations with every carry, so the client needs to know *where the
+ * pieces are* and nothing more. Twenty lines here against ~50 kB of bundle on a
+ * phone with one bar.
+ */
+export function piecesFromFen(fen: string): PieceMap {
+  const pieces: PieceMap = {};
+  const ranks = fen.split(' ')[0]?.split('/') ?? [];
+  // FEN lists rank 8 first; our rank index counts up from rank 1.
+  ranks.forEach((row, index) => {
+    const rank = 7 - index;
+    let file = 0;
+    for (const ch of row) {
+      const skip = Number(ch);
+      if (Number.isFinite(skip) && skip > 0) {
+        file += skip;
+        continue;
+      }
+      if (file > 7 || rank < 0) break;
+      const lower = ch.toLowerCase();
+      if (lower === 'k' || lower === 'q' || lower === 'r' || lower === 'b' || lower === 'n' || lower === 'p') {
+        pieces[toSquare(file, rank)] = {
+          type: lower,
+          color: ch === lower ? 'b' : 'w',
+        };
+      }
+      file += 1;
+    }
+  });
+  return pieces;
 }
 
 function drawPieces(

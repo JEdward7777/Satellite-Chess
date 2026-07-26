@@ -33,12 +33,18 @@ Object for the only answer that counts.
       it spent; nothing is refunded.
   - `4.2.7` done: Promotion resolved at place time, no travel involved
 
-- `4.3` todo: The carry, client side
-  - `4.3.1` todo: Tap a reachable own piece to lift it
-  - `4.3.2` todo: Show legal destinations, and which are currently in reach
+- `4.3` active: The carry, client side
+  - `src/client/views/game.ts`. Destinations come from the server with the carry,
+    so the client needs no rules engine — a solid dot is legal *and* in reach, a
+    faint one is legal but needs walking, which is the decision the game is made
+    of. Verified by playing a real move between two browsers against
+    `wrangler dev`: calibrate, create, join by code, both walk to their back
+    ranks, lift on e2, walk to e3, place on e4, opponent sees it.
+  - `4.3.1` done: Tap a reachable own piece to lift it
+  - `4.3.2` done: Show legal destinations, and which are currently in reach
   - `4.3.3` todo: Carried piece in the HUD, with a distance-to-nearest-legal-
     destination readout so a player knows where to walk
-  - `4.3.4` todo: Tap to place when in reach; clear feedback when not
+  - `4.3.4` done: Tap to place when in reach; clear feedback when not
   - `4.3.5` todo: Promotion picker
   - `4.3.6` todo: Optimistic local application, reconciled against the DO snapshot
 

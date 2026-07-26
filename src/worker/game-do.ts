@@ -539,6 +539,21 @@ export class GameDO extends DurableObject<Env> {
       { t: 'opp_pos', lat: msg.lat, lng: msg.lng, acc: msg.acc, at: now },
       { except: who.playerId },
     );
+
+    // A relayed position updates `in_start_zone`, so it can complete the
+    // handshake on its own — decision 0005 makes the condition positional and
+    // server-verified, not a button press. Without this call the rule was
+    // half-applied: standing in your zone counted only if your *opponent*
+    // happened to tap Ready, which meant two players who both simply walked to
+    // their back ranks would wait forever.
+    if (zone && (game?.status === 'staging' || game?.status === 'suspended')) {
+      const before = game.status;
+      await this.startIfBothReady();
+      if (this.game()?.status !== before) {
+        this.bumpRev();
+        this.broadcastState();
+      }
+    }
   }
 
   // -------------------------------------------------------------------------

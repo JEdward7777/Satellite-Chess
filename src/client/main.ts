@@ -19,7 +19,9 @@ import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
+import { mountGame } from './views/game.js';
 import { mountSurvey } from './views/survey.js';
+import { connectToGame } from './net.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
 /**
@@ -105,9 +107,82 @@ async function boot(): Promise<void> {
       return;
     }
     swap(() =>
-      mountHome(root, { gps, fields, onCalibrate: () => showCalibrate(), onOpen: showBoard }),
+      mountHome(root, {
+        gps,
+        fields,
+        onCalibrate: () => showCalibrate(),
+        onOpen: showBoard,
+        onStart: (field) => void startGame(field),
+        onJoin: (code, field) => void joinGame(code, field),
+      }),
     );
   };
+
+  /**
+   * Create a game on this field and drop straight into it.
+   *
+   * The full invite flow is phase 6; this is the minimum that makes a game
+   * reachable at all, and it prints the join code so a second phone can get in.
+   */
+  async function startGame(field: FieldSpec): Promise<void> {
+    const playerId = getPlayerId();
+    const response = await fetch('/api/game', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerId, field }),
+    });
+    const body = (await response.json()) as { joinCode?: string; message?: string };
+    if (!response.ok || !body.joinCode) {
+      alert(body.message ?? 'Could not start a game.');
+      return;
+    }
+    enterGame(body.joinCode, field, playerId);
+  }
+
+  async function joinGame(joinCode: string, field: FieldSpec): Promise<void> {
+    const playerId = getPlayerId();
+    const response = await fetch(`/api/game/${encodeURIComponent(joinCode)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerId }),
+    });
+    if (!response.ok) {
+      const body = (await response.json()) as { message?: string };
+      alert(body.message ?? 'Could not join that game.');
+      return;
+    }
+    enterGame(joinCode, field, playerId);
+  }
+
+  function enterGame(joinCode: string, field: FieldSpec, playerId: string): void {
+    const connection = connectToGame({ joinCode, playerId });
+    swap(() => {
+      let detachDrag: (() => void) | null = null;
+      const teardown = mountGame(root, {
+        gps,
+        connection,
+        field,
+        onLeave: () => void showHome(),
+        onCanvas: (canvas, toLatLng) => {
+          const panel = simPanel;
+          if (!panel) return;
+          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng });
+        },
+      });
+      // The join code is the only way a second phone gets in, so it has to be
+      // visible rather than buried in a URL nobody can read out loud.
+      const banner = document.createElement('p');
+      banner.className = 'dim';
+      banner.dataset.joinCode = joinCode;
+      banner.textContent = `Join code: ${joinCode}`;
+      root.querySelector('.board-status')?.prepend(banner);
+      return () => {
+        detachDrag?.();
+        teardown();
+        connection.close();
+      };
+    });
+  }
 
   function showBoard(field: FieldSpec): void {
     swap(() => {
@@ -148,6 +223,8 @@ interface HomeDeps {
   fields: FieldSpec[];
   onCalibrate(): void;
   onOpen(field: FieldSpec): void;
+  onStart(field: FieldSpec): void;
+  onJoin(joinCode: string, field: FieldSpec): void;
 }
 
 /**
@@ -177,10 +254,29 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         ${deps.fields.map(fieldItem).join('')}
       </ul>
       <p><button data-calibrate>Calibrate a new field</button></p>
+      ${
+        deps.fields.length > 0
+          ? `<h2>Play</h2>
+             <p><button data-start>Start a game on ${escapeHtml(deps.fields[0].name)}</button></p>
+             <p>
+               <label>Or join a code<br />
+                 <input data-code type="text" maxlength="8" placeholder="ABC123" />
+               </label>
+             </p>
+             <p><button data-join class="secondary">Join</button></p>`
+          : ''
+      }
     `;
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
       ?.addEventListener('click', deps.onCalibrate);
+    root.querySelector<HTMLButtonElement>('[data-start]')?.addEventListener('click', () => {
+      if (deps.fields[0]) deps.onStart(deps.fields[0]);
+    });
+    root.querySelector<HTMLButtonElement>('[data-join]')?.addEventListener('click', () => {
+      const code = root.querySelector<HTMLInputElement>('[data-code]')?.value.trim();
+      if (code && deps.fields[0]) deps.onJoin(code.toUpperCase(), deps.fields[0]);
+    });
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {
         const field = deps.fields.find((f) => f.id === item.dataset.field);
