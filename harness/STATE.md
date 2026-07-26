@@ -4,9 +4,9 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `4.3` — the client half of the carry. Blocked on a client transport.
-**Next action**: build a WebSocket wrapper for `src/client/`, then `4.3`
-**Last session**: `harness/sessions/2026-07-26-01.md`
+**Active stage**: `4.3` — the client half of the carry. **Now unblocked.**
+**Next action**: `4.3.1` — tap a reachable own piece to lift it
+**Last session**: `harness/sessions/2026-07-26-02.md`
 
 ## In one paragraph
 
@@ -15,10 +15,10 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, and a whole game played move by move against
 the real `workerd` runtime. **250 tests pass.**
 
-The critical path is now `4.3`, the client half of the carry, and it is blocked
-on something that does not exist: **`src/client/` has no WebSocket transport at
-all.** Phase 3 was entirely server work, so nothing was ever built to talk to it.
-The PWA can draw a board and put you on it, but cannot reach a game.
+The transport now exists (`src/client/net.ts`) and is verified against the real
+Durable Object, so **`4.3` is unblocked**: the remaining work is UI. Tap a
+reachable piece to lift it, show legal destinations and which are in reach, tap to
+place. **283 tests pass.**
 
 ## The field survey is ready and waiting on a walk
 
@@ -47,10 +47,10 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-1. **A client WebSocket transport**, then **`4.3`** — tap a reachable piece to
-   lift, see legal destinations and which are in reach, tap to place. This is the
-   last thing between the project and being demonstrable: the server has accepted
-   moves since yesterday and nothing can send it one.
+1. **`4.3`** — the carry UI. Everything under it is drawing and tapping now:
+   `net.ts` connects, syncs, plays a move both sockets see, surfaces rejections
+   and relays position. Wire it to `views/board.ts`, which already knows how to
+   draw reach and the square under foot.
 2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
 3. `1.9.3.5` — fold the findings back into square size and the reach constants.
 4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
@@ -77,6 +77,11 @@ wasted trip is not discovered afterwards.
 - **The survey is deletable on purpose** (decision 0022). It is off unless
   `SURVEY_SECRET` is set, and 404s rather than 401s so an unconfigured deployment
   looks like one without the feature. Do not give it callers in the game.
+- **The relay refuses most of what it is offered, and that is the feature.**
+  599 messages per player per 30 continuous minutes, measured — identical at 0.7,
+  1.4 and 3 m/s, because the 2.5 s interval floor binds and the 2 m delta never
+  does. A stationary player sends one. The server keeps its own stricter
+  backstop, so a relay sent legitimately by the client can still be discarded.
 - **Views are split model-from-DOM**, and the DOM half is verified by driving
   Chromium against `?sim=1` — not by unit tests. Every view bug in phase 1 was
   invisible to tests and obvious in a screenshot. Keep doing it.
