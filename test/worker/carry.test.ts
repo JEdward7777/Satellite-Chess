@@ -856,3 +856,124 @@ describe('the special moves (decision 0001)', () => {
     black.close();
   });
 });
+
+describe('resign and draw (stage 4.4)', () => {
+  it('resigning hands the game to the opponent', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'resign' });
+    const ended = await black.next(
+      (m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null,
+    );
+    expect((ended.game as Msg).result).toMatchObject({ outcome: '0-1', reason: 'resignation' });
+    expect(await stub.peek()).toMatchObject({ status: 'finished' });
+    expect((await stub.clocks()).running).toBe(false);
+    white.close();
+    black.close();
+  });
+
+  it('lets you resign on the opponent\'s turn — conceding is not a move', async () => {
+    const { white, black, stub } = await startedGame();
+    await move(white, stub, 'e2', 'e4');
+    // It is black's turn; white gives up anyway.
+    white.send({ t: 'resign' });
+    const ended = await white.next(
+      (m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null,
+    );
+    expect((ended.game as Msg).result).toMatchObject({ outcome: '0-1' });
+    white.close();
+    black.close();
+  });
+
+  it('offers, shows the offer to both, and draws on acceptance', async () => {
+    const { white, black, stub } = await startedGame();
+
+    white.send({ t: 'draw', action: 'offer' });
+    const seen = await black.next(
+      (m) => m.t === 'state' && (m.game as Msg).drawOfferFrom === 'w',
+    );
+    expect((seen.game as Msg).drawOfferFrom).toBe('w');
+
+    black.send({ t: 'draw', action: 'accept' });
+    const ended = await white.next(
+      (m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null,
+    );
+    expect((ended.game as Msg).result).toMatchObject({ outcome: '1/2-1/2', reason: 'agreement' });
+    expect(await stub.peek()).toMatchObject({ status: 'finished' });
+    white.close();
+    black.close();
+  });
+
+  it('clears the offer when declined, and the game plays on', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'draw', action: 'offer' });
+    await black.next((m) => m.t === 'state' && (m.game as Msg).drawOfferFrom === 'w');
+
+    black.send({ t: 'draw', action: 'decline' });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).drawOfferFrom === null);
+
+    expect(await stub.peek()).toMatchObject({ status: 'active' });
+    await move(white, stub, 'e2', 'e4');
+    white.close();
+    black.close();
+  });
+
+  it('refuses to accept an offer nobody made', async () => {
+    const { white, black } = await startedGame();
+    black.send({ t: 'draw', action: 'accept' });
+    const err = await black.next((m) => m.t === 'error');
+    expect(err.code).toBe('no_draw_offer');
+    white.close();
+    black.close();
+  });
+
+  it('will not let you accept your own offer', async () => {
+    const { white, black } = await startedGame();
+    white.send({ t: 'draw', action: 'offer' });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).drawOfferFrom === 'w');
+    white.clear();
+
+    white.send({ t: 'draw', action: 'accept' });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('no_draw_offer');
+    white.close();
+    black.close();
+  });
+
+  it('treats offering into an open offer as agreement', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'draw', action: 'offer' });
+    await black.next((m) => m.t === 'state' && (m.game as Msg).drawOfferFrom === 'w');
+
+    // Both players tapping "offer a draw" at once is agreement by any reading.
+    black.send({ t: 'draw', action: 'offer' });
+    const ended = await white.next(
+      (m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null,
+    );
+    expect((ended.game as Msg).result).toMatchObject({ reason: 'agreement' });
+    expect(await stub.peek()).toMatchObject({ status: 'finished' });
+    white.close();
+    black.close();
+  });
+
+  it('rejects a draw with no action rather than guessing', async () => {
+    const { white, black } = await startedGame();
+    white.send({ t: 'draw' });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('bad_message');
+    white.close();
+    black.close();
+  });
+
+  it('refuses to resign a game that has already finished', async () => {
+    const { white, black } = await startedGame();
+    white.send({ t: 'resign' });
+    await white.next((m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null);
+    white.clear();
+
+    white.send({ t: 'resign' });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('not_active');
+    white.close();
+    black.close();
+  });
+});

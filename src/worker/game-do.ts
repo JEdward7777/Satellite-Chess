@@ -457,14 +457,20 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'resign':
+        await this.onResign(ws, who);
+        return;
+
       case 'draw':
+        await this.onDraw(ws, who, msg as { action?: string });
+        return;
+
       case 'pause':
-        // Phase 4's remaining stages. Answering explicitly is better than
-        // silence, which would look like a dropped message to a client in a field.
+        // Phase 7's stage. Answering explicitly is better than silence, which
+        // would look like a dropped message to a client in a field.
         this.send(ws, {
           t: 'error',
           code: 'bad_message',
-          message: `"${t}" is not implemented yet. See harness/plan/04-chess.md.`,
+          message: `"${t}" is not implemented yet. See harness/plan/07-resume.md.`,
         });
         return;
 
@@ -944,6 +950,109 @@ export class GameDO extends DurableObject<Env> {
     await this.timers.cancel('disconnect');
     // Finished games are kept for review, then collected.
     await this.timers.schedule('gc', now + FINISHED_GAME_TTL_MS);
+  }
+
+  // -------------------------------------------------------------------------
+  // Resign and draw agreement (stage 4.4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Concede. Available on your opponent's turn as well as your own, because
+   * "I'm beaten" is not a move and waiting for the clock to come back to you
+   * would be a strange thing to require of someone who has already given up.
+   */
+  private async onResign(ws: WebSocket, who: SocketAttachment): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'active' && game.status !== 'suspended') {
+      this.send(ws, {
+        t: 'error',
+        code: 'not_active',
+        message: `The game is ${game.status}.`,
+      });
+      return;
+    }
+
+    const now = Date.now();
+    await this.finish(who.color === 'w' ? '0-1' : '1-0', 'resignation', now);
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /**
+   * Offer, accept or withdraw a draw.
+   *
+   * The offer lives in the game row rather than in memory, because the object
+   * hibernates between messages and an offer that evaporated on a wake would be
+   * a genuinely confusing thing to experience from opposite ends of a field.
+   */
+  private async onDraw(
+    ws: WebSocket,
+    who: SocketAttachment,
+    msg: { action?: string },
+  ): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'active' && game.status !== 'suspended') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+
+    const action = msg.action;
+    if (action !== 'offer' && action !== 'accept' && action !== 'decline') {
+      this.send(ws, {
+        t: 'error',
+        code: 'bad_message',
+        message: 'A draw needs an action of offer, accept or decline.',
+      });
+      return;
+    }
+
+    const offer = game.draw_offer_from as Color | null;
+
+    if (action === 'offer') {
+      // Re-offering your own open offer is a no-op rather than an error: the
+      // likeliest cause is a tap that the player could not tell had landed.
+      if (offer === who.color) return;
+      if (offer !== null) {
+        // Offering into an open offer is agreement by any reasonable reading.
+        await this.agreeDraw();
+        return;
+      }
+      this.setDrawOffer(who.color);
+      this.bumpRev();
+      this.broadcastState();
+      return;
+    }
+
+    if (offer === null || offer === who.color) {
+      this.send(ws, {
+        t: 'error',
+        code: 'no_draw_offer',
+        message: 'There is no draw offer from your opponent to answer.',
+      });
+      return;
+    }
+
+    if (action === 'accept') {
+      await this.agreeDraw();
+      return;
+    }
+
+    this.setDrawOffer(null);
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  private async agreeDraw(): Promise<void> {
+    this.setDrawOffer(null);
+    await this.finish('1/2-1/2', 'agreement', Date.now());
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  private setDrawOffer(color: Color | null): void {
+    this.sql.exec(`UPDATE game SET draw_offer_from = ?, updated_at = ? WHERE id = 1`, color, Date.now());
   }
 
   private carry(): CarryRow | null {

@@ -42,7 +42,15 @@ Object for the only answer that counts.
   - `4.3.5` todo: Promotion picker
   - `4.3.6` todo: Optimistic local application, reconciled against the DO snapshot
 
-- `4.4` todo: Resign and draw agreement
+- `4.4` done: Resign and draw agreement
+  - Resigning is allowed on the opponent's turn too: "I am beaten" is not a move,
+    and making someone wait for the clock to come back before conceding would be
+    a strange thing to require.
+  - The draw offer lives in the game row, not in memory — the object hibernates
+    between messages, and an offer that evaporated on a wake would be genuinely
+    confusing from opposite ends of a field.
+  - Offering into an open offer counts as agreement, since both players tapping
+    at once means the same thing under any reading.
 
 - `4.5` done: Tests
   - `4.5.1` done: A full game played through the DO in a test
