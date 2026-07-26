@@ -4,8 +4,8 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `4.3` — the client half of the carry. **Now unblocked.**
-**Next action**: `4.3.1` — tap a reachable own piece to lift it
+**Active stage**: `4.3` — the carry, client side. Playable; `4.3.5`/`4.3.6` remain.
+**Next action**: `4.3.5` — the promotion picker (a queen is assumed today)
 **Last session**: `harness/sessions/2026-07-26-02.md`
 
 ## In one paragraph
@@ -15,10 +15,15 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, and a whole game played move by move against
 the real `workerd` runtime. **250 tests pass.**
 
-The transport now exists (`src/client/net.ts`) and is verified against the real
-Durable Object, so **`4.3` is unblocked**: the remaining work is UI. Tap a
-reachable piece to lift it, show legal destinations and which are in reach, tap to
-place. **283 tests pass.**
+**The game is playable.** Two browsers against a real `wrangler dev`: calibrate a
+field, create a game, join by code, both walk to their back ranks, lift a pawn on
+e2, walk to e3, place it on e4, and the opponent sees it. **285 tests pass.**
+
+What is missing is polish and reach, not plumbing: the promotion picker (`4.3.5`),
+optimistic local application (`4.3.6`), and — the big one — a real join flow
+(phase 6). Today a second phone joins by typing a code that the first phone
+displays, which works but is not the QR-and-share-sheet experience decision 0015
+describes.
 
 ## The field survey is ready and waiting on a walk
 
@@ -47,13 +52,14 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-1. **`4.3`** — the carry UI. Everything under it is drawing and tapping now:
-   `net.ts` connects, syncs, plays a move both sockets see, surfaces rejections
-   and relays position. Wire it to `views/board.ts`, which already knows how to
-   draw reach and the square under foot.
-2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
-3. `1.9.3.5` — fold the findings back into square size and the reach constants.
-4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
+1. `4.3.5` — the promotion picker. A queen is assumed today, which is right
+   almost always and wrong exactly when it matters.
+2. `4.3.6` — optimistic local application, so a tap feels instant on a slow link.
+3. **O-09** — `carry.test.ts` fails about one run in ten. The structural fix in
+   O-07 (a `rev` floor in the test client) would very likely close it.
+4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+5. `1.9.3.5` — fold the findings back into square size and the reach constants.
+6. O-06 (relative asset paths break deep links) before the join flow in phase 6.
 
 ## Things a new thread should know before touching anything
 
@@ -94,8 +100,14 @@ wasted trip is not discovered afterwards.
 ## Running it
 
 ```bash
-node scripts/build-client.mjs --serve   # http://127.0.0.1:8788/?sim=1
+npm run build:client && npx wrangler dev --port 8799 --local   # the whole thing
+node scripts/build-client.mjs --serve                          # client only, :8788
 ```
+
+`wrangler dev` works now that the worker exists, and is the only way to exercise a
+real game. Open `http://127.0.0.1:8799/?sim=1` in two browser profiles: calibrate
+the same field on each, start a game on one, join with the displayed code on the
+other, then walk both to their back ranks.
 
 `?sim=1` gives a fake GPS with on-screen controls: an arrow pad that walks, drag
 on the board to teleport, sliders for accuracy and jitter, and a switch between
