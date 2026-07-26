@@ -4,18 +4,21 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `1.9.3` — the field survey. Built; **needs the operator to walk it**.
-**Next action**: deploy, set `SURVEY_SECRET`, walk the protocol (`1.9.3.4`)
-**Last session**: `harness/sessions/2026-07-25-03.md`
+**Active stage**: `4.3` — the client half of the carry. Blocked on a client transport.
+**Next action**: build a WebSocket wrapper for `src/client/`, then `4.3`
+**Last session**: `harness/sessions/2026-07-26-01.md`
 
 ## In one paragraph
 
-Phases 0 and 1 are done bar the deploy, and phase 3 is essentially complete: a
-real GameDO with join-code addressing, hibernating WebSockets, multiplexed alarms
-and presence. Phase 4's server half is done too — lift, carry, place, terminal
-detection, clock handover — all against the real `workerd` runtime. **218 tests
-pass.** What does not exist yet is the client half of the carry (`4.3`), so the
-PWA can draw a board and put you on it but cannot yet move a piece.
+Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
+**phase 4's server side is finished** — lift, carry, place, resign, draw,
+terminal detection, clock handover, and a whole game played move by move against
+the real `workerd` runtime. **250 tests pass.**
+
+The critical path is now `4.3`, the client half of the carry, and it is blocked
+on something that does not exist: **`src/client/` has no WebSocket transport at
+all.** Phase 3 was entirely server work, so nothing was ever built to talk to it.
+The PWA can draw a board and put you on it, but cannot reach a game.
 
 ## The field survey is ready and waiting on a walk
 
@@ -44,18 +47,13 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-1. **`4.2.6` — suspension does not cancel a carry.** Confirmed missing by reading
-   `suspendForDisconnect`: it banks the clock and cancels the flag timer, but
-   leaves the `carry` row standing, so a player who drops mid-carry resumes still
-   holding the piece. Decision 0009 says it goes back.
-2. `4.4` — resign and draw. Currently wired to an explicit "not implemented"
-   reply, which is better than silence but is not the feature.
-3. `4.5.1` / `4.5.2` — a full game through the DO, then castling and en passant.
-   Those are where the reach rules have the most room to be subtly wrong.
-4. `4.3` — the client half. This is what makes the game playable end to end in
-   the simulator.
-5. `1.9.2` and `1.9.3` still need a real phone on real ground, and `1.9.3` is
-   still the highest-information stage in the project.
+1. **A client WebSocket transport**, then **`4.3`** — tap a reachable piece to
+   lift, see legal destinations and which are in reach, tap to place. This is the
+   last thing between the project and being demonstrable: the server has accepted
+   moves since yesterday and nothing can send it one.
+2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+3. `1.9.3.5` — fold the findings back into square size and the reach constants.
+4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
 
 ## Things a new thread should know before touching anything
 
