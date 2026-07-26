@@ -24,7 +24,7 @@ position only at the two moments that matter (decision 0008).
 
 | Source | Per game, per player | Notes |
 |---|---|---|
-| Position relay | ~250–450 | Only on >2 m movement, at most 1 per 2.5 s |
+| Position relay | ~250–450 typical, **599 ceiling** | Only on >2 m movement, at most 1 per 2.5 s |
 | `lift` + `place` | ~80 | Two per move, ~40 moves |
 | `ready` / `sync` / control | ~10 | Handshakes, reconnects, resign, draw |
 | Keepalive | **0** | `setWebSocketAutoResponse` never wakes the object |
@@ -32,6 +32,20 @@ position only at the two moments that matter (decision 0008).
 
 Roughly **700–1,100 requests per game**, against 3,600 — call it 90–140 games a
 day, and that is a limit no two-player-in-one-field game will reach.
+
+**The relay ceiling is measured, not estimated** (`test/net.test.ts`, and
+`offerPosition` in `src/client/net.ts`). Feeding the real rate limiter 1 Hz fixes
+for thirty continuous minutes sends **599** messages, and that figure is identical
+at 0.7, 1.4 and 3 m/s — the 2.5 s interval floor binds long before the 2 m delta
+does, so *speed does not matter, only elapsed time*. A 1 Hz offer stream can only
+clear a 2,500 ms floor every third tick, which is why it is 599 and not 720.
+
+That makes the worst case **~1,290 requests per game** rather than 1,100, or about
+**77 games a day** — still far beyond reach, but the honest number. The 250–450
+estimate above stands as the *typical* case, because a real game is not a
+continuous walk: players stand still to think, and a stationary player sends
+exactly **one** relay message for the whole game, no matter how long they stand
+there. The truth for any given game is somewhere between 1 and 599.
 
 ## Rules that keep it there
 

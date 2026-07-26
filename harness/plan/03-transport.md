@@ -49,7 +49,15 @@ the field. No chess yet — proving the plumbing in isolation.
   - `3.3.3` done: Tests for overlapping and re-scheduled timers
 
 - `3.4` active: Coarse position relay
-  - `3.4.1` todo: Client sends only on >2 m movement, at most every 2.5 s
+  - Client transport lives in `src/client/net.ts` — the socket, reconnection with
+    backoff, the free keepalive, and the send policy. Built here rather than in
+    phase 4 because `4.3` cannot send a move without it.
+  - `3.4.1` done: Client sends only on >2 m movement, at most every 2.5 s
+    - `offerPosition` in `src/client/net.ts`. Measured rather than assumed: 599
+      messages per player per 30 continuous minutes, identical at 0.7, 1.4 and
+      3 m/s because the interval floor binds and the delta never does. A
+      stationary player sends one. `harness/reference/budget.md` updated with the
+      ceiling.
   - `3.4.2` done: Server-side rate limit as a backstop against a bad client
   - `3.4.3` todo: Relay to the opponent; interpolate on receipt
   - `3.4.4` done: Persist last known position in `presence` for reconnect
