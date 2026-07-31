@@ -17,14 +17,141 @@
  * field and the client has no better words for it.
  */
 
-import { type FieldSpec, deriveGeometry, fromBoardPoint, toBoardPoint } from '../../shared/field.js';
+import {
+  type BoardPoint,
+  type FieldGeometry,
+  type FieldSpec,
+  deriveGeometry,
+  distanceFromBoardPointToSquareM,
+  fromBoardPoint,
+  toBoardPoint,
+} from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
+import type { CarryState } from '../../shared/protocol.js';
 import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/reach.js';
-import { type Color, type Square, toSquare } from '../../shared/squares.js';
+import { type Color, type Square, fromSquare, toSquare } from '../../shared/squares.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import type { GameConnection, NetState } from '../net.js';
-import { type Projection, drawBoard, piecesFromFen, squareUnderFoot } from '../render.js';
+import {
+  PIECE_GLYPHS,
+  type PieceType,
+  type Projection,
+  drawBoard,
+  piecesFromFen,
+  squareUnderFoot,
+} from '../render.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
+
+// ---------------------------------------------------------------------------
+// The model half
+//
+// Split from the DOM so it can be tested in node. The DOM half below is checked
+// by driving Chromium against `?sim=1` instead, because every view bug in phase
+// 1 was invisible to a unit test and obvious in a screenshot.
+// ---------------------------------------------------------------------------
+
+/** What a pawn may become. Not a king, and not another pawn. */
+export type PromotionPiece = 'q' | 'r' | 'b' | 'n';
+
+export const PROMOTION_CHOICES: readonly { type: PromotionPiece; name: string }[] = [
+  { type: 'q', name: 'Queen' },
+  { type: 'r', name: 'Rook' },
+  { type: 'b', name: 'Bishop' },
+  { type: 'n', name: 'Knight' },
+];
+
+/**
+ * Would putting the carried piece down on `to` promote it?
+ *
+ * Asked of the carry rather than of the FEN, because mid-carry the position
+ * still shows the pawn on its origin — the board only changes when the piece
+ * goes down — and `piece` is the server's word for what is actually in hand.
+ */
+export function promotesOn(carry: Pick<CarryState, 'piece' | 'color'>, to: Square): boolean {
+  if (carry.piece.toLowerCase() !== 'p') return false;
+  return fromSquare(to).rank === (carry.color === 'w' ? 7 : 0);
+}
+
+/** The piece in hand, and the nearest place it can be put down. */
+export interface CarryGuidance {
+  from: Square;
+  piece: string;
+  glyph: string;
+  mine: boolean;
+  destinations: Square[];
+  /** Those that could be placed on from where the player stands right now. */
+  inReach: Square[];
+  /**
+   * The closest legal destination, and how much further there is to walk.
+   *
+   * `walkM` is the number worth showing. Reach extends past your feet, so a
+   * square 14 m away with 8 m of reach is six metres of walking, not fourteen,
+   * and quoting the larger number walks a player straight past the square.
+   */
+  nearest: { square: Square; distanceM: number; walkM: number } | null;
+}
+
+export function carryGuidance(
+  geo: FieldGeometry,
+  here: BoardPoint | null,
+  reachM: number,
+  carry: CarryState,
+  myColor: Color,
+): CarryGuidance {
+  // Deduped: a promotion square arrives four times, once per piece the pawn
+  // could become, because that is how chess.js enumerates the moves. Four dots
+  // land on the same square harmlessly, but "4 in reach" for one square does not.
+  const destinations = [...new Set(carry.destinations ?? [])];
+  const inReach: Square[] = [];
+  let nearest: CarryGuidance['nearest'] = null;
+
+  // Without a fix there is no "here", so nothing is in reach and there is no
+  // nearest — which is what the screen should say rather than guessing.
+  if (here) {
+    for (const square of destinations) {
+      const distanceM = distanceFromBoardPointToSquareM(geo, here, fromSquare(square));
+      if (distanceM <= reachM) inReach.push(square);
+      if (!nearest || distanceM < nearest.distanceM) {
+        nearest = { square, distanceM, walkM: Math.max(0, distanceM - reachM) };
+      }
+    }
+  }
+
+  return {
+    from: carry.from,
+    piece: carry.piece,
+    glyph: PIECE_GLYPHS[carry.piece.toLowerCase() as PieceType] ?? '?',
+    mine: carry.color === myColor,
+    destinations,
+    inReach,
+    nearest,
+  };
+}
+
+/** Distances are read while walking, so they are short and never reflow. */
+export function metres(m: number): string {
+  return m < 10 ? `${m.toFixed(1)} m` : `${Math.round(m)} m`;
+}
+
+/** The HUD line: what is in hand, and where it is going. */
+export function carryReadout(guidance: CarryGuidance | null): string {
+  if (!guidance) return '—';
+  const what = `${guidance.glyph} ${guidance.from}`;
+  if (!guidance.mine) return `${what} · theirs`;
+  if (guidance.inReach.length > 0) return `${what} · ${guidance.inReach.length} in reach`;
+  if (!guidance.nearest) return `${what} · no fix`;
+  return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM)}`;
+}
+
+/** What to do next while someone is carrying, in one line. */
+export function carryPrompt(guidance: CarryGuidance): string {
+  if (!guidance.mine) return 'Your opponent is carrying a piece.';
+  if (!guidance.nearest) return `Carrying from ${guidance.from}. Waiting for a fix…`;
+  if (guidance.inReach.length > 0) {
+    return `Carrying. Tap a bright dot to place — ${guidance.inReach.length} in reach.`;
+  }
+  return `Carrying. Walk ${metres(guidance.nearest.walkM)} to ${guidance.nearest.square}, or to any other marked square.`;
+}
 
 export interface GameViewDeps {
   gps: GpsProvider;
@@ -48,6 +175,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <dt>On</dt><dd data-square>—</dd>
           <dt>Reach</dt><dd data-reach>—</dd>
           <dt>Turn</dt><dd data-turn>—</dd>
+          <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden>—</dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
         <p data-notice class="notice" hidden></p>
@@ -56,6 +184,19 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-drop class="secondary" hidden>Put it back</button>
           <button data-leave class="secondary">Leave</button>
         </p>
+      </div>
+      <div class="promotion" data-promotion hidden>
+        <p data-promotion-title>Promote to</p>
+        <div class="promotion-choices">
+          ${PROMOTION_CHOICES.map(
+            (choice) => `
+            <button data-promote="${choice.type}">
+              <span aria-hidden="true">${PIECE_GLYPHS[choice.type]}</span>
+              <span>${choice.name}</span>
+            </button>`,
+          ).join('')}
+        </div>
+        <button data-promote-cancel class="secondary">Keep carrying</button>
       </div>
     </div>
   `;
@@ -69,6 +210,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let projection: Projection | null = null;
   let errorShownAt = 0;
   let lastErrorSeen: string | null = null;
+  /** A place that is waiting on the promotion picker being answered. */
+  let pendingPromotion: { from: Square; to: Square } | null = null;
 
   /** The field the *game* is played on, which outranks the one we were handed. */
   const geometry = () =>
@@ -79,15 +222,15 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const reachNow = () =>
     effectiveReachM(gps.fix?.accuracyM ?? 0, net.game?.reach ?? DEFAULT_REACH);
 
-  /** My carry, the opponent's, or none. */
-  const carryState = () => {
+  /** Where the player is in board space, or null before the first fix. */
+  const hereNow = (): BoardPoint | null =>
+    gps.fix ? toBoardPoint(geometry(), gps.fix.pos) : null;
+
+  /** My carry, the opponent's, or none — with the distances already worked out. */
+  const guidanceNow = (): CarryGuidance | null => {
     const carry = net.game?.carry;
     if (!carry) return null;
-    return {
-      from: carry.from as Square,
-      destinations: (carry.destinations ?? []) as Square[],
-      mine: carry.color === myColor(),
-    };
+    return carryGuidance(geometry(), hereNow(), reachNow(), carry, myColor());
   };
 
   function squareAtPointer(x: number, y: number): Square | null {
@@ -113,7 +256,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (!game || !fix) return;
 
     // Everything below is a *request*. The server decides, and says why not.
-    const carry = carryState();
+    const carry = guidanceNow();
     if (carry === null) {
       deps.connection.send({ t: 'lift', from: square, pos: fix });
       return;
@@ -124,9 +267,32 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       deps.connection.send({ t: 'drop' });
       return;
     }
-    // Promotion is resolved here rather than by asking: a pawn reaching the last
-    // rank almost always wants a queen, and the picker (4.3.5) can refine it.
-    deps.connection.send({ t: 'place', to: square, pos: fix, promotion: 'q' });
+    // A pawn landing on the last rank has to be asked about. Only for a square
+    // the server already called legal: a stray tap should be refused by the
+    // server as usual, not answered with a picker for a move that cannot happen.
+    if (game.carry && carry.destinations.includes(square) && promotesOn(game.carry, square)) {
+      pendingPromotion = { from: carry.from, to: square };
+      paint();
+      return;
+    }
+    deps.connection.send({ t: 'place', to: square, pos: fix });
+  }
+
+  /**
+   * Answer the picker and complete the move.
+   *
+   * The fix is taken *now*, not when the picker opened, because the server
+   * checks reach at the instant of the place — and a player can drift a couple
+   * of metres in the time it takes to decide between a queen and a knight.
+   */
+  function choosePromotion(promotion: PromotionPiece): void {
+    const pending = pendingPromotion;
+    const fix = fixNow();
+    pendingPromotion = null;
+    if (pending && fix) {
+      deps.connection.send({ t: 'place', to: pending.to, pos: fix, promotion });
+    }
+    paint();
   }
 
   const onPointerUp = (event: PointerEvent) => {
@@ -139,6 +305,17 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.querySelector<HTMLButtonElement>('[data-leave]')?.addEventListener('click', deps.onLeave);
   root.querySelector<HTMLButtonElement>('[data-drop]')?.addEventListener('click', () => {
     deps.connection.send({ t: 'drop' });
+  });
+  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-promote]')) {
+    button.addEventListener('click', () => {
+      choosePromotion(button.dataset.promote as PromotionPiece);
+    });
+  }
+  root.querySelector<HTMLButtonElement>('[data-promote-cancel]')?.addEventListener('click', () => {
+    // Cancelling abandons the *place*, not the carry — the piece is still in
+    // hand and can go somewhere else, or back where it came from.
+    pendingPromotion = null;
+    paint();
   });
   root.querySelector<HTMLButtonElement>('[data-ready]')?.addEventListener('click', () => {
     const fix = fixNow();
@@ -163,22 +340,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (game.status === 'staging') return 'Walk to your own back rank, then tap Ready.';
     if (game.status === 'suspended') return 'Game paused — waiting for both players.';
 
-    const carry = carryState();
-    if (carry?.mine) {
-      const geo = geometry();
-      const here = gps.fix ? toBoardPoint(geo, gps.fix.pos) : null;
-      if (!here) return `Carrying from ${carry.from}. Waiting for a fix…`;
-      const inReach = carry.destinations.filter((square) => {
-        const fr = { file: 'abcdefgh'.indexOf(square[0]), rank: Number(square[1]) - 1 };
-        const du = Math.max(0, Math.abs(here.u - fr.file * geo.squareM) - geo.squareM / 2);
-        const dv = Math.max(0, Math.abs(here.v - fr.rank * geo.squareM) - geo.squareM / 2);
-        return Math.hypot(du, dv) <= reachNow();
-      });
-      return inReach.length > 0
-        ? `Carrying. Tap a bright dot to place — ${inReach.length} in reach.`
-        : 'Carrying. Walk to one of the marked squares.';
-    }
-    if (carry && !carry.mine) return 'Your opponent is carrying a piece.';
+    const carry = guidanceNow();
+    if (carry) return carryPrompt(carry);
     if (game.clock.active !== myColor()) return 'Your opponent to move.';
     return 'Your move — tap a piece you can reach.';
   }
@@ -188,7 +351,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const fix = gps.fix;
     const accuracyM = fix?.accuracyM ?? 0;
     const reachM = reachNow();
-    const carry = carryState();
+    const carry = guidanceNow();
 
     projection = drawBoard(canvas, {
       geo,
@@ -215,6 +378,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     );
     set('[data-prompt]', prompt());
 
+    // The carry line earns its space only while there is something in hand;
+    // a permanent "Carrying —" is a row of screen spent saying nothing.
+    set('[data-carry]', carryReadout(carry));
+    for (const el of root.querySelectorAll<HTMLElement>('[data-carry], [data-carry-label]')) {
+      el.hidden = carry === null;
+    }
+
     const dropButton = root.querySelector<HTMLButtonElement>('[data-drop]');
     if (dropButton) dropButton.hidden = !carry?.mine;
     const readyButton = root.querySelector<HTMLButtonElement>('[data-ready]');
@@ -222,6 +392,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       const staging = net.game?.status === 'staging' || net.game?.status === 'suspended';
       readyButton.hidden = !staging;
       readyButton.disabled = !fix;
+    }
+
+    const picker = root.querySelector<HTMLElement>('[data-promotion]');
+    if (picker) {
+      picker.hidden = pendingPromotion === null;
+      if (pendingPromotion) {
+        set('[data-promotion-title]', `Promote on ${pendingPromotion.to}`);
+      }
     }
 
     // A rejection is worth reading, but not worth staring at for the rest of the
@@ -249,6 +427,17 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   });
   const offNet = deps.connection.subscribe((state) => {
     net = state;
+    // A picker left open over a carry that has ended — placed, dropped, or
+    // cancelled by a suspension (decision 0009) — would offer to promote a piece
+    // that is no longer in hand. The server would refuse it, but the screen
+    // would have lied first.
+    const carry = state.game?.carry;
+    if (
+      pendingPromotion &&
+      (!carry || carry.color !== myColor() || carry.from !== pendingPromotion.from)
+    ) {
+      pendingPromotion = null;
+    }
     paint();
   });
 

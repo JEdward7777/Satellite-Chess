@@ -42,10 +42,17 @@ Object for the only answer that counts.
     ranks, lift on e2, walk to e3, place on e4, opponent sees it.
   - `4.3.1` done: Tap a reachable own piece to lift it
   - `4.3.2` done: Show legal destinations, and which are currently in reach
-  - `4.3.3` todo: Carried piece in the HUD, with a distance-to-nearest-legal-
+  - `4.3.3` done: Carried piece in the HUD, with a distance-to-nearest-legal-
     destination readout so a player knows where to walk
+    - The number shown is the walk *remaining* — distance to the square minus
+      reach — not the distance to the square. Reach extends past your feet, so
+      quoting the larger number walks a player straight past the destination.
   - `4.3.4` done: Tap to place when in reach; clear feedback when not
-  - `4.3.5` todo: Promotion picker
+  - `4.3.5` done: Promotion picker
+    - A modal overlay covering the board, because a pawn on the last rank is the
+      one moment a tap has to mean something other than "put it here". The fix
+      is taken when the choice is made, not when the picker opened, since the
+      server checks reach at the instant of the place.
   - `4.3.6` todo: Optimistic local application, reconciled against the DO snapshot
 
 - `4.4` done: Resign and draw agreement

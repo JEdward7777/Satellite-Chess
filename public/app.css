@@ -187,6 +187,71 @@ h2 {
 }
 
 /*
+ * The promotion picker.
+ *
+ * Modal, and covering the board on purpose. A pawn reaching the last rank is the
+ * one moment where a tap on the board has to mean something other than "put it
+ * here", so nothing else may be tappable until it is answered — and the overlay
+ * itself is what swallows those taps.
+ *
+ * z-index sits above the simulator panel, which is fixed to the bottom of the
+ * screen and would otherwise cover the choices during a simulated game.
+ */
+/*
+ * An author `display` beats the user agent's rule for `[hidden]` whatever the
+ * specificity, so anything given a display here must opt back out explicitly.
+ * Without this the picker covers the board for the whole game.
+ */
+.promotion[hidden] {
+  display: none;
+}
+
+.promotion {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  padding: 1rem;
+  background: rgba(13, 17, 23, 0.94);
+}
+
+.promotion p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.promotion-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(7rem, 9rem));
+  gap: 0.8rem;
+}
+
+/* Bigger than the 48px minimum: this is a decision, not a control you brush. */
+.promotion-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 5.5rem;
+  margin-left: 0;
+}
+
+.promotion-choices button span:first-child {
+  font-size: 2rem;
+  line-height: 1;
+  font-family: "DejaVu Sans", "Segoe UI Symbol", "Apple Symbols", serif;
+}
+
+.promotion-choices button span + span {
+  font-size: 0.85rem;
+}
+
+/*
  * The simulator panel. Only present under ?sim=1, and unmistakably not part of
  * the game — it sits over everything in a flat grey so that no screenshot of it
  * could ever be mistaken for the real thing.

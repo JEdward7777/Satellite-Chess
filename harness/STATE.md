@@ -4,9 +4,9 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `4.3` — the carry, client side. Playable; `4.3.5`/`4.3.6` remain.
-**Next action**: `4.3.5` — the promotion picker (a queen is assumed today)
-**Last session**: `harness/sessions/2026-07-26-02.md`
+**Active stage**: `4.3` — the carry, client side. Only `4.3.6` remains.
+**Next action**: `4.3.6` — optimistic local application, so a tap feels instant
+**Last session**: `harness/sessions/2026-07-31-01.md`
 
 ## In one paragraph
 
@@ -15,15 +15,16 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, and a whole game played move by move against
 the real `workerd` runtime. **250 tests pass.**
 
-**The game is playable.** Two browsers against a real `wrangler dev`: calibrate a
-field, create a game, join by code, both walk to their back ranks, lift a pawn on
-e2, walk to e3, place it on e4, and the opponent sees it. **285 tests pass.**
+**The game is playable, and a whole game has now been played through it.** Two
+browsers against a real `wrangler dev`: calibrate a field, create a game, join by
+code, both walk to their back ranks, then nine moves to a pawn on the seventh —
+`1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
+through the picker. **307 tests pass.**
 
-What is missing is polish and reach, not plumbing: the promotion picker (`4.3.5`),
-optimistic local application (`4.3.6`), and — the big one — a real join flow
-(phase 6). Today a second phone joins by typing a code that the first phone
-displays, which works but is not the QR-and-share-sheet experience decision 0015
-describes.
+What is missing is polish and reach, not plumbing: optimistic local application
+(`4.3.6`), and — the big one — a real join flow (phase 6). Today a second phone
+joins by typing a code that the first phone displays, which works but is not the
+QR-and-share-sheet experience decision 0015 describes.
 
 ## The field survey is ready and waiting on a walk
 
@@ -52,14 +53,13 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-1. `4.3.5` — the promotion picker. A queen is assumed today, which is right
-   almost always and wrong exactly when it matters.
-2. `4.3.6` — optimistic local application, so a tap feels instant on a slow link.
-3. **O-09** — `carry.test.ts` fails about one run in ten. The structural fix in
-   O-07 (a `rev` floor in the test client) would very likely close it.
-4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
-5. `1.9.3.5` — fold the findings back into square size and the reach constants.
-6. O-06 (relative asset paths break deep links) before the join flow in phase 6.
+1. `4.3.6` — optimistic local application, so a tap feels instant on a slow link.
+2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+3. `1.9.3.5` — fold the findings back into square size and the reach constants.
+4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
+5. **O-09** — `carry.test.ts` still flakes. The two suspension tests now have a
+   named race (the test overwrites a `disconnect` timer that the DO's own close
+   handler then reschedules); fix it next time that file is open.
 
 ## Things a new thread should know before touching anything
 
@@ -90,7 +90,14 @@ wasted trip is not discovered afterwards.
   backstop, so a relay sent legitimately by the client can still be discarded.
 - **Views are split model-from-DOM**, and the DOM half is verified by driving
   Chromium against `?sim=1` — not by unit tests. Every view bug in phase 1 was
-  invisible to tests and obvious in a screenshot. Keep doing it.
+  invisible to tests and obvious in a screenshot, and so was the one in `4.3.5`:
+  an author `display` rule beats the user agent's `[hidden] { display: none }`
+  whatever the specificity, so the promotion overlay covered the board for a whole
+  game while every test passed. Keep taking screenshots.
+- **Clicking the board under `?sim=1` teleports *and* taps.** `attachSimDrag`
+  moves the player on `pointerdown`, the game view taps on `pointerup`. To drive a
+  game from a script, teleport with `satchess.me.moveTo(...)` and dispatch a bare
+  `pointerup` — a real click places the piece where you already stand.
 - **Three tsconfigs, one per runtime** (decision 0021). Client gets DOM only,
   worker gets Workers only, tools get both. Do not collapse them back into one —
   the Workers globals shadow their DOM namesakes and the resulting errors name

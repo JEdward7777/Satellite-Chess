@@ -110,8 +110,8 @@ bite, the fix is small — require an explicit `ready` while `staging`, and keep
 purely positional rule for `suspended`, where both players already know they are
 resuming.
 
-### O-09 — `carry.test.ts` fails roughly one run in ten, cause unidentified
-**Spotted:** 2026-07-26, stage 4.3
+### O-09 — `carry.test.ts` flakes, and the suspension tests have a named race
+**Spotted:** 2026-07-26, stage 4.3. **Updated:** 2026-07-31, stage 4.3.5.
 **Why it matters:** "lets both players move in turn" failed twice across about
 fifteen runs of the suite, and passed thirteen. A test that fails one time in ten
 erodes trust in the whole suite and trains people to re-run rather than read.
@@ -120,8 +120,28 @@ opponent's stale broadcast (O-07) — and both were fixed; this is not obviously
 same, because the failing test sends no `pos` messages and the most recent change
 was to `onPos`. Not yet reproduced under diagnosis: eight consecutive targeted runs
 came back clean.
-**Not doing yet because:** Chasing it blind costs more than it currently returns,
-and the suite is otherwise green at 285 tests. The structural fix proposed in O-07
-would very likely close it too: give `next()` a monotonic `rev` floor so a stale
-snapshot cannot satisfy any predicate. That is the thing to do if it recurs, rather
-than another per-call patch.
+
+**2026-07-31 — a mechanism, for the two suspension tests at least.** Two more
+failures on one day, both in `describe('suspension puts the piece back')` and both
+saying the same thing: the game was still `active` when the test expected
+`suspended`. One failed on `expect(await stub.peek()).toMatchObject({ status:
+'suspended' })`, the other on `expect(clocks.running).toBe(false)` a few lines
+later. Five consecutive targeted reruns of the worker project were clean.
+
+Both tests do `black.close()` and then immediately overwrite the `disconnect`
+timer with `due_at = Date.now() - 1` so the alarm fires at once. But the close is
+not awaited, and the DO's own `webSocketClose` → `onDisconnect` schedules
+`disconnect` at `now + DISCONNECT_GRACE_MS` (`game-do.ts:420`). If the runtime
+delivers the close *after* the test's `INSERT OR REPLACE`, the DO's future
+deadline wins, `runDurableObjectAlarm` finds nothing due, and the game never
+suspends. Nothing is wrong with the product: both sides are doing their job, and
+the test is racing the runtime.
+
+That makes it a different bug from the O-07 family, and the `rev` floor would not
+have touched it — the failing assertion reads stored state, not a broadcast.
+**Not doing yet because:** it is a test-harness fix in a file this session did not
+otherwise need to open, and the honest fix is to wait for the DO to have observed
+the disconnect (poll `presence.connected = 0` for black) before overwriting the
+timer, rather than to sleep. Worth doing next time `carry.test.ts` is open. The
+original "lets both players move in turn" flake is still unexplained and may be a
+third thing again.

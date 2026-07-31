@@ -84,8 +84,14 @@ const ACCURACY_RING = 'rgba(255, 255, 255, 0.5)';
 const PLAYER_DOT = '#ffffff';
 const PLAYER_EDGE = '#0d1117';
 
-/** Solid glyphs for both colours, distinguished by fill — decision 0011. */
-const GLYPHS: Record<PieceType, string> = {
+/**
+ * Solid glyphs for both colours, distinguished by fill — decision 0011.
+ *
+ * Exported because the HUD and the promotion picker name pieces too, and a
+ * knight that is one glyph on the board and another in the picker is a puzzle
+ * for someone who is trying to read it at arm's length in the sun.
+ */
+export const PIECE_GLYPHS: Record<PieceType, string> = {
   k: '♚︎',
   q: '♛︎',
   r: '♜︎',
@@ -414,7 +420,7 @@ function drawPieces(
     if (!piece) continue;
     const fr = fromSquare(square);
     const centre = projection.toScreen({ u: fr.file * view.geo.squareM, v: fr.rank * view.geo.squareM });
-    const glyph = GLYPHS[piece.type];
+    const glyph = PIECE_GLYPHS[piece.type];
     // Same solid glyph for both colours; fill and stroke carry the difference.
     ctx.fillStyle = piece.color === 'w' ? '#ffffff' : '#16181d';
     ctx.strokeStyle = piece.color === 'w' ? '#16181d' : '#e8e8e8';
