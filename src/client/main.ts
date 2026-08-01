@@ -319,11 +319,17 @@ function escapeHtml(text: string): string {
 /**
  * Registered after boot, never before: a failing service worker must not be able
  * to stop the game starting.
+ *
+ * The path is absolute, and that matters more than it looks. `register('sw.js')`
+ * resolves against the *document*, so a phone that arrived by scanning a QR at
+ * `/j/ABC123` would ask for `/j/sw.js`, get a 404, and register nothing — the
+ * one phone most likely to need an offline shell would be the one without one,
+ * and the failure is silent. See O-06.
  */
 function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) return;
   addEventListener('load', () => {
-    void navigator.serviceWorker.register('sw.js').catch(() => undefined);
+    void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined);
   });
 }
 

@@ -1,6 +1,24 @@
-# Phase 5 — Join: QR and typed code
+# Phase 6 — Join: QR and typed code
 
-- `6` todo: Join flow
+- `6` active: Join flow
+
+- `6.0` done: Serve the app shell from any path (closes O-06)
+  - Everything else in this phase points a camera at a URL that is not `/`. Until
+    the shell loads from `/j/CODE`, a QR encoder only produces links that fail —
+    so this comes first, before `6.1.3`.
+  - `6.0.1` done: Absolute asset paths in `index.html`, the manifest, and the
+    service worker registration. `register('sw.js')` resolves against the
+    *document*, so from `/j/CODE` it asks for `/j/sw.js` and registration fails
+    silently — there is no offline shell at all after a scan.
+  - `6.0.2` done: A shared table of client-side routes (`src/shared/routes.ts`),
+    so the worker's "which paths get the shell" and the client's "what does this
+    path mean" cannot drift apart.
+  - `6.0.3` done: The worker answers an app route with the shell, and still 404s
+    an unknown path rather than returning HTML with a 200.
+  - `6.0.4` done: The service worker's precache list and its cache-first matching
+    agree with the new paths, guarded by a test that reads both files.
+  - `6.0.5` done: Re-verify in a browser: a cold deep link loads, and a deep link
+    opened offline still starts the app.
 
 - `6.1` todo: Create and share
   - `6.1.1` todo: Create screen — pick field, time control, colour, handicap

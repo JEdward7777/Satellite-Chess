@@ -51,22 +51,6 @@ claim-the-win timer, a mutual-abandon draw, and the interaction with the permane
 record all have to be settled together. Promote to a stage in phase 5 once the
 suspension path exists to hang it on.
 
-### O-06 — Shell asset paths are relative, so deep links will break
-**Spotted:** 2026-07-25, stage 1.8
-**Why it matters:** `public/index.html` references `app.css`, `app.js`,
-`manifest.webmanifest` and `icons/…` relatively, and `sw.js` precaches the same
-paths as `./…`. Served from `/` that is fine. Served from `/j/ABC123` — the QR deep
-link in phase 6 — the browser would resolve `app.js` to `/j/app.js` and the app
-would not load at all. The same applies to the `/f/<blob>` field-share link
-(decision 0016).
-**Not doing yet because:** It is not merely a search-and-replace to absolute paths:
-the service worker's precache list and its cache-first matching have to agree, and
-the offline behaviour then needs re-verifying in a browser, which is how 1.5.2 was
-validated. Phase 6 has to build and test deep-link routing anyway, so the fix
-belongs there rather than being done blind now. Nothing before phase 6 serves any
-path other than `/`, so this cannot bite in the meantime. **Do it as the first
-stage of phase 6**, before the QR encoder, or the first scan will fail in a field.
-
 ### O-07 — A predicate over a shared broadcast stream must identify itself
 **Spotted:** 2026-07-26, stage 4.5.4
 **Why it matters:** Twice now, a test has failed in a way that blamed the product
@@ -149,3 +133,21 @@ the disconnect (poll `presence.connected = 0` for black) before overwriting the
 timer, rather than to sleep. Worth doing next time `carry.test.ts` is open. The
 original "lets both players move in turn" flake is still unexplained and may be a
 third thing again.
+
+### O-10 — The service worker answers navigations the Worker would 404
+**Spotted:** 2026-08-01, stage 6.0
+**Why it matters:** The Worker serves the shell only for the routes in
+`shared/routes.ts` and 404s anything else, deliberately, so a broken link does not
+present as a broken app. The service worker answers **every** in-scope navigation
+from the cached shell. Once it is installed it decides, so a returning visitor gets
+a 200 and the app at `/nonsense` where a first-time visitor gets a 404. Measured
+both ways in `scripts/check-deeplink.mjs`, which asserts the divergence rather than
+leaving it to be rediscovered.
+**Not doing yet because:** Offline there is no way to tell a real code from a typo,
+and the app saying "no game with that code" is friendlier than a browser error
+page — so the broad rule may simply be right. Narrowing it means duplicating
+`parseAppRoute` inside `sw.js`, which is served raw and cannot import, or building
+`sw.js` from TypeScript — a fourth runtime and so a fourth tsconfig under decision
+0021. Neither is worth doing on a guess. Revisit if `6.2.5` (clear failures for a
+bad code) finds the two behaviours actually diverge for a player rather than for a
+test.

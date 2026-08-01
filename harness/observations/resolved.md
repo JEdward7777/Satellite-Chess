@@ -19,3 +19,29 @@ Verified by deleting the workaround rather than by asserting the fix: the
 a compile error too, which is the half of the benefit the observation did not
 anticipate.
 
+
+### O-06 — Shell asset paths are relative, so deep links will break
+**Resolved:** 2026-08-01, stage 6.0
+**Outcome:** Fixed, and the observation understated it. Every `href`/`src` in
+`index.html`, the manifest's `start_url` and `scope`, and the service worker's
+precache list are now absolute; `navigator.serviceWorker.register('sw.js')` is now
+`/sw.js`, which was the worst of the four — it resolves against the *document*, so
+the phone that arrived by scanning a QR was exactly the one that would have ended
+up with no offline shell, silently.
+
+Two things the observation did not anticipate, both found by running it rather than
+by reading it:
+
+- **The Worker had to learn the routes at all.** `/j/CODE` was a 404 from the
+  assets binding, so no amount of path-fixing would have helped. `src/shared/routes.ts`
+  is now the one table the Worker and the client both read.
+- **`env.ASSETS.fetch('/index.html')` answers with a 307 to `/`.** The assets
+  binding's default `html_handling` strips `index.html`. A browser follows it, so a
+  scanned invite would have landed on the home screen with the code gone from the
+  URL — which reads as the client failing to parse the code, with nothing wrong in
+  the Worker. `SELF.fetch` follows redirects too, so the first version of the test
+  passed against the bug. The shell is now fetched and cached as `/`, and the test
+  asserts `redirect: 'manual'`.
+
+Verified in Chromium by `scripts/check-deeplink.mjs`: a cold `/j/ABC123` renders
+with no request under `/j/`, and the same URL renders again with the network cut.

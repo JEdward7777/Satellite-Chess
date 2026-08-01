@@ -5,14 +5,16 @@
  * player, and hands over — every rule and every piece of state lives in the DO,
  * which is the only authority.
  *
- * Anything that is not `/api/...` falls through to the assets binding. Note that
- * the shell currently uses *relative* asset paths, so only `/` works — see O-06
- * before adding deep-link routes such as `/j/CODE` or `/f/<blob>`.
+ * Anything that is not `/api/...` falls through to the assets binding, except
+ * the client-side routes in `shared/routes.ts` (`/j/CODE`, `/f/<blob>`), which
+ * are answered with the shell — there is no file at those paths, and a QR scan
+ * lands on one.
  */
 
 import { snapshotField } from '../shared/field.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
+import { isAppRoute } from '../shared/routes.js';
 import type { Color } from '../shared/squares.js';
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
@@ -48,6 +50,21 @@ export default {
         console.error('unhandled API error', error);
         return apiError('internal', 'Something broke on the server.', 500);
       }
+    }
+
+    // A client-side route has no file behind it, so serve the shell and let the
+    // client read the path. Deliberately a fixed list rather than a catch-all
+    // "unknown path gets index.html": a typo should still 404 honestly instead
+    // of returning HTML with a 200, which is the failure mode that makes a
+    // broken link look like a broken app.
+    //
+    // The shell is fetched as `/`, not as `/index.html`. The assets binding's
+    // default `html_handling` strips `index.html` and answers it with a **307 to
+    // `/`** — which a browser follows, so a scanned invite would land on the home
+    // screen with the code gone from the URL. That reads as the client failing to
+    // parse the code, and nothing in the Worker looks wrong.
+    if (isAppRoute(url.pathname)) {
+      return env.ASSETS.fetch(new Request(new URL('/', url), request));
     }
 
     return env.ASSETS.fetch(request);

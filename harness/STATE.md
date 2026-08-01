@@ -4,10 +4,9 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phases 4 and the transport relay are complete**. Pick
-from the list below.
-**Next action**: phase 6 (the join flow) is the big one; phase 5 is the deepest
-**Last session**: `harness/sessions/2026-08-01-02.md`
+**Active stage**: `6` — the join flow. `6.0` is done; `6.1` is next.
+**Next action**: `6.1`, create and share. The QR encoder (`6.1.3`) is unblocked.
+**Last session**: `harness/sessions/2026-08-01-03.md`
 
 ## In one paragraph
 
@@ -16,7 +15,9 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, the promotion picker, and optimistic local
 application. **You can now see your opponent walking**: `3.4` closed, so the
 relay is drawn as a dot that glides between fixes instead of jumping.
-**354 tests pass.**
+**Phase 6 is open, and `6.0` closed O-06**: the shell now loads from `/j/CODE`
+and `/f/<blob>`, online and with the network cut, so a QR code can point at
+something that works. **379 tests pass.**
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -24,10 +25,10 @@ code, both walk to their back ranks, then nine moves to a pawn on the seventh �
 `1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
 through the picker.
 
-What is missing is reach, not plumbing. The big one is a real join flow (phase
-6): today a second phone joins by typing a code the first phone displays, which
-works but is not the QR-and-share-sheet experience decision 0015 describes. After
-that, the clock (phase 5) is the largest untouched system.
+What is missing is reach, not plumbing. The join flow (phase 6) is in progress:
+today a second phone joins by typing a code the first phone displays, which works
+but is not the QR-and-share-sheet experience decision 0015 describes. After that,
+the clock (phase 5) is the largest untouched system.
 
 ## The field survey is ready and waiting on a walk
 
@@ -56,19 +57,22 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-Nothing is half-finished, so this is a genuine choice rather than a queue.
+Nothing is half-finished.
 
-1. **Phase 6, the join flow** — the biggest gap between "playable" and "usable by
-   someone who was not there when it was built". Start with **O-06** (relative
-   asset paths) before the QR encoder, or the first scan in a field will fail.
-2. **Phase 5, the clock** — the largest untouched system, and the game has no
+1. **`6.1`, create and share** — the create screen, the code shown large, the QR
+   encoder and the share sheet. `6.1.3` was blocked on O-06 and no longer is: a
+   link to `/j/CODE` now resolves to a working app.
+2. **`6.2.1`, the deep link opening the game.** `src/shared/routes.ts` already
+   parses `/j/CODE` into a normalised code; nothing on the client reads it yet.
+   `6.0` made the shell *load* there, which is not the same thing.
+3. **Phase 5, the clock** — the largest untouched system, and the game has no
    time pressure at all until it exists. `shared/clock.ts` is already written and
    tested; what is missing is the DO half and the flag-fall alarm.
-3. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
-4. `1.9.3.5` — fold the findings back into square size and the reach constants.
-5. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
+5. `1.9.3.5` — fold the findings back into square size and the reach constants.
+6. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
    named race (the test overwrites a `disconnect` timer that the DO's own close
    handler then reschedules); fix it next time that file is open.
 
@@ -116,6 +120,23 @@ Nothing is half-finished, so this is a genuine choice rather than a queue.
   an author `display` rule beats the user agent's `[hidden] { display: none }`
   whatever the specificity, so the promotion overlay covered the board for a whole
   game while every test passed. Keep taking screenshots.
+- **The shell is served at three paths, so every path in it is absolute.**
+  `/`, `/j/CODE` and `/f/<blob>` are the same document; one relative `src` and two
+  of the three break completely. `src/shared/routes.ts` is the one table of
+  client-side routes — the Worker asks it what to serve, the client asks it what a
+  path means. Adding a route means adding it there, not in two places.
+- **`env.ASSETS.fetch('/index.html')` answers with a 307 to `/`**, because the
+  assets binding's default `html_handling` strips `index.html`. Ask for `/`. Get
+  this wrong and the app still loads — at `/`, with the join code gone from the
+  URL, which reads as a bug in the client's parser.
+- **`SELF.fetch` follows redirects**, so a test asserting `status === 200` passes
+  against exactly that bug. Use `{ redirect: 'manual' }` whenever the status code
+  is the thing being tested.
+- **There is a second browser driver: `scripts/check-deeplink.mjs`.** It loads a
+  cold deep link, cuts the network, loads it again, and separately asks the server
+  what it says with a request that bypasses the service worker. Run it after
+  anything that touches `public/`, the assets binding, or routing. Same
+  `npm install --no-save playwright` preamble as below.
 - **There is a browser driver now: `scripts/drive-game.mjs`.** Three sessions
   wrote one and threw it away; this one is kept. It plays two simulated phones
   through a game and photographs each step. `npm install --no-save playwright`
@@ -150,6 +171,9 @@ Nothing is half-finished, so this is a genuine choice rather than a queue.
 ```bash
 npm run build:client && npx wrangler dev --port 8799 --local   # the whole thing
 node scripts/build-client.mjs --serve                          # client only, :8788
+npm install --no-save playwright                               # then either driver
+node scripts/drive-game.mjs                                    # two phones, a game
+node scripts/check-deeplink.mjs                                # deep links, offline
 ```
 
 `wrangler dev` works now that the worker exists, and is the only way to exercise a
