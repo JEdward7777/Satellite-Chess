@@ -27,7 +27,7 @@ import {
   toBoardPoint,
 } from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
-import type { CarryState } from '../../shared/protocol.js';
+import type { CarryState, GameSnapshot } from '../../shared/protocol.js';
 import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/reach.js';
 import { type Color, type Square, fromSquare, toSquare } from '../../shared/squares.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
@@ -100,6 +100,24 @@ export interface CarryGuidance {
    * and quoting the larger number walks a player straight past the square.
    */
   nearest: { square: Square; distanceM: number; walkM: number } | null;
+}
+
+/**
+ * My handicap, in metres of extra reach (decision 0004).
+ *
+ * Read from the snapshot rather than remembered from the create screen, because
+ * the joining phone never saw that screen and both players have to see the same
+ * circle — the handicap being *visible* is half the reason it is reach rather
+ * than clock.
+ *
+ * Leaving this out of the client's reach does not make a handicapped player's
+ * moves fail; the server still accepts them. It makes the screen tell them they
+ * cannot play a move that would in fact be allowed, which is worse, because
+ * they believe it and walk further than they had to.
+ */
+export function myReachBonusM(game: GameSnapshot | null): number {
+  if (!game) return 0;
+  return game.players[game.you]?.reachBonusM ?? 0;
 }
 
 export function carryGuidance(
@@ -245,8 +263,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
   const myColor = (): Color => net.game?.you ?? 'w';
 
+  /** The circle drawn on screen, which must be the one the server judges by. */
   const reachNow = () =>
-    effectiveReachM(gps.fix?.accuracyM ?? 0, net.game?.reach ?? DEFAULT_REACH);
+    effectiveReachM(
+      gps.fix?.accuracyM ?? 0,
+      net.game?.reach ?? DEFAULT_REACH,
+      myReachBonusM(net.game ?? null),
+    );
 
   /** Where the player is in board space, or null before the first fix. */
   const hereNow = (): BoardPoint | null =>

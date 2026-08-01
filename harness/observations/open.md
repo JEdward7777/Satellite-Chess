@@ -27,6 +27,14 @@ a guess. Revisit with stage 9.2.2 when `DEFAULT_REACH` is tuned from real games.
 ceiling — both are absolute metre values in a rule that should scale with square
 size. Expect one fix for both: express the ceiling, and the bonus's share of it,
 as a multiple of square size once `1.9.3.5` supplies a real one.
+**Updated 2026-08-01 (stage 6.1.1):** there is now a UI that can set a handicap,
+so the exploit is reachable rather than theoretical. `MAX_HANDICAP_M = 4` in
+`client/views/create.ts` bounds what the control can produce — a *bound*, not the
+fix, chosen so no game created today carries a handicap the eventual cap would
+have to invalidate. `effectiveReachM(25, DEFAULT_REACH, 4)` is 19 m, which on 8 m
+squares still reaches two squares from standing. The server enforces nothing:
+`asNonNegativeInt` accepts any value a hand-rolled `POST /api/game` sends. Cap it
+server-side when the real number is known.
 
 ### O-03 — Distance-travelled is client-reported and therefore trivially inflatable
 **Spotted:** 2026-07-25, stage 0.6

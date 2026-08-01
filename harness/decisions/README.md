@@ -58,3 +58,5 @@ The conditions under which this should be reopened.
 | [0020](0020-distance-is-measured-by-smoothed-anchor-hops.md) | Measure distance by smoothed anchor hops, not by summing fixes | accepted |
 | [0021](0021-split-tsconfigs-by-runtime.md) | One tsconfig per runtime, not one for the repo | accepted |
 | [0022](0022-survey-is-a-secret-gated-debug-facility.md) | The field survey is a secret-gated debug facility, off by default | accepted |
+| [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | accepted |
+| [0024](0024-own-qr-encoder-byte-mode.md) | Ship our own QR encoder, byte mode only | accepted |

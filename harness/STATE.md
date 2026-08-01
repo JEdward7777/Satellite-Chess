@@ -4,9 +4,10 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `6` — the join flow. `6.0` is done; `6.1` is next.
-**Next action**: `6.1`, create and share. The QR encoder (`6.1.3`) is unblocked.
-**Last session**: `harness/sessions/2026-08-01-03.md`
+**Active stage**: `6` — the join flow. `6.0` and `6.1` are done; `6.2` is next.
+**Next action**: `6.2.1`, `/j/CODE` opening the game. `parseAppRoute` still has
+one consumer.
+**Last session**: `harness/sessions/2026-08-01-04.md`
 
 ## In one paragraph
 
@@ -15,9 +16,11 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, the promotion picker, and optimistic local
 application. **You can now see your opponent walking**: `3.4` closed, so the
 relay is drawn as a dot that glides between fixes instead of jumping.
-**Phase 6 is open, and `6.0` closed O-06**: the shell now loads from `/j/CODE`
-and `/f/<blob>`, online and with the network cut, so a QR code can point at
-something that works. **379 tests pass.**
+**Phase 6 is open. `6.0` closed O-06** — the shell loads from `/j/CODE` and
+`/f/<blob>`, online and with the network cut — **and `6.1` is done**: a create
+screen, a six-character code shown large as `ABC 123`, a QR encoder written here
+rather than fetched from a CDN (decision 0024), and the OS share sheet with its
+fallbacks. **427 tests pass.**
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -25,10 +28,10 @@ code, both walk to their back ranks, then nine moves to a pawn on the seventh �
 `1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
 through the picker.
 
-What is missing is reach, not plumbing. The join flow (phase 6) is in progress:
-today a second phone joins by typing a code the first phone displays, which works
-but is not the QR-and-share-sheet experience decision 0015 describes. After that,
-the clock (phase 5) is the largest untouched system.
+What is missing is reach, not plumbing. The invite half of phase 6 is now what
+decision 0015 describes; what is left is the *joining* half — a scanned link
+still lands on the home screen rather than in the game. After that, the clock
+(phase 5) is the largest untouched system.
 
 ## The field survey is ready and waiting on a walk
 
@@ -59,12 +62,15 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **`6.1`, create and share** — the create screen, the code shown large, the QR
-   encoder and the share sheet. `6.1.3` was blocked on O-06 and no longer is: a
-   link to `/j/CODE` now resolves to a working app.
-2. **`6.2.1`, the deep link opening the game.** `src/shared/routes.ts` already
+1. **`6.2.1`, the deep link opening the game.** `src/shared/routes.ts` already
    parses `/j/CODE` into a normalised code; nothing on the client reads it yet.
-   `6.0` made the shell *load* there, which is not the same thing.
+   `6.0` made the shell *load* there, which is not the same thing — and now that
+   the QR points somewhere real, this is the last gap in a scan-to-play flow.
+   It needs `6.3` alongside it: a joiner who has never calibrated anything has no
+   field, and `main.ts` currently insists on `fields[0]` before it will join.
+2. **`6.2.2`–`6.2.5`**, the rest of joining: typed entry (already folding through
+   `normaliseJoinCode` on the home screen), `BarcodeDetector` scanning, the
+   Safari decision, and the clear failures.
 3. **Phase 5, the clock** — the largest untouched system, and the game has no
    time pressure at all until it exists. `shared/clock.ts` is already written and
    tested; what is missing is the DO half and the flag-fall alarm.
@@ -132,6 +138,32 @@ Nothing is half-finished.
 - **`SELF.fetch` follows redirects**, so a test asserting `status === 200` passes
   against exactly that bug. Use `{ redirect: 'manual' }` whenever the status code
   is the thing being tested.
+- **A correct QR is not a scannable one.** `scripts/check-qr.mjs` proves the
+  encoder by decoding 351 symbols with jsQR; that says nothing about the thing on
+  screen. Between the matrix and a camera sit an SVG, a stylesheet and a
+  background colour, and a QR drawn transparent over this app's near-black chrome
+  is mathematically perfect and physically unreadable. So `check-invite.mjs`
+  screenshots the rendered symbol and decodes *that*. Keep both.
+- **`navigator.share` must be reached with nothing awaited in front of it.** One
+  `await` and the browser has discarded the user gesture; the call then fails with
+  no console message and no visible cause. `shareInvite` is deliberately not an
+  `async` function, and the comment saying so is load-bearing. A dismissed sheet
+  rejects with `AbortError` and is a *decision*, not a failure — cascading to the
+  mailto tier there pops a mail client at someone who just declined to share.
+- **`querySelector<HTMLSelectElement>` does not compile under
+  `tsconfig.tools.json`.** `HTMLSelectElement` redeclares `remove()`, and in the
+  one config where the DOM and Workers globals coexist (decision 0021) the merged
+  `Element` already has HTMLRewriter's, which returns something else. The errors
+  name types with no bearing on the code, exactly as 0021 warns. Select untyped
+  and cast the event target. Inputs and buttons do not redeclare `remove`, which
+  is why no earlier view hit this.
+- **The client's reach circle must include the handicap**, and for a whole phase
+  it did not (found at 6.1.1). The bonus is per-player in the snapshot
+  (`PlayerView.reachBonusM`) and read by `myReachBonusM`, not remembered from the
+  create screen — the joining phone never saw that screen, and decision 0004
+  turns on *both* players seeing the same circle. Getting this wrong does not
+  fail anyone's moves; it tells a handicapped player a legal move is out of reach,
+  and they believe it and walk further.
 - **There is a second browser driver: `scripts/check-deeplink.mjs`.** It loads a
   cold deep link, cuts the network, loads it again, and separately asks the server
   what it says with a request that bypasses the service worker. Run it after
@@ -171,10 +203,15 @@ Nothing is half-finished.
 ```bash
 npm run build:client && npx wrangler dev --port 8799 --local   # the whole thing
 node scripts/build-client.mjs --serve                          # client only, :8788
-npm install --no-save playwright                               # then either driver
+npm install --no-save playwright jsqr                          # then any driver
 node scripts/drive-game.mjs                                    # two phones, a game
 node scripts/check-deeplink.mjs                                # deep links, offline
+node scripts/check-invite.mjs                                  # create, code, QR, share
+node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
+
+Install the two together: `npm install --no-save` prunes anything not in
+`package.json`, so installing one on its own removes the other.
 
 `wrangler dev` works now that the worker exists, and is the only way to exercise a
 real game. Open `http://127.0.0.1:8799/?sim=1` in two browser profiles: calibrate

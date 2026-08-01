@@ -20,18 +20,40 @@
   - `6.0.5` done: Re-verify in a browser: a cold deep link loads, and a deep link
     opened offline still starts the app.
 
-- `6.1` todo: Create and share
-  - `6.1.1` todo: Create screen — pick field, time control, colour, handicap
-  - `6.1.2` todo: Show the six-character code large and grouped (`ABC 123`), and
+- `6.1` done: Create and share
+  - Verified end to end by `scripts/check-invite.mjs`, which drives the flow in
+    Chromium and **decodes the QR out of a screenshot** — the only way to tell a
+    correct matrix from a scannable one. It found the reach bug below.
+  - `6.1.1` done: Create screen — pick field, time control, colour, handicap
+    - Handicap is asked as "me" or "my opponent" rather than by colour, because
+      the creator may not have picked one yet and that is what people say out
+      loud. `MAX_HANDICAP_M` bounds the control at 4 m; that is a bound, not the
+      fix for O-02.
+    - The screen also exposed a real bug: the client computed reach with **no
+      handicap at all**, so a handicapped player's circle was smaller than the
+      one the server judges by. Fixed in `game.ts` (`myReachBonusM`), which
+      reads it from the snapshot — the joining phone never saw the create
+      screen, and decision 0004 turns on both players seeing the same circle.
+  - `6.1.2` done: Show the six-character code large and grouped (`ABC 123`), and
     always show it alongside the QR. It is the smaller code path and it works
     when a camera permission prompt goes sideways.
-  - `6.1.3` todo: QR encoding `https://<host>/j/CODE`, self-contained, no CDN
-  - `6.1.4` todo: Share the invite through the OS share sheet (Web Share API),
+    - The code is the largest thing on the invite screen, above the QR rather
+      than under it as a footnote.
+  - `6.1.3` done: QR encoding `https://<host>/j/CODE`, self-contained, no CDN
+    - `src/shared/qr.ts`, byte mode, versions 1–40, all four EC levels. Decision
+      0024 records why it is ours and why byte mode. Verified by decoding 351
+      cases with jsQR (`scripts/check-qr.mjs`); the unit tests hold a snapshot
+      that decoder vouched for, so a regression fails offline.
+  - `6.1.4` done: Share the invite through the OS share sheet (Web Share API),
     falling back to `mailto:` and copy-link where it is unavailable. One generic
     share path covers email, messaging apps and AirDrop without integrating any of
     them — see decision 0015. Inviting ahead of time also means your opponent
     signs in at home on wifi rather than on one bar in a field, which is the main
     thing that makes mandatory accounts (decision 0014) comfortable.
+    - `src/client/share.ts`. `shareInvite` is deliberately not `async`: one
+      `await` in front of `navigator.share` and the browser has discarded the
+      user gesture, with no visible cause. A dismissed sheet is a decision, not
+      a failure, and must not cascade into opening a mail client.
 
 - `6.2` todo: Join
   - `6.2.1` todo: `/j/CODE` deep link resolving straight into the game

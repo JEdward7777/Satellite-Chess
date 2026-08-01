@@ -7,6 +7,7 @@
 
 import { type FieldSpec, deriveGeometry } from '../shared/field.js';
 import { fromLocal } from '../shared/geo.js';
+import { formatJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import {
   type GpsProvider,
   type GpsState,
@@ -19,8 +20,11 @@ import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
+import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountGame } from './views/game.js';
+import { mountInvite } from './views/invite.js';
 import { mountSurvey } from './views/survey.js';
+import type { Color } from '../shared/squares.js';
 import { connectToGame } from './net.js';
 import { withOptimism } from './optimistic.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
@@ -113,31 +117,50 @@ async function boot(): Promise<void> {
         fields,
         onCalibrate: () => showCalibrate(),
         onOpen: showBoard,
-        onStart: (field) => void startGame(field),
+        onNew: () => showCreate(fields),
         onJoin: (code, field) => void joinGame(code, field),
       }),
     );
   };
 
-  /**
-   * Create a game on this field and drop straight into it.
-   *
-   * The full invite flow is phase 6; this is the minimum that makes a game
-   * reachable at all, and it prints the join code so a second phone can get in.
-   */
-  async function startGame(field: FieldSpec): Promise<void> {
+  /** The create screen (6.1.1). The network work is here, not in the view. */
+  function showCreate(fields: FieldSpec[]): void {
+    swap(() =>
+      mountCreate(root, {
+        fields,
+        onCancel: () => void showHome(),
+        onCreate: (draft, field, colour) => void createGame(draft, field, colour),
+      }),
+    );
+  }
+
+  async function createGame(
+    draft: CreateDraft,
+    field: FieldSpec,
+    colour: Color,
+  ): Promise<void> {
     const playerId = getPlayerId();
     const response = await fetch('/api/game', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ playerId, field }),
+      body: JSON.stringify(createGameBody(draft, field, playerId, colour)),
     });
-    const body = (await response.json()) as { joinCode?: string; message?: string };
+    const body = (await response.json()) as {
+      joinCode?: string;
+      color?: Color;
+      message?: string;
+    };
     if (!response.ok || !body.joinCode) {
       alert(body.message ?? 'Could not start a game.');
+      // Back to the form with the draft gone rather than stranded on a dead
+      // screen: the commonest cause is a field the server would not accept, and
+      // that needs re-choosing anyway.
+      void showHome();
       return;
     }
-    enterGame(body.joinCode, field, playerId);
+    // The server's answer wins over the one asked for, because it is the one
+    // the Durable Object recorded.
+    showInvite(body.joinCode, field, body.color ?? colour);
   }
 
   async function joinGame(joinCode: string, field: FieldSpec): Promise<void> {
@@ -147,15 +170,42 @@ async function boot(): Promise<void> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ playerId }),
     });
+    const body = (await response.json()) as { color?: Color; message?: string };
     if (!response.ok) {
-      const body = (await response.json()) as { message?: string };
       alert(body.message ?? 'Could not join that game.');
       return;
     }
-    enterGame(joinCode, field, playerId);
+    enterGame(joinCode, field, playerId, body.color ?? 'b');
   }
 
-  function enterGame(joinCode: string, field: FieldSpec, playerId: string): void {
+  /**
+   * The invite screen (6.1.2–6.1.4).
+   *
+   * Reachable twice: straight after creating, and from the board, because the
+   * moment you need the QR again is when your opponent's phone has just failed
+   * to scan it. Coming back here closes the WebSocket and re-opens it on the way
+   * out, which the reconnect path already handles — the alternative is an
+   * overlay that has to keep the board alive underneath it, for a screen nobody
+   * looks at for more than a few seconds.
+   */
+  function showInvite(joinCode: string, field: FieldSpec, colour: Color): void {
+    swap(() =>
+      mountInvite(root, {
+        joinCode,
+        field,
+        colour,
+        onOpenBoard: () => enterGame(joinCode, field, getPlayerId(), colour),
+        onLeave: () => void showHome(),
+      }),
+    );
+  }
+
+  function enterGame(
+    joinCode: string,
+    field: FieldSpec,
+    playerId: string,
+    colour: Color,
+  ): void {
     // Wrapped so the three acts of a carry land on screen the moment they are
     // tapped. The messages on the wire are identical; only the wait is gone.
     const connection = withOptimism(connectToGame({ joinCode, playerId }));
@@ -172,12 +222,15 @@ async function boot(): Promise<void> {
           detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng });
         },
       });
-      // The join code is the only way a second phone gets in, so it has to be
-      // visible rather than buried in a URL nobody can read out loud.
-      const banner = document.createElement('p');
-      banner.className = 'dim';
+      // The join code is the only way a second phone gets in, so it stays
+      // visible on the board rather than being buried in a URL nobody can read
+      // out loud — and tapping it goes back to the QR, which is what you want
+      // the moment your opponent's camera has just refused to focus.
+      const banner = document.createElement('button');
+      banner.className = 'secondary invite-again';
       banner.dataset.joinCode = joinCode;
-      banner.textContent = `Join code: ${joinCode}`;
+      banner.textContent = `Invite · ${formatJoinCode(joinCode)}`;
+      banner.addEventListener('click', () => showInvite(joinCode, field, colour));
       root.querySelector('.board-status')?.prepend(banner);
       return () => {
         detachDrag?.();
@@ -226,7 +279,7 @@ interface HomeDeps {
   fields: FieldSpec[];
   onCalibrate(): void;
   onOpen(field: FieldSpec): void;
-  onStart(field: FieldSpec): void;
+  onNew(): void;
   onJoin(joinCode: string, field: FieldSpec): void;
 }
 
@@ -260,10 +313,10 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       ${
         deps.fields.length > 0
           ? `<h2>Play</h2>
-             <p><button data-start>Start a game on ${escapeHtml(deps.fields[0].name)}</button></p>
+             <p><button data-new>New game</button></p>
              <p>
                <label>Or join a code<br />
-                 <input data-code type="text" maxlength="8" placeholder="ABC123" />
+                 <input data-code type="text" maxlength="8" placeholder="ABC 123" />
                </label>
              </p>
              <p><button data-join class="secondary">Join</button></p>`
@@ -273,12 +326,17 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
       ?.addEventListener('click', deps.onCalibrate);
-    root.querySelector<HTMLButtonElement>('[data-start]')?.addEventListener('click', () => {
-      if (deps.fields[0]) deps.onStart(deps.fields[0]);
-    });
+    root.querySelector<HTMLButtonElement>('[data-new]')?.addEventListener('click', deps.onNew);
     root.querySelector<HTMLButtonElement>('[data-join]')?.addEventListener('click', () => {
-      const code = root.querySelector<HTMLInputElement>('[data-code]')?.value.trim();
-      if (code && deps.fields[0]) deps.onJoin(code.toUpperCase(), deps.fields[0]);
+      const typed = root.querySelector<HTMLInputElement>('[data-code]')?.value ?? '';
+      // Folded through the same normaliser as a deep link, so a code read aloud
+      // across a field — with an O for a 0, or a space in the middle — works.
+      const code = normaliseJoinCode(typed);
+      if (!code) {
+        alert('That is not a six-character game code. The letters I, L, O and U are never used.');
+        return;
+      }
+      if (deps.fields[0]) deps.onJoin(code, deps.fields[0]);
     });
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {

@@ -113,6 +113,75 @@ input[type="text"] {
   border-radius: 10px;
 }
 
+select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  color: var(--fg);
+  background: #161b22;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+}
+
+/*
+ * A segmented choice: two or three mutually exclusive options, all visible.
+ *
+ * Not a `<select>`, because these are the settings a player changes while
+ * standing up and talking to someone — the current value has to be readable
+ * without opening anything, and the change has to be one tap rather than three.
+ */
+.choices {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.choices .choice {
+  flex: 1;
+  margin-left: 0;
+  padding: 0.6rem 0.4rem;
+  color: var(--fg);
+  background: transparent;
+  border: 2px solid var(--line);
+}
+
+/* The selected one is filled, not merely outlined: in direct sun a border
+   change is not a difference anyone can see. */
+.choices .choice.is-on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* One control, not three things that happen to be adjacent. */
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 16rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+}
+
+.stepper strong {
+  flex: 1;
+  font-size: 1.3rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper button {
+  margin-left: 0;
+  min-height: 44px;
+  border: 0;
+  font-size: 1.4rem;
+  background: #161b22;
+}
+
 .notice {
   margin: 1rem 0;
   padding: 0.8rem 1rem;
@@ -152,6 +221,66 @@ h2 {
 .dim {
   color: var(--dim);
   font-size: 0.85rem;
+}
+
+/*
+ * The invite screen.
+ *
+ * The code is the largest thing on it, deliberately. It is what gets read aloud
+ * across a field, and it is the path that still works when a camera permission
+ * prompt goes sideways — so it outranks the QR rather than sitting under it as a
+ * footnote.
+ */
+.invite-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 1rem;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+}
+
+.invite-code strong {
+  /* Grouped as "ABC 123" by `formatJoinCode`; the tracking is what keeps the
+     two halves reading as two chunks rather than one six-character blur. */
+  font-size: 2.6rem;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+
+.invite-qr {
+  /* White, and padded, because the quiet zone is part of the symbol and this
+     app's chrome is nearly black. A QR bled into a dark page does not scan. */
+  margin: 1rem 0;
+  padding: 0.75rem;
+  background: #ffffff;
+  border-radius: 12px;
+}
+
+.invite-qr svg {
+  display: block;
+  width: 100%;
+  /* Bounded so it does not fill a tablet: past a point a bigger symbol is
+     harder to fit in a camera frame, not easier. */
+  max-width: 18rem;
+  height: auto;
+  margin: 0 auto;
+}
+
+.invite-qr figcaption {
+  margin-top: 0.5rem;
+  color: #57606a;
+  text-align: center;
+}
+
+/* On the board, where space is the board's, this is a strip and not a screen. */
+.invite-again {
+  min-height: 40px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
 }
 
 /*

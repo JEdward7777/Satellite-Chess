@@ -9,6 +9,7 @@ import {
   carryPrompt,
   carryReadout,
   metres,
+  myReachBonusM,
   promotesOn,
 } from '../src/client/views/game.js';
 
@@ -181,5 +182,43 @@ describe('metres', () => {
   it('keeps a decimal only where it means something', () => {
     expect(metres(4.26)).toBe('4.3 m');
     expect(metres(41.6)).toBe('42 m');
+  });
+});
+
+describe('myReachBonusM', () => {
+  /**
+   * Decision 0004's handicap, as the screen sees it.
+   *
+   * This was wrong for a whole phase and no test noticed: the client computed
+   * reach with no bonus at all, so a handicapped player's circle was drawn
+   * smaller than the one the server would actually judge by. That does not fail
+   * their moves — the Durable Object still accepts them — it tells them a move
+   * is out of reach when it is not, and they believe it and walk further. Found
+   * by `scripts/check-invite.mjs` reading `12.0 m` off the board and getting
+   * `10.0 m`.
+   */
+  const snapshot = (over: Record<string, unknown> = {}) =>
+    ({
+      you: 'b',
+      players: {
+        w: { color: 'w', reachBonusM: 0 },
+        b: { color: 'b', reachBonusM: 2 },
+      },
+      ...over,
+    }) as unknown as Parameters<typeof myReachBonusM>[0];
+
+  it('reads the bonus for the colour this phone is playing', () => {
+    expect(myReachBonusM(snapshot())).toBe(2);
+    expect(myReachBonusM(snapshot({ you: 'w' }))).toBe(0);
+  });
+
+  it('is zero before the first snapshot', () => {
+    expect(myReachBonusM(null)).toBe(0);
+  });
+
+  it('is zero when the seat is still empty', () => {
+    // Reachable while waiting for an opponent: the joiner's `PlayerView` is
+    // null until they connect, and the screen still has to draw a circle.
+    expect(myReachBonusM(snapshot({ players: { w: null, b: null } }))).toBe(0);
   });
 });

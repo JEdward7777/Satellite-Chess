@@ -158,7 +158,7 @@ async function newPhone(browser, name) {
   );
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('[data-start]', { timeout: 15_000 });
+  await page.waitForSelector('[data-new]', { timeout: 15_000 });
   return { context, page, name };
 }
 
@@ -253,11 +253,18 @@ try {
   const white = await newPhone(browser, 'white');
   const black = await newPhone(browser, 'black');
 
-  step(2, 'White creates a game');
-  await white.page.click('[data-start]');
+  step(2, 'White creates a game and lands on the invite screen');
+  // Home → create (6.1.1) → invite (6.1.2). The defaults are White and the
+  // 30+20 control, which is what this run wants, so nothing is changed here;
+  // `check-invite.mjs` is the driver that exercises the options themselves.
+  await white.page.click('[data-new]');
+  await white.page.waitForSelector('[data-create]', { timeout: 15_000 });
+  await white.page.click('[data-create]');
   await white.page.waitForSelector('[data-join-code]', { timeout: 15_000 });
-  const code = (await white.page.textContent('[data-join-code]')).replace('Join code: ', '').trim();
+  const code = await white.page.getAttribute('[data-join-code]', 'data-join-code');
   console.log(`   join code ${code}`);
+  await white.page.click('[data-open]');
+  await white.page.waitForSelector('[data-board]', { timeout: 15_000 });
 
   step(3, 'Black joins by code');
   await black.page.fill('[data-code]', code);
