@@ -55,6 +55,8 @@ wasted trip is not discovered afterwards.
 
 1. `4.3.6` — optimistic local application, so a tap feels instant on a slow link.
 2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+   **Not a gate** (decision 0023) — it sizes the squares, it does not decide
+   whether the game works. Do not hold anything for it.
 3. `1.9.3.5` — fold the findings back into square size and the reach constants.
 4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
 5. **O-09** — `carry.test.ts` still flakes. The two suspension tests now have a
@@ -64,6 +66,10 @@ wasted trip is not discovered afterwards.
 ## Things a new thread should know before touching anything
 
 - **A move is a lift, a walk, and a place** (decision 0001).
+- **Reach absorbs GPS error; squares scale with reach** (decision 0023). Poor
+  accuracy means a bigger circle, never a refusal — but the circle must stay
+  smaller than the square it selects, so worse GPS means *bigger squares and a
+  bigger field*, not a tighter circle. The ratio is the playability constraint.
 - **Distance walked is measured, not summed** (decision 0020). A naive sum credits
   19–32 km an hour to a phone on a bench. Three mechanisms each worth a factor of
   ten. Do not simplify it back.

@@ -23,6 +23,10 @@ which on 8 m squares reaches three squares away from a standing start.
 **Not doing yet because:** No field data on what handicap sizes people actually
 want. Capping the bonus is the obvious fix but the right cap is a measurement, not
 a guess. Revisit with stage 9.2.2 when `DEFAULT_REACH` is tuned from real games.
+**Updated 2026-08-01 (decision 0023):** the root is the same as the flat `maxM`
+ceiling — both are absolute metre values in a rule that should scale with square
+size. Expect one fix for both: express the ceiling, and the bonus's share of it,
+as a multiple of square size once `1.9.3.5` supplies a real one.
 
 ### O-03 — Distance-travelled is client-reported and therefore trivially inflatable
 **Spotted:** 2026-07-25, stage 0.6
