@@ -67,6 +67,22 @@ export interface PosFix {
   ts: number;
 }
 
+/**
+ * A position as the server saw it, timed by the server's own clock.
+ *
+ * Distinct from {@link PosFix}, whose `ts` is the *client's* clock and is kept
+ * only for review. This one is comparable with `serverNow`, which is what lets a
+ * client work out how old a relayed position is without trusting either phone's
+ * idea of the time.
+ */
+export interface RelayedPos {
+  lat: number;
+  lng: number;
+  acc: number;
+  /** Server receive time. */
+  at: number;
+}
+
 export interface PlayerView {
   color: Color;
   connected: boolean;
@@ -77,6 +93,15 @@ export interface PlayerView {
   /** In their own start zone, per the server's own check. */
   inStartZone: boolean;
   lastSeenAt: number | null;
+  /**
+   * Last relayed position, or null before they have sent one.
+   *
+   * The same data an `opp_pos` carries, repeated in the snapshot so a client
+   * that has just connected has a dot to draw immediately. It cannot wait for
+   * the next relay: under the send policy below, a player who is standing still
+   * relays once and then says nothing for the rest of the game.
+   */
+  pos: RelayedPos | null;
 }
 
 export interface MoveRecord {
@@ -230,13 +255,14 @@ export interface StateMsg {
   game: GameSnapshot;
 }
 
-export interface OppPosMsg {
+/**
+ * Where the opponent is, coarsely and a moment ago.
+ *
+ * Deliberately the same shape as the `pos` on a `PlayerView`, so the snapshot's
+ * copy and the live relay cannot drift apart.
+ */
+export interface OppPosMsg extends RelayedPos {
   t: 'opp_pos';
-  lat: number;
-  lng: number;
-  acc: number;
-  /** Server receive time, so the client can age out a stale dot. */
-  at: number;
 }
 
 export type ErrorCode =

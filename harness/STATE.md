@@ -4,16 +4,19 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phase 4 is complete**. Pick from the list below.
-**Next action**: `3.4.3` (opponent's dot) is the small one; phase 6 is the big one
-**Last session**: `harness/sessions/2026-08-01-01.md`
+**Active stage**: none — **phases 4 and the transport relay are complete**. Pick
+from the list below.
+**Next action**: phase 6 (the join flow) is the big one; phase 5 is the deepest
+**Last session**: `harness/sessions/2026-08-01-02.md`
 
 ## In one paragraph
 
 Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 **phase 4 is finished, server and client** — lift, carry, place, resign, draw,
-terminal detection, clock handover, the promotion picker, and now optimistic
-local application. **337 tests pass.**
+terminal detection, clock handover, the promotion picker, and optimistic local
+application. **You can now see your opponent walking**: `3.4` closed, so the
+relay is drawn as a dot that glides between fixes instead of jumping.
+**354 tests pass.**
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -61,14 +64,11 @@ Nothing is half-finished, so this is a genuine choice rather than a queue.
 2. **Phase 5, the clock** — the largest untouched system, and the game has no
    time pressure at all until it exists. `shared/clock.ts` is already written and
    tested; what is missing is the DO half and the flag-fall alarm.
-3. `3.4.3` — relay the opponent's position and interpolate it. Small, and it is
-   the last piece of the transport. Seeing them jog across the field is most of
-   the tension the game has to offer, and the plumbing already carries it.
-4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+3. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
-5. `1.9.3.5` — fold the findings back into square size and the reach constants.
-6. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
+4. `1.9.3.5` — fold the findings back into square size and the reach constants.
+5. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
    named race (the test overwrites a `disconnect` timer that the DO's own close
    handler then reschedules); fix it next time that file is open.
 
@@ -98,6 +98,13 @@ Nothing is half-finished, so this is a genuine choice rather than a queue.
 - **The survey is deletable on purpose** (decision 0022). It is off unless
   `SURVEY_SECRET` is set, and 404s rather than 401s so an unconfigured deployment
   looks like one without the feature. Do not give it callers in the game.
+- **Silence on the relay means standing still, not gone.** Because it speaks only
+  on movement, a player waiting on their back rank sends one message and then
+  nothing all game. So the opponent's dot is never aged out on a timer — it is
+  solid while `connected` and a hollow ring when not — and the snapshot repeats
+  each player's last position (`PlayerView.pos`) so a client that has just
+  connected has something to draw at all. Both are easy to "simplify" away and
+  both then break the commonest state in the game.
 - **The relay refuses most of what it is offered, and that is the feature.**
   599 messages per player per 30 continuous minutes, measured — identical at 0.7,
   1.4 and 3 m/s, because the 2.5 s interval floor binds and the 2 m delta never
@@ -114,6 +121,9 @@ Nothing is half-finished, so this is a genuine choice rather than a queue.
   through a game and photographs each step. `npm install --no-save playwright`
   first — deliberately not a dependency, since it only matters when someone is
   looking at pixels. It also documents the two traps below in its header.
+  Its `opponentDot()` finds a dot by colour in the canvas and returns its centre,
+  which is how "does it glide or does it jump?" became a number rather than a
+  judgement about a picture. Read pixels when the question is about motion.
 - **Clicking the board under `?sim=1` teleports *and* taps.** `attachSimDrag`
   moves the player on `pointerdown`, the game view taps on `pointerup`. To drive a
   game from a script, teleport with `satchess.me.moveTo(...)` and dispatch a bare

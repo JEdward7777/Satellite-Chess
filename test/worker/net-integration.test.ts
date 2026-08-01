@@ -222,6 +222,30 @@ describe('the client transport against the real GameDO', () => {
     black.close();
   });
 
+  it('gives the opponent a dot from the snapshot, then moves it on the relay', async () => {
+    const { white, black } = await startedGame();
+
+    // No relay has happened yet — the back-rank handshake is the only position
+    // either has sent. Black can still draw white, because the snapshot carries
+    // it. This is the case the live relay cannot cover: a player who is standing
+    // still sends nothing, so waiting for one would mean waiting all game.
+    const seeded = await until(() => black.state.opponent);
+    expect(seeded.lat).toBeCloseTo(at('e1').lat, 6);
+
+    await new Promise((resolve) => setTimeout(resolve, POS_SERVER_MIN_INTERVAL_MS + 100));
+    expect(white.offerPosition(gpsFix('d4'))).toBe(true);
+
+    const relayed = await until(() =>
+      Math.abs(black.state.opponent!.lat - at('d4').lat) < 1e-9 ? black.state.opponent : null,
+    );
+    expect(relayed.at).toBeGreaterThanOrEqual(seeded.at);
+    // And white is not shown their own position as the opponent's.
+    expect(white.state.opponent?.lat).toBeCloseTo(at('e8').lat, 6);
+
+    white.close();
+    black.close();
+  });
+
   it('refuses to send after close, and reports itself closed', async () => {
     const { white, black } = await startedGame();
     white.close();

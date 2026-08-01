@@ -138,6 +138,75 @@ describe('connecting', () => {
   });
 });
 
+/**
+ * The relay only speaks on movement, so a client that has just connected would
+ * otherwise have no opponent to draw until they happened to walk two metres —
+ * and someone waiting on their own back rank never will.
+ */
+describe('the opponent position a snapshot carries', () => {
+  const player = (over: Record<string, unknown> = {}) => ({
+    color: 'b',
+    connected: true,
+    reachBonusM: 0,
+    travelM: 0,
+    inStartZone: false,
+    lastSeenAt: 1,
+    pos: null,
+    ...over,
+  });
+
+  const withOpponentAt = (serverNow: number, at: number) =>
+    snapshot({
+      you: 'w',
+      serverNow,
+      players: {
+        w: player({ color: 'w', pos: { lat: 1, lng: 1, acc: 1, at } }),
+        b: player({ pos: { lat: 51.5, lng: -0.001, acc: 9, at } }),
+      },
+    });
+
+  it('seeds the dot before the opponent has moved a step', () => {
+    const { connection, latest } = harness({ now: () => 100_000 });
+    latest().open();
+    latest().deliver(withOpponentAt(5_000, 5_000));
+    expect(connection.state.opponent).toMatchObject({ lat: 51.5, acc: 9 });
+  });
+
+  it('takes the opponent’s, not your own', () => {
+    const { connection, latest } = harness({ now: () => 100_000 });
+    latest().open();
+    latest().deliver(withOpponentAt(5_000, 5_000));
+    expect(connection.state.opponent?.lat).not.toBe(1);
+  });
+
+  it('ages it on this phone’s clock, since the two have never been synchronised', () => {
+    const { connection, latest } = harness({ now: () => 100_000 });
+    latest().open();
+    // Server said "now is 5000" and "that fix landed at 3000": two seconds old,
+    // whatever either clock reads in absolute terms.
+    latest().deliver(withOpponentAt(5_000, 3_000));
+    expect(connection.state.opponent?.at).toBe(98_000);
+  });
+
+  it('does not overwrite a live relay with the older copy in a snapshot', () => {
+    let t = 100_000;
+    const { connection, latest } = harness({ now: () => t });
+    latest().open();
+    latest().deliver({ t: 'opp_pos', lat: 51.6, lng: -0.002, acc: 4, at: 4_000 });
+
+    t += 500;
+    latest().deliver(withOpponentAt(5_000, 3_000));
+    expect(connection.state.opponent).toMatchObject({ lat: 51.6, at: 100_000 });
+  });
+
+  it('says nothing when they have never relayed a position', () => {
+    const { connection, latest } = harness({ now: () => 100_000 });
+    latest().open();
+    latest().deliver(snapshot({ you: 'w', serverNow: 5_000, players: { w: player({ color: 'w' }), b: player() } }));
+    expect(connection.state.opponent).toBeNull();
+  });
+});
+
 describe('the free keepalive', () => {
   it('pings on a timer, and a pong is not treated as a message', () => {
     vi.useFakeTimers();

@@ -56,6 +56,15 @@ export interface BoardView {
    * own just to draw dots.
    */
   carry?: { from: Square; destinations: Square[]; mine: boolean } | null;
+  /**
+   * Where the opponent is, already interpolated by `client/opponent.ts`.
+   *
+   * `connected` is the honest signal for whether the dot is live. Age is not:
+   * the relay speaks only on movement, so silence means they are standing still,
+   * and fading the dot for it would report a player who has not moved as a
+   * player who has gone.
+   */
+  opponent?: { pos: LatLng; connected: boolean } | null;
 }
 
 /**
@@ -83,6 +92,12 @@ const DESTINATION_FAR = 'rgba(255, 255, 255, 0.34)';
 const ACCURACY_RING = 'rgba(255, 255, 255, 0.5)';
 const PLAYER_DOT = '#ffffff';
 const PLAYER_EDGE = '#0d1117';
+/**
+ * The opponent. Warm, because everything else on this board that means anything
+ * is blue (reach), yellow (under foot) or white (you), and the one thing that
+ * moves on its own has to be identifiable at a glance from ten metres away.
+ */
+const OPPONENT_DOT = '#ff4d6d';
 
 /**
  * Solid glyphs for both colours, distinguished by fill — decision 0011.
@@ -210,6 +225,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   drawCarry(ctx, view, projection, here);
   drawPieces(ctx, view, projection);
   drawNorth(ctx, view, width, height);
+  drawOpponent(ctx, view, projection);
   if (here) drawPlayer(ctx, view, projection, here);
   return projection;
 }
@@ -466,6 +482,42 @@ function drawPlayer(
   ctx.strokeStyle = PLAYER_EDGE;
   ctx.lineWidth = 2;
   ctx.stroke();
+}
+
+/**
+ * The opponent: a dot, and nothing else.
+ *
+ * No reach circle and no accuracy ring, for the same reason their carry gets no
+ * destination dots — knowing exactly what they can touch from where they stand
+ * is a small act of espionage, and the game is better when you have to judge it
+ * by eye. A position and a colour is all the atmosphere needs.
+ */
+function drawOpponent(
+  ctx: CanvasRenderingContext2D,
+  view: BoardView,
+  projection: Projection,
+): void {
+  const opponent = view.opponent;
+  if (!opponent) return;
+  const centre = projection.toScreen(toBoardPoint(view.geo, opponent.pos));
+
+  ctx.beginPath();
+  ctx.arc(centre.x, centre.y, 7, 0, Math.PI * 2);
+  if (opponent.connected) {
+    ctx.fillStyle = OPPONENT_DOT;
+    ctx.fill();
+    ctx.strokeStyle = PLAYER_EDGE;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    return;
+  }
+  // Hollow while they are off the air: the position is the last one they sent
+  // and nobody is updating it, which is a different thing from where they are.
+  ctx.strokeStyle = OPPONENT_DOT;
+  ctx.setLineDash([3, 3]);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 /** A north arrow, so the screen can be related back to the ground. */

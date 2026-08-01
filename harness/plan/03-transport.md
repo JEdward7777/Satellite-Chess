@@ -48,7 +48,7 @@ the field. No chess yet — proving the plumbing in isolation.
   - `3.3.2` done: `alarm()` runs every due row, then reschedules
   - `3.3.3` done: Tests for overlapping and re-scheduled timers
 
-- `3.4` active: Coarse position relay
+- `3.4` done: Coarse position relay
   - Client transport lives in `src/client/net.ts` — the socket, reconnection with
     backoff, the free keepalive, and the send policy. Built here rather than in
     phase 4 because `4.3` cannot send a move without it.
@@ -59,7 +59,18 @@ the field. No chess yet — proving the plumbing in isolation.
       stationary player sends one. `harness/reference/budget.md` updated with the
       ceiling.
   - `3.4.2` done: Server-side rate limit as a backstop against a bad client
-  - `3.4.3` todo: Relay to the opponent; interpolate on receipt
+  - `3.4.3` done: Relay to the opponent; interpolate on receipt
+    - `client/opponent.ts` glides the dot between fixes instead of jumping it,
+      lagging deliberately by about one relay interval rather than extrapolating
+      ahead of them. Repaints at 10 Hz only while it has ground to cover, since
+      the screen is on all game on a phone that is not on charge.
+    - The snapshot carries each player's last relayed position (`PlayerView.pos`)
+      as well as the live `opp_pos`. The relay speaks only on movement, so
+      without it a client that has just connected has nothing to draw until the
+      opponent walks — and someone waiting on their back rank never does.
+    - Drawn as a bare dot: no reach circle and no accuracy ring, for the same
+      reason their carry gets no destination dots. Hollow while they are off the
+      air, which is the only honest staleness signal — silence means still.
   - `3.4.4` done: Persist last known position in `presence` for reconnect
 
 - `3.5` active: HTTP routes (`src/worker/index.ts`)

@@ -211,7 +211,13 @@ class Connection implements GameConnection {
   private receive(msg: ServerMsg): void {
     switch (msg.t) {
       case 'state':
-        this.patch({ game: msg.game, lastError: null });
+        // One patch, not two: the opponent's dot arrives inside the snapshot as
+        // well as on its own, and a listener should see one update either way.
+        this.patch({
+          game: msg.game,
+          lastError: null,
+          opponent: this.opponentFrom(msg.game) ?? this.current.opponent,
+        });
         return;
       case 'error':
         this.patch({ lastError: msg });
@@ -222,6 +228,30 @@ class Connection implements GameConnection {
         return;
       }
     }
+  }
+
+  /**
+   * The opponent's position as a snapshot reports it, or null if it says nothing
+   * newer than we already have.
+   *
+   * Without this a client that has just connected has no dot to draw until the
+   * opponent happens to move two metres — and someone standing on their back
+   * rank waiting for you never will. The snapshot is the only thing that can
+   * answer "where are they *now*", because the relay only speaks on movement.
+   *
+   * The snapshot times the fix on the server's clock, so it is converted through
+   * `serverNow` into local time rather than compared against it. The two phones'
+   * clocks have never been synchronised with each other and this is the one
+   * place that would quietly assume they had.
+   */
+  private opponentFrom(game: GameSnapshot): NetState['opponent'] {
+    const them = game.players?.[game.you === 'w' ? 'b' : 'w'];
+    const pos = them?.pos;
+    if (!pos) return null;
+    const at = this.now() - Math.max(0, game.serverNow - pos.at);
+    const known = this.current.opponent;
+    if (known !== null && at <= known.at) return null;
+    return { lat: pos.lat, lng: pos.lng, acc: pos.acc, at };
   }
 
   private scheduleRetry(): void {

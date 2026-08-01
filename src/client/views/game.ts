@@ -32,6 +32,7 @@ import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/re
 import { type Color, type Square, fromSquare, toSquare } from '../../shared/squares.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import type { GameConnection, NetState } from '../net.js';
+import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import {
   PIECE_GLYPHS,
   type PieceType,
@@ -229,6 +230,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let lastErrorSeen: string | null = null;
   /** A place that is waiting on the promotion picker being answered. */
   let pendingPromotion: { from: Square; to: Square } | null = null;
+  /**
+   * The opponent's dot, smoothed between the relays that carry it.
+   *
+   * Their position arrives every couple of seconds at best, so it is animated
+   * rather than drawn raw — and the animation is what `animator` below is for.
+   */
+  const opponentTrack = new OpponentTrack();
+  let animator: ReturnType<typeof setInterval> | null = null;
 
   /** The field the *game* is played on, which outranks the one we were handed. */
   const geometry = () =>
@@ -369,12 +378,31 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     return 'Your move — tap a piece you can reach.';
   }
 
+  /**
+   * Repaint fast, but only while the opponent's dot is actually in motion.
+   *
+   * The screen is on for the whole game (`wakelock.ts`) on a phone that is
+   * outdoors and probably not on charge, so ten repaints a second all game is a
+   * real cost. It buys nothing either: the relay speaks only on movement, so for
+   * most of a game there is nothing moving to draw.
+   */
+  function syncAnimator(moving: boolean): void {
+    if (moving && animator === null) {
+      animator = setInterval(paint, OPPONENT_FRAME_MS);
+    } else if (!moving && animator !== null) {
+      clearInterval(animator);
+      animator = null;
+    }
+  }
+
   function paint(): void {
     const geo = geometry();
     const fix = gps.fix;
     const accuracyM = fix?.accuracyM ?? 0;
     const reachM = reachNow();
     const carry = guidanceNow();
+    const dot = opponentTrack.at(Date.now());
+    const them = net.game?.players?.[myColor() === 'w' ? 'b' : 'w'] ?? null;
 
     projection = drawBoard(canvas, {
       geo,
@@ -384,7 +412,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       accuracyM,
       reachM,
       carry,
+      opponent: dot ? { pos: dot.pos, connected: them?.connected ?? false } : null,
     });
+    syncAnimator(dot?.moving ?? false);
 
     const here = fix ? toBoardPoint(geo, fix.pos) : null;
     const under = here ? squareUnderFoot(geo, here) : null;
@@ -450,6 +480,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   });
   const offNet = deps.connection.subscribe((state) => {
     net = state;
+    // Fed here rather than in `net.ts`, which deliberately knows nothing about
+    // how anything is drawn. The track ignores a fix it has already seen, so a
+    // snapshot repeating the last relay does not restart the glide.
+    if (state.opponent) opponentTrack.push(state.opponent);
     // A picker left open over a carry that has ended — placed, dropped, or
     // cancelled by a suspension (decision 0009) — would offer to promote a piece
     // that is no longer in hand. The server would refuse it, but the screen
@@ -479,6 +513,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     offGps();
     offNet();
     clearInterval(ticker);
+    syncAnimator(false);
     removeEventListener('resize', onResize);
     canvas.removeEventListener('pointerup', onPointerUp);
     void screenLock.release();

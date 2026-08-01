@@ -382,6 +382,34 @@ describe('position relay', () => {
     black.close();
   });
 
+  it('repeats the last relayed position in the snapshot, for a socket that missed it', async () => {
+    const joinCode = nextCode();
+    const stub = await createGame(joinCode);
+    await stub.join(BLACK);
+
+    const white = await openSocket(joinCode, WHITE);
+    await white.next((m) => m.t === 'state');
+    const pos = squareCentreLatLng(GEO, fromSquare('e2'));
+    white.ws.send(JSON.stringify({ t: 'pos', lat: pos.lat, lng: pos.lng, acc: 4 }));
+
+    // Black arrives afterwards, so the relay is already history. Without the
+    // snapshot carrying it, black has nothing to draw until white next moves —
+    // and a player standing still relays once and then says nothing at all.
+    const black = await openSocket(joinCode, BLACK);
+    const state = await black.next((m) => m.t === 'state');
+    const players = (state.game as { players: Record<string, { pos: Record<string, number> | null }> })
+      .players;
+
+    expect(players.w.pos?.lat).toBeCloseTo(pos.lat, 9);
+    expect(players.w.pos?.acc).toBe(4);
+    expect(players.w.pos?.at).toBeGreaterThan(0);
+    // And black, who has relayed nothing, is honestly reported as unknown.
+    expect(players.b.pos).toBeNull();
+
+    white.close();
+    black.close();
+  });
+
   it('rate-limits a client that ignores the send policy', async () => {
     const joinCode = nextCode();
     const stub = await createGame(joinCode);

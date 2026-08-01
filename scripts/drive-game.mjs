@@ -214,6 +214,33 @@ const readout = (page) =>
   });
 
 const setDelay = (page, ms) => page.evaluate((d) => (window.__wsDelay = d), ms);
+
+/**
+ * Find the opponent's dot by its colour, in canvas pixels.
+ *
+ * The dot is the one thing on this screen that moves without the phone holding
+ * it moving, so a screenshot alone cannot say whether it is being interpolated
+ * or merely jumping. Reading its centre out once a second can.
+ */
+const opponentDot = (page) =>
+  page.evaluate(() => {
+    const canvas = document.querySelector('[data-board]');
+    const ctx = canvas.getContext('2d');
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      // OPPONENT_DOT is #ff4d6d and nothing else on the board is near it.
+      if (data[i] > 220 && data[i + 1] > 40 && data[i + 1] < 110 && data[i + 2] > 80 && data[i + 2] < 140) {
+        const p = i / 4;
+        sx += p % width;
+        sy += Math.floor(p / width);
+        n += 1;
+      }
+    }
+    return n === 0 ? null : { x: Math.round(sx / n), y: Math.round(sy / n), px: n, height };
+  });
 const step = (n, msg) => console.log(`\n${n}. ${msg}`);
 const show = (label, state) => console.log(`   ${label}: ${JSON.stringify(state)}`);
 
@@ -280,6 +307,32 @@ try {
   await white.page.waitForTimeout(2_000);
   show('once the refusal lands', await readout(white.page));
   await white.page.screenshot({ path: `${OUT}/5-refused.png` });
+
+  step(10, 'Black walks across the field; white watches the dot (stage 3.4.3)');
+  await setDelay(white.page, 0);
+  // Walked rather than teleported: a jump no one could have walked is snapped on
+  // purpose, so a teleport would prove nothing about the interpolation.
+  await black.page.evaluate((pos) => globalThis.satchess.me.walkTo(pos, { speedMps: 1.4 }), squareLatLng(4, 4));
+  const track = [];
+  for (let i = 0; i < 8; i++) {
+    await white.page.waitForTimeout(1_000);
+    track.push(await opponentDot(white.page));
+  }
+  console.log(`   dot, once a second: ${JSON.stringify(track)}`);
+  await white.page.screenshot({ path: `${OUT}/6-opponent-dot.png` });
+
+  step(11, 'Black drops off the air; the dot goes hollow rather than vanishing');
+  // Not aged out on silence: under the send policy a player who is standing
+  // still relays once and then says nothing, so only the connection can say
+  // whether the dot is still live.
+  await black.context.close();
+  await white.page.waitForFunction(
+    () => document.querySelector('[data-prompt]') !== null,
+    { timeout: 5_000 },
+  );
+  await white.page.waitForTimeout(1_500);
+  console.log(`   dot after the drop: ${JSON.stringify(await opponentDot(white.page))}`);
+  await white.page.screenshot({ path: `${OUT}/7-opponent-gone.png` });
 
   console.log(`\nDone. Screenshots in ${OUT}`);
 } finally {

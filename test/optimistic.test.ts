@@ -47,8 +47,8 @@ function snapshot(over: Partial<GameSnapshot> = {}): GameSnapshot {
     serverNow: 1_000,
     you: 'w',
     players: {
-      w: { color: 'w', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1 },
-      b: { color: 'b', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1 },
+      w: { color: 'w', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
+      b: { color: 'b', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
     },
     lastMove: null,
     moveCount: 0,

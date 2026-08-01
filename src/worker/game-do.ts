@@ -1394,6 +1394,18 @@ export class GameDO extends DurableObject<Env> {
       travelM: row?.travel_m ?? 0,
       inStartZone: row?.in_start_zone === 1,
       lastSeenAt: row?.last_seen_at ?? null,
+      // Persisted by `onPos` (stage 3.4.4) and repeated here so a client that has
+      // just connected can draw the other dot without waiting for its owner to
+      // move — which, for someone standing still, may be never.
+      pos:
+        row?.last_lat == null || row.last_lng == null || row.last_pos_at == null
+          ? null
+          : {
+              lat: row.last_lat,
+              lng: row.last_lng,
+              acc: row.last_acc ?? 0,
+              at: row.last_pos_at,
+            },
     };
   }
 
