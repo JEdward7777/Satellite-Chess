@@ -78,7 +78,7 @@ export function mountJoinFailed(root: HTMLElement, deps: JoinFailedDeps): () => 
     <p class="notice" data-reason="${deps.rejection.reason}">${escapeHtml(deps.rejection.message)}</p>
     <p class="dim" data-hint>${escapeHtml(deps.rejection.hint)}</p>
     ${retryable ? '<p><button data-retry>Try again</button></p>' : ''}
-    <p><button data-home class="secondary">Back to your fields</button></p>
+    <p><button data-home class="secondary">Back to the home screen</button></p>
   `;
 
   root.querySelector<HTMLButtonElement>('[data-retry]')?.addEventListener('click', deps.onRetry);

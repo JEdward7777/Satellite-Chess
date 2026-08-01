@@ -30,6 +30,14 @@
  *    exercised: 1.5.2 verified offline from `/`.
  * 5. **No console errors and no 404s**, including the `/favicon.ico` guess that
  *    has been in every driver run since phase 1.
+ *
+ * Since stage 6.2.1 the client *reads* the path rather than merely loading at it,
+ * so the well-formed-but-imaginary code below is now asked about: the app
+ * requests `/api/game/ABC123`, is told there is no such game, and says so. The
+ * resulting 404 is the app working, not a fault, and the checks below say which
+ * ones are expected — a shell test that forbade all 404s would fail on the
+ * feature it exists to support. `check-join.mjs` drives joining properly, with
+ * games that exist; this file still only asks whether the app starts.
  */
 
 import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
@@ -87,6 +95,18 @@ function watch(page) {
   return log;
 }
 
+/**
+ * The console errors that are the *app's*.
+ *
+ * Chromium logs every non-2xx and every failed fetch as a console error, and
+ * both are provoked on purpose here: the code in the test URL names no game, and
+ * the offline run has no network by definition. Those are checked directly
+ * above; what is left is what nobody meant to happen.
+ */
+function appErrors(log) {
+  return log.errors.filter((e) => !/Failed to load resource/.test(e));
+}
+
 /** Did `app.js` actually run? The shell's `#app` is empty until it does. */
 async function appBooted(page) {
   await page.waitForFunction(() => document.querySelector('#app')?.children.length > 0, {
@@ -142,8 +162,26 @@ try {
 
   const underJ = deepLog.requests.filter((p) => p.startsWith('/j/') && p !== '/j/ABC123');
   check(underJ.length === 0, 'no asset resolved against /j/', underJ.join(', '));
-  check(deepLog.notFound.length === 0, 'no 404s from the deep link', deepLog.notFound.join(', '));
-  check(deepLog.errors.length === 0, 'no console errors from the deep link', deepLog.errors.join(' | '));
+
+  // The code in the URL is now acted on rather than ignored (6.2.1). Asking about
+  // it is the feature; the 404 that comes back is the expected answer for a code
+  // no game was ever created with, so only *other* 404s are faults.
+  check(
+    deepLog.requests.includes('/j/ABC123') && deepLog.requests.includes('/api/game/ABC123'),
+    'the client asked the server about the code in the path',
+    deepLog.requests.join(', '),
+  );
+  check(
+    (await deep.getAttribute('[data-reason]', 'data-reason')) === 'not_found',
+    'and says there is no such game, rather than showing an empty screen',
+  );
+  const unexpected404 = deepLog.notFound.filter((p) => p !== '/api/game/ABC123');
+  check(unexpected404.length === 0, 'no unexpected 404s from the deep link', unexpected404.join(', '));
+  check(
+    appErrors(deepLog).length === 0,
+    'no console errors from the deep link',
+    appErrors(deepLog).join(' | '),
+  );
 
   const deepSw = await deep.evaluate(async () => {
     const registration = await navigator.serviceWorker.getRegistration('/');
@@ -163,7 +201,14 @@ try {
   check(darkResponse !== null && darkResponse.status() === 200, 'offline deep link is served');
   const darkText = await appBooted(dark);
   check(Boolean(darkText?.trim()), 'the app rendered from the deep link with no network');
-  check(darkLog.errors.length === 0, 'no console errors offline', darkLog.errors.join(' | '));
+  // The shell comes out of the cache; the join cannot. Saying so is the whole
+  // difference between "no signal" and a phone that appears to have broken.
+  await dark.waitForSelector('[data-reason]', { timeout: 15_000 }).catch(() => undefined);
+  check(
+    (await dark.getAttribute('[data-reason]', 'data-reason')) === 'offline',
+    'and blames the network rather than the code',
+  );
+  check(appErrors(darkLog).length === 0, 'no console errors offline', appErrors(darkLog).join(' | '));
   await dark.screenshot({ path: join(OUT, '3-deeplink-offline.png'), fullPage: true });
 
   // ---------------------------------------------------------------------

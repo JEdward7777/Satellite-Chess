@@ -45,3 +45,62 @@ by reading it:
 
 Verified in Chromium by `scripts/check-deeplink.mjs`: a cold `/j/ABC123` renders
 with no request under `/j/`, and the same URL renders again with the network cut.
+
+
+### O-09 — `carry.test.ts` flakes — **closed 2026-08-01, two separate races**
+**Spotted:** 2026-07-26, stage 4.3. **Updated:** 2026-07-31, stage 4.3.5.
+**Why it matters:** "lets both players move in turn" failed twice across about
+fifteen runs of the suite, and passed thirteen. A test that fails one time in ten
+erodes trust in the whole suite and trains people to re-run rather than read.
+Two earlier flakes in this file had the same root cause — a predicate matching the
+opponent's stale broadcast (O-07) — and both were fixed; this is not obviously the
+same, because the failing test sends no `pos` messages and the most recent change
+was to `onPos`. Not yet reproduced under diagnosis: eight consecutive targeted runs
+came back clean.
+
+**2026-07-31 — a mechanism, for the two suspension tests at least.** Two more
+failures on one day, both in `describe('suspension puts the piece back')` and both
+saying the same thing: the game was still `active` when the test expected
+`suspended`. One failed on `expect(await stub.peek()).toMatchObject({ status:
+'suspended' })`, the other on `expect(clocks.running).toBe(false)` a few lines
+later. Five consecutive targeted reruns of the worker project were clean.
+
+Both tests do `black.close()` and then immediately overwrite the `disconnect`
+timer with `due_at = Date.now() - 1` so the alarm fires at once. But the close is
+not awaited, and the DO's own `webSocketClose` → `onDisconnect` schedules
+`disconnect` at `now + DISCONNECT_GRACE_MS` (`game-do.ts:420`). If the runtime
+delivers the close *after* the test's `INSERT OR REPLACE`, the DO's future
+deadline wins, `runDurableObjectAlarm` finds nothing due, and the game never
+suspends. Nothing is wrong with the product: both sides are doing their job, and
+the test is racing the runtime.
+
+That makes it a different bug from the O-07 family, and the `rev` floor would not
+have touched it — the failing assertion reads stored state, not a broadcast.
+
+**2026-08-01 — both fixed, and the second one was O-07 after all.**
+
+*The suspension tests* now go through `closeAndSettle`, which waits for the
+object to have scheduled its own `disconnect` deadline before bringing it
+forward. Waiting on the timer row rather than on `presence.connected = 0` — the
+fix this note proposed — matters: `onDisconnect` writes presence **first** and
+schedules afterwards, so presence going to zero still leaves a window where the
+object's deadline has not landed and can still replace the test's. The row
+appearing is the last thing that can move it. The manual `UPDATE presence` the
+tests did is gone, so they now assert the object marks presence itself.
+
+*"Lets both players move in turn"* was the O-07 pattern in a test written before
+the pattern was understood. Black waited for "a carry exists" — and black had
+already received the broadcast of **white's** lift, so `next()` matched from the
+buffer instantly, `walked()` backdated a row that did not exist yet, black's
+place read as a teleport, and the test timed out waiting for a move the server
+had rightly refused. It passed most of the time because the round trip into the
+object was usually slow enough for the real lift to land first. Reproduced three
+times in eleven runs under load, then rewritten to go through `move()`, whose
+predicates identify the lift. Eight consecutive clean runs of the worker project
+afterwards.
+
+So O-07's family is bigger than it looked, and its "if a third appears, make it
+structural" trigger has arguably now been met — the third was the same bug in an
+older test rather than a new one, and converting the last hand-rolled sequence to
+`move()` removed it. The `rev` floor is still the structural answer if a fourth
+turns up.

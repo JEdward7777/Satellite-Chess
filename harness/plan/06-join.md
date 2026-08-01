@@ -55,20 +55,54 @@
       user gesture, with no visible cause. A dismissed sheet is a decision, not
       a failure, and must not cascade into opening a mail client.
 
-- `6.2` todo: Join
-  - `6.2.1` todo: `/j/CODE` deep link resolving straight into the game
-  - `6.2.2` todo: Typed-code entry with lookalike folding already in `joincode.ts`
+- `6.2` active: Join
+  - Verified end to end by `scripts/check-join.mjs`, the fourth browser driver.
+    Every phone in it except the creator's has never calibrated a field, which is
+    the only way to tell a working join from one that merely renders.
+  - `6.2.1` done: `/j/CODE` deep link resolving straight into the game
+    - `main.ts` reads `parseAppRoute(location.pathname)` at boot. The same parser
+      the Worker used to decide the path was worth serving, so the two cannot
+      disagree about what it means — which is the failure O-06 was about.
+    - The game goes *into* the address bar on a typed join too, so a reload
+      resumes rather than starting over, and comes back out on leaving. The join
+      is idempotent at the far end, which is what makes that safe.
+  - `6.2.2` done: Typed-code entry with lookalike folding already in `joincode.ts`
+    - The folding was already right; what was missing is that the home screen
+      only offered the box when a field was saved. Both ways in now go through
+      one `joinGame` in `client/join.ts`, so they cannot fail differently.
   - `6.2.3` todo: `BarcodeDetector` scanning where available
   - `6.2.4` todo: Safari has no `BarcodeDetector`. Decide between a WASM fallback
     and leaning on the typed code — measure the bundle cost before committing,
     since the service worker has to cache whatever we choose.
-  - `6.2.5` todo: Clear failures — code not found, game already full, expired
+  - `6.2.5` done: Clear failures — code not found, game already full, expired
+    - Four outcomes, each with the server's own words and a hint that is ours,
+      because the server does not know how the phone arrived: not found, full,
+      no signal, and something else. Expired is deliberately folded into not
+      found — an unclaimed game deletes itself, so neither end can tell it from
+      a typo, and the advice is the same.
+    - Offline is the one that could not be reached any other way and matters
+      most: `check-deeplink.mjs` opens a deep link with the network cut and
+      asserts the screen blames the network rather than the code.
 
 - `6.4` todo: Share a field, reusing the same share sheet and QR encoder as the game
   invite. A field link is self-contained, so it also works printed on a sign at the
   park — worth making the QR sparse enough to scan off paper in sunlight.
 
-- `6.3` todo: The joiner needs the field
+- `6.3` done: The joiner needs the field
   - The creator's field snapshot travels with the game, so a joiner who has never
     calibrated anything can play immediately. Worth an explicit stage because it
     is the difference between a pickup game and a setup chore.
+  - The snapshot now comes back from `POST /api/game/:code` with the seat. It was
+    already stored — `create` snapshots the creator's field — and already in every
+    `GameSnapshot` over the socket; the joining phone simply had no way to ask for
+    it before the socket opened, and no board to draw until it did.
+  - Two things had to change alongside it, and both were the real blockers:
+    - The home screen used to send a phone with no fields straight into
+      calibration, so the one phone that needed to type a code could not reach a
+      screen with a box on it. It now shows home either way, with New game hidden
+      (that does need a field) and Join always offered.
+    - Calibration therefore needed a way out that is not "save a field", since it
+      is now something you can walk into by choice rather than the first run.
+  - Not done, deliberately: the joiner does **not** get the field saved to their
+    phone. Handing someone a copy of ground they have never stood on, as a side
+    effect of accepting an invitation, is `6.4`'s question rather than this one's.

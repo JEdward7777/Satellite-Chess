@@ -83,6 +83,16 @@ rather than per-call — give every state snapshot a monotonic `rev` (the column
 already exists) and have `next()` only consider messages newer than the caller's
 last-seen rev. That would make a stale match impossible rather than merely
 unlikely.
+**Updated 2026-08-01:** there was a third, and it had been sitting in the suite
+the whole time — the four-session-old flake in "lets both players move in turn"
+(O-09) is this exact pattern in a test written before the pattern was understood.
+Fixed by routing it through `move()`, which was already the answer. So the
+trigger above has technically been met, but by an *older* instance rather than a
+new one, and grepping for the shape found no others: every remaining
+`carry !== null` predicate is in a test where only one carry ever exists. Leaving
+the `rev` floor for a genuinely new fourth. The transferable lesson is the search,
+not the fix: two instances found and fixed is a reason to grep for the pattern,
+not a reason to consider it handled.
 
 ### O-08 — Standing on your back rank starts the game, with no confirmation
 **Spotted:** 2026-07-26, first end-to-end browser run
@@ -106,42 +116,6 @@ bite, the fix is small — require an explicit `ready` while `staging`, and keep
 purely positional rule for `suspended`, where both players already know they are
 resuming.
 
-### O-09 — `carry.test.ts` flakes, and the suspension tests have a named race
-**Spotted:** 2026-07-26, stage 4.3. **Updated:** 2026-07-31, stage 4.3.5.
-**Why it matters:** "lets both players move in turn" failed twice across about
-fifteen runs of the suite, and passed thirteen. A test that fails one time in ten
-erodes trust in the whole suite and trains people to re-run rather than read.
-Two earlier flakes in this file had the same root cause — a predicate matching the
-opponent's stale broadcast (O-07) — and both were fixed; this is not obviously the
-same, because the failing test sends no `pos` messages and the most recent change
-was to `onPos`. Not yet reproduced under diagnosis: eight consecutive targeted runs
-came back clean.
-
-**2026-07-31 — a mechanism, for the two suspension tests at least.** Two more
-failures on one day, both in `describe('suspension puts the piece back')` and both
-saying the same thing: the game was still `active` when the test expected
-`suspended`. One failed on `expect(await stub.peek()).toMatchObject({ status:
-'suspended' })`, the other on `expect(clocks.running).toBe(false)` a few lines
-later. Five consecutive targeted reruns of the worker project were clean.
-
-Both tests do `black.close()` and then immediately overwrite the `disconnect`
-timer with `due_at = Date.now() - 1` so the alarm fires at once. But the close is
-not awaited, and the DO's own `webSocketClose` → `onDisconnect` schedules
-`disconnect` at `now + DISCONNECT_GRACE_MS` (`game-do.ts:420`). If the runtime
-delivers the close *after* the test's `INSERT OR REPLACE`, the DO's future
-deadline wins, `runDurableObjectAlarm` finds nothing due, and the game never
-suspends. Nothing is wrong with the product: both sides are doing their job, and
-the test is racing the runtime.
-
-That makes it a different bug from the O-07 family, and the `rev` floor would not
-have touched it — the failing assertion reads stored state, not a broadcast.
-**Not doing yet because:** it is a test-harness fix in a file this session did not
-otherwise need to open, and the honest fix is to wait for the DO to have observed
-the disconnect (poll `presence.connected = 0` for black) before overwriting the
-timer, rather than to sleep. Worth doing next time `carry.test.ts` is open. The
-original "lets both players move in turn" flake is still unexplained and may be a
-third thing again.
-
 ### O-10 — The service worker answers navigations the Worker would 404
 **Spotted:** 2026-08-01, stage 6.0
 **Why it matters:** The Worker serves the shell only for the routes in
@@ -159,3 +133,34 @@ page — so the broad rule may simply be right. Narrowing it means duplicating
 0021. Neither is worth doing on a guess. Revisit if `6.2.5` (clear failures for a
 bad code) finds the two behaviours actually diverge for a player rather than for a
 test.
+**Updated 2026-08-01 (`6.2.5` done):** they diverge, and the divergence is benign,
+so this stays open and unfixed. A returning visitor at `/j/SHORT` now gets the
+shell from the service worker, `parseAppRoute` returns null, and the client falls
+through to the home screen; a first-time visitor gets the honest 404. Two
+different answers to the same URL, and the friendlier one is the one that reaches
+the phone most likely to be offline. What did *not* materialise is the case this
+note was worried about: a well-formed code that names no game is now the client's
+business either way — it asks the server and says "no game with that code" — so
+the Worker's 404 was never the mechanism a player relied on. Revisit only if
+something starts depending on `/j/<junk>` being distinguishable offline.
+
+### O-11 — One unidentified suite failure, after O-09 was closed
+**Spotted:** 2026-08-01, stage 6.3
+**Why it matters:** Mostly so the next thread does not read it as "O-09 is back"
+and re-derive a mechanism that has already been fixed. One `npm run check` run
+reported `1 failed | 438 passed` and the name was not captured — the failure block
+had scrolled past a `tail`. Twelve further full-suite runs were clean, including
+two under 2x CPU oversubscription, and eight targeted runs of the worker project
+before that.
+
+What is known: the failing run took **69 s of test time** against a normal 18–30 s,
+and it coincided with `wrangler dev` still running and a Playwright driver
+finishing. The worker tests wait on `Client.next()` with a 2 s wall-clock timeout,
+so a machine that slow is a plausible cause and the failure would then be the
+harness rather than the product. That is a hypothesis, not a diagnosis — the
+deliberate-load attempt did not reproduce it.
+**Not doing yet because:** there is nothing to fix without knowing which test it
+was. If it recurs, capture the whole vitest output rather than a `tail`, and if it
+is a `next()` timeout, the fix is to scale that 2 s with an environment variable
+rather than to chase it. Do not treat one failure as a reason to weaken an
+assertion.

@@ -12,7 +12,7 @@ import {
   snapshotField,
 } from '../shared/field.js';
 import { fromLocal } from '../shared/geo.js';
-import { formatJoinCode, normaliseJoinCode } from '../shared/joincode.js';
+import { formatJoinCode } from '../shared/joincode.js';
 import { parseAppRoute } from '../shared/routes.js';
 import {
   type GpsProvider,
@@ -147,8 +147,29 @@ async function boot(): Promise<void> {
    * page is what makes someone scan the QR a second time.
    */
   function showJoin(code: string): void {
-    swap(() => mountJoining(root, { code, onCancel: () => void showHome() }));
+    /**
+     * False once this screen has been replaced by any other.
+     *
+     * The request outlives the screen. Someone who taps Cancel on a slow join —
+     * the case the Cancel button exists for — would otherwise be dropped into
+     * the game a few seconds later, on top of whatever they had moved on to.
+     * `swap` runs the previous screen's teardown, so this flips at exactly the
+     * moment the joining screen goes away.
+     *
+     * The seat may well have been taken at the far end regardless. That is fine
+     * and cannot be helped: the join is idempotent, so reopening the link picks
+     * the same seat back up rather than finding the game full.
+     */
+    let live = true;
+    swap(() => {
+      const teardown = mountJoining(root, { code, onCancel: () => void showHome() });
+      return () => {
+        live = false;
+        teardown();
+      };
+    });
     void joinGame(code, getPlayerId()).then((outcome) => {
+      if (!live) return;
       if (!outcome.ok) {
         showJoinFailed(code, outcome);
         return;
@@ -410,15 +431,14 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       ?.addEventListener('click', deps.onCalibrate);
     root.querySelector<HTMLButtonElement>('[data-new]')?.addEventListener('click', deps.onNew);
     root.querySelector<HTMLButtonElement>('[data-join]')?.addEventListener('click', () => {
-      const typed = root.querySelector<HTMLInputElement>('[data-code]')?.value ?? '';
-      // Folded through the same normaliser as a deep link, so a code read aloud
-      // across a field — with an O for a 0, or a space in the middle — works.
-      const code = normaliseJoinCode(typed);
-      if (!code) {
-        alert('That is not a six-character game code. The letters I, L, O and U are never used.');
-        return;
-      }
-      deps.onJoin(code);
+      const typed = root.querySelector<HTMLInputElement>('[data-code]')?.value.trim() ?? '';
+      // Nothing typed is not a mistake worth a screen about it.
+      if (typed === '') return;
+      // Handed on raw. `joinGame` folds it through the same normaliser a deep
+      // link goes through — so a code read aloud across a field, with an O for a
+      // 0 or a space in the middle, resolves identically either way — and refuses
+      // one that cannot be a code with the same screen every other failure uses.
+      deps.onJoin(typed);
     });
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {

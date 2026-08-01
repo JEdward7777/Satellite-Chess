@@ -4,10 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `6` — the join flow. `6.0` and `6.1` are done; `6.2` is next.
-**Next action**: `6.2.1`, `/j/CODE` opening the game. `parseAppRoute` still has
-one consumer.
-**Last session**: `harness/sessions/2026-08-01-04.md`
+**Active stage**: `6` — the join flow. Only `6.2.3`/`6.2.4` (camera scanning) and
+`6.4` (share a field) are left in it.
+**Next action**: `6.2.3`, `BarcodeDetector` scanning — or skip to **phase 5, the
+clock**, which is the larger hole and needs no decision first.
+**Last session**: `harness/sessions/2026-08-01-05.md`
 
 ## In one paragraph
 
@@ -16,11 +17,14 @@ Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
 terminal detection, clock handover, the promotion picker, and optimistic local
 application. **You can now see your opponent walking**: `3.4` closed, so the
 relay is drawn as a dot that glides between fixes instead of jumping.
-**Phase 6 is open. `6.0` closed O-06** — the shell loads from `/j/CODE` and
-`/f/<blob>`, online and with the network cut — **and `6.1` is done**: a create
-screen, a six-character code shown large as `ABC 123`, a QR encoder written here
-rather than fetched from a CDN (decision 0024), and the OS share sheet with its
-fallbacks. **427 tests pass.**
+**Scan-to-play works end to end.** `6.0` closed O-06 (the shell loads from
+`/j/CODE` and `/f/<blob>`, online and with the network cut), `6.1` built the
+invite (a code shown large as `ABC 123`, a QR encoder written here rather than
+fetched from a CDN — decision 0024 — and the OS share sheet), and `6.2.1`,
+`6.2.2`, `6.2.5` and `6.3` now make following one *arrive*: a phone that has
+never calibrated a field can scan a link, take a seat, and play on the creator's
+ground, because the field travels back with the seat. **439 tests pass, and
+`carry.test.ts` no longer flakes — O-09 is closed, two separate races.**
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -28,10 +32,12 @@ code, both walk to their back ranks, then nine moves to a pawn on the seventh �
 `1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
 through the picker.
 
-What is missing is reach, not plumbing. The invite half of phase 6 is now what
-decision 0015 describes; what is left is the *joining* half — a scanned link
-still lands on the home screen rather than in the game. After that, the clock
-(phase 5) is the largest untouched system.
+What is missing is reach, not plumbing. Phase 6 is now what decision 0015
+describes in both directions — you can hand someone a link and they can follow
+it. What is left of it is the camera (`6.2.3`/`6.2.4`, and the typed code already
+covers the case) and field sharing (`6.4`). **The clock, phase 5, is now the
+largest untouched system**, and the game has no time pressure at all until it
+exists.
 
 ## The field survey is ready and waiting on a walk
 
@@ -62,25 +68,24 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **`6.2.1`, the deep link opening the game.** `src/shared/routes.ts` already
-   parses `/j/CODE` into a normalised code; nothing on the client reads it yet.
-   `6.0` made the shell *load* there, which is not the same thing — and now that
-   the QR points somewhere real, this is the last gap in a scan-to-play flow.
-   It needs `6.3` alongside it: a joiner who has never calibrated anything has no
-   field, and `main.ts` currently insists on `fields[0]` before it will join.
-2. **`6.2.2`–`6.2.5`**, the rest of joining: typed entry (already folding through
-   `normaliseJoinCode` on the home screen), `BarcodeDetector` scanning, the
-   Safari decision, and the clear failures.
-3. **Phase 5, the clock** — the largest untouched system, and the game has no
+1. **Phase 5, the clock** — the largest untouched system, and the game has no
    time pressure at all until it exists. `shared/clock.ts` is already written and
-   tested; what is missing is the DO half and the flag-fall alarm.
+   tested; what is missing is the DO half and the flag-fall alarm. This is the
+   recommendation: it needs no decision first, and phase 6's remaining stages are
+   both smaller and both optional to a playable game.
+2. **`6.2.3`/`6.2.4`, the camera.** `BarcodeDetector` where it exists, and a
+   decision about Safari, which has none — measure the WASM bundle before
+   committing, because the service worker has to cache whatever is chosen. Note
+   that the typed code already covers this case completely, so it buys speed
+   rather than capability.
+3. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
+   already reads the route and `main.ts` deliberately falls through to home for
+   it. This is also where "should a joiner keep the field they played on?" gets
+   answered — `6.3` deliberately does not save it.
 4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
 5. `1.9.3.5` — fold the findings back into square size and the reach constants.
-6. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
-   named race (the test overwrites a `disconnect` timer that the DO's own close
-   handler then reschedules); fix it next time that file is open.
 
 ## Things a new thread should know before touching anything
 
@@ -164,6 +169,31 @@ Nothing is half-finished.
   turns on *both* players seeing the same circle. Getting this wrong does not
   fail anyone's moves; it tells a handicapped player a legal move is out of reach,
   and they believe it and walk further.
+- **The joining phone is the one with no field, and that shaped three things.**
+  It gets the field back from `POST /api/game/:code` along with its seat (6.3).
+  Home is therefore shown even with nothing saved — it used to send a fresh phone
+  straight into calibration, which meant the one phone that needed a code box
+  could not reach one — and calibration therefore needed a way out that is not
+  "save a field". A joiner is deliberately *not* given a copy of the field to
+  keep; that is 6.4's question.
+- **A scanned link and a typed code are one code path** (`client/join.ts`).
+  Anything that can only fail on one of them is a bug. The client refuses an
+  impossible code before spending a request, and every other failure is the
+  server's message plus a hint of ours, because the server does not know how the
+  phone arrived.
+- **The game lives in the address bar while you are in it**, put there by
+  `rememberGame` on a typed join as well as a scanned one, and taken back out by
+  `forgetDeepLink` on the way home. A reload resumes because the join is
+  idempotent at the far end. Carry `location.search` through both, or `?sim=1`
+  vanishes and every browser check stops working.
+- **A join request outlives its screen.** Tapping Cancel on a slow join used to
+  drop the player into the game seconds later, on top of whatever they had moved
+  on to. `showJoin` holds a `live` flag that its own teardown clears. Any future
+  screen that fires a request and then lets you leave needs the same.
+- **There is a fourth browser driver: `scripts/check-join.mjs`.** Every phone in
+  it except the creator's has never calibrated a field, which is the only way to
+  tell a working join from one that merely renders. Run it after anything
+  touching joining, routing, or the home screen.
 - **There is a second browser driver: `scripts/check-deeplink.mjs`.** It loads a
   cold deep link, cuts the network, loads it again, and separately asks the server
   what it says with a request that bypasses the service worker. Run it after
@@ -207,6 +237,7 @@ npm install --no-save playwright jsqr                          # then any driver
 node scripts/drive-game.mjs                                    # two phones, a game
 node scripts/check-deeplink.mjs                                # deep links, offline
 node scripts/check-invite.mjs                                  # create, code, QR, share
+node scripts/check-join.mjs                                    # joining, with no field
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 
