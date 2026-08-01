@@ -4,27 +4,27 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `4.3` — the carry, client side. Only `4.3.6` remains.
-**Next action**: `4.3.6` — optimistic local application, so a tap feels instant
-**Last session**: `harness/sessions/2026-07-31-01.md`
+**Active stage**: none — **phase 4 is complete**. Pick from the list below.
+**Next action**: `3.4.3` (opponent's dot) is the small one; phase 6 is the big one
+**Last session**: `harness/sessions/2026-08-01-01.md`
 
 ## In one paragraph
 
 Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
-**phase 4's server side is finished** — lift, carry, place, resign, draw,
-terminal detection, clock handover, and a whole game played move by move against
-the real `workerd` runtime. **250 tests pass.**
+**phase 4 is finished, server and client** — lift, carry, place, resign, draw,
+terminal detection, clock handover, the promotion picker, and now optimistic
+local application. **337 tests pass.**
 
-**The game is playable, and a whole game has now been played through it.** Two
+**The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
 code, both walk to their back ranks, then nine moves to a pawn on the seventh —
 `1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
-through the picker. **307 tests pass.**
+through the picker.
 
-What is missing is polish and reach, not plumbing: optimistic local application
-(`4.3.6`), and — the big one — a real join flow (phase 6). Today a second phone
-joins by typing a code that the first phone displays, which works but is not the
-QR-and-share-sheet experience decision 0015 describes.
+What is missing is reach, not plumbing. The big one is a real join flow (phase
+6): today a second phone joins by typing a code the first phone displays, which
+works but is not the QR-and-share-sheet experience decision 0015 describes. After
+that, the clock (phase 5) is the largest untouched system.
 
 ## The field survey is ready and waiting on a walk
 
@@ -53,13 +53,22 @@ wasted trip is not discovered afterwards.
 
 ## What to do next, concretely
 
-1. `4.3.6` — optimistic local application, so a tap feels instant on a slow link.
-2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+Nothing is half-finished, so this is a genuine choice rather than a queue.
+
+1. **Phase 6, the join flow** — the biggest gap between "playable" and "usable by
+   someone who was not there when it was built". Start with **O-06** (relative
+   asset paths) before the QR encoder, or the first scan in a field will fail.
+2. **Phase 5, the clock** — the largest untouched system, and the game has no
+   time pressure at all until it exists. `shared/clock.ts` is already written and
+   tested; what is missing is the DO half and the flag-fall alarm.
+3. `3.4.3` — relay the opponent's position and interpolate it. Small, and it is
+   the last piece of the transport. Seeing them jog across the field is most of
+   the tension the game has to offer, and the plumbing already carries it.
+4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
-3. `1.9.3.5` — fold the findings back into square size and the reach constants.
-4. O-06 (relative asset paths break deep links) before the join flow in phase 6.
-5. **O-09** — `carry.test.ts` still flakes. The two suspension tests now have a
+5. `1.9.3.5` — fold the findings back into square size and the reach constants.
+6. **O-09** — `carry.test.ts` still flakes. The two suspension tests have a
    named race (the test overwrites a `disconnect` timer that the DO's own close
    handler then reschedules); fix it next time that file is open.
 
@@ -100,10 +109,26 @@ wasted trip is not discovered afterwards.
   an author `display` rule beats the user agent's `[hidden] { display: none }`
   whatever the specificity, so the promotion overlay covered the board for a whole
   game while every test passed. Keep taking screenshots.
+- **There is a browser driver now: `scripts/drive-game.mjs`.** Three sessions
+  wrote one and threw it away; this one is kept. It plays two simulated phones
+  through a game and photographs each step. `npm install --no-save playwright`
+  first — deliberately not a dependency, since it only matters when someone is
+  looking at pixels. It also documents the two traps below in its header.
 - **Clicking the board under `?sim=1` teleports *and* taps.** `attachSimDrag`
   moves the player on `pointerdown`, the game view taps on `pointerup`. To drive a
   game from a script, teleport with `satchess.me.moveTo(...)` and dispatch a bare
   `pointerup` — a real click places the piece where you already stand.
+- **The simulator emits a fix only once a second**, so a tap dispatched straight
+  after a teleport still carries the *old* position and is refused for reach.
+  That failure reads exactly like a bug in `shared/reach.ts` and is not one. Wait
+  for the on-screen square readout to catch up first.
+- **The screen can be ahead of the server on purpose** (`client/optimistic.ts`,
+  stage 4.3.6). A lift, place or drop is applied locally the instant it is tapped
+  and reconciled against the next snapshot. It predicts only what is *certain* to
+  be accepted, and holds the pending action rather than the predicted result, so
+  the server's snapshot is always the base. A carry with an **empty destination
+  list is a local prediction, not a piece with nowhere to go** — the server
+  refuses that case outright rather than sending one.
 - **Three tsconfigs, one per runtime** (decision 0021). Client gets DOM only,
   worker gets Workers only, tools get both. Do not collapse them back into one —
   the Workers globals shadow their DOM namesakes and the resulting errors name

@@ -3,7 +3,7 @@
 chess.js runs in both places: the client for instant highlighting, the Durable
 Object for the only answer that counts.
 
-- `4` active: Server-authoritative chess with carry validation
+- `4` done: Server-authoritative chess with carry validation
 
 - `4.1` done: Rules in the DO
   - `4.1.1` done: Load FEN, validate legality, apply, persist new FEN
@@ -33,7 +33,7 @@ Object for the only answer that counts.
       it spent; nothing is refunded.
   - `4.2.7` done: Promotion resolved at place time, no travel involved
 
-- `4.3` active: The carry, client side
+- `4.3` done: The carry, client side
   - `src/client/views/game.ts`. Destinations come from the server with the carry,
     so the client needs no rules engine — a solid dot is legal *and* in reach, a
     faint one is legal but needs walking, which is the decision the game is made
@@ -53,7 +53,27 @@ Object for the only answer that counts.
       one moment a tap has to mean something other than "put it here". The fix
       is taken when the choice is made, not when the picker opened, since the
       server checks reach at the instant of the place.
-  - `4.3.6` todo: Optimistic local application, reconciled against the DO snapshot
+  - `4.3.6` done: Optimistic local application, reconciled against the DO snapshot
+    - A decorator around `GameConnection` (`client/optimistic.ts`), not a change
+      to `net.ts` — that module promises it never decides anything about the
+      game, and the promise is worth keeping literally.
+    - The pending **action** is held, not the predicted result, and re-applied on
+      top of whatever the latest server snapshot is. Reconciliation is then a
+      question of evidence — does the snapshot show this carry? — rather than of
+      revision numbers, which would flicker whenever the opponent bumped `rev`
+      by offering a draw.
+    - **No rules engine.** chess.js would add 35.8 kB to a 44.7 kB bundle;
+      the whole layer cost 3.5 kB. A place is already known-legal because its
+      destination came from `carry.destinations`, so applying it needs only the
+      three cases where the board changes somewhere other than `from`/`to`:
+      castling, en passant, promotion.
+    - A lift is therefore predicted *without* its destinations, since generating
+      them is the one thing that needs the engine. An empty destination list is
+      an unambiguous marker — the server refuses `no_legal_moves` rather than
+      sending an empty one — and the view reads it as "in hand, working it out".
+      This costs nothing because the next act of a move is a walk away.
+    - Anything less than certain is not predicted at all. Showing a move and
+      snatching it back is worse than the wait it was hiding.
 
 - `4.4` done: Resign and draw agreement
   - Resigning is allowed on the opponent's turn too: "I am beaten" is not a move,

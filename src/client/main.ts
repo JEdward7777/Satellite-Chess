@@ -22,6 +22,7 @@ import { mountCalibrate } from './views/calibrate.js';
 import { mountGame } from './views/game.js';
 import { mountSurvey } from './views/survey.js';
 import { connectToGame } from './net.js';
+import { withOptimism } from './optimistic.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
 /**
@@ -155,7 +156,9 @@ async function boot(): Promise<void> {
   }
 
   function enterGame(joinCode: string, field: FieldSpec, playerId: string): void {
-    const connection = connectToGame({ joinCode, playerId });
+    // Wrapped so the three acts of a carry land on screen the moment they are
+    // tapped. The messages on the wire are identical; only the wait is gone.
+    const connection = withOptimism(connectToGame({ joinCode, playerId }));
     swap(() => {
       let detachDrag: (() => void) | null = null;
       const teardown = mountGame(root, {

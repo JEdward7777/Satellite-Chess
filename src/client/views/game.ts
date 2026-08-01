@@ -82,6 +82,16 @@ export interface CarryGuidance {
   /** Those that could be placed on from where the player stands right now. */
   inReach: Square[];
   /**
+   * Lifted locally, not yet confirmed, so the destinations are not known yet.
+   *
+   * An empty destination list identifies this on its own: the server refuses to
+   * lift a piece that has nowhere to go (`no_legal_moves`), so every carry it
+   * sends has at least one. Only `client/optimistic.ts` produces an empty set,
+   * and only ever for your own piece. Without this the readout would report a
+   * fresh lift as "no fix", which is both wrong and alarming.
+   */
+  pending: boolean;
+  /**
    * The closest legal destination, and how much further there is to walk.
    *
    * `walkM` is the number worth showing. Reach extends past your feet, so a
@@ -117,14 +127,16 @@ export function carryGuidance(
     }
   }
 
+  const mine = carry.color === myColor;
   return {
     from: carry.from,
     piece: carry.piece,
     glyph: PIECE_GLYPHS[carry.piece.toLowerCase() as PieceType] ?? '?',
-    mine: carry.color === myColor,
+    mine,
     destinations,
     inReach,
     nearest,
+    pending: mine && destinations.length === 0,
   };
 }
 
@@ -138,6 +150,7 @@ export function carryReadout(guidance: CarryGuidance | null): string {
   if (!guidance) return '—';
   const what = `${guidance.glyph} ${guidance.from}`;
   if (!guidance.mine) return `${what} · theirs`;
+  if (guidance.pending) return `${what} · in hand`;
   if (guidance.inReach.length > 0) return `${what} · ${guidance.inReach.length} in reach`;
   if (!guidance.nearest) return `${what} · no fix`;
   return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM)}`;
@@ -146,6 +159,10 @@ export function carryReadout(guidance: CarryGuidance | null): string {
 /** What to do next while someone is carrying, in one line. */
 export function carryPrompt(guidance: CarryGuidance): string {
   if (!guidance.mine) return 'Your opponent is carrying a piece.';
+  // Said while the lift is still in flight. It names what happened rather than
+  // what to do, because for the moment it takes to confirm there is nothing to
+  // do — and "start walking" is true whatever the destinations turn out to be.
+  if (guidance.pending) return `Picked up ${guidance.from}. Start walking.`;
   if (!guidance.nearest) return `Carrying from ${guidance.from}. Waiting for a fix…`;
   if (guidance.inReach.length > 0) {
     return `Carrying. Tap a bright dot to place — ${guidance.inReach.length} in reach.`;
@@ -262,6 +279,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       return;
     }
     if (!carry.mine) return;
+    // A lift that has not come back yet has no destination list, so there is no
+    // way to tell a legal placement from a stray tap — and no way to know whether
+    // it promotes, which would send a place with no piece chosen. The window is
+    // one round trip and the next act is a walk away, so dropping the tap costs
+    // nothing; guessing could cost a queen.
+    if (carry.pending) return;
     if (square === carry.from) {
       // Tapping the square you lifted from puts it back — free, bar the clock.
       deps.connection.send({ t: 'drop' });
