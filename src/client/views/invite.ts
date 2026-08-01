@@ -21,13 +21,19 @@
 
 import { formatJoinCode, joinUrl } from '../../shared/joincode.js';
 import { encodeQr, qrSvg } from '../../shared/qr.js';
-import type { FieldSpec } from '../../shared/field.js';
 import type { Color } from '../../shared/squares.js';
 import { type Invite, copyInvite, detectShareCapabilities, shareInvite } from '../share.js';
 
+/**
+ * Only the name is used, so this takes either a saved field or a game's
+ * snapshot of one. By the time an invite exists the game holds a snapshot, and
+ * the two are the same word to a player: "the common".
+ */
+type NamedField = { name: string };
+
 export interface InviteDeps {
   joinCode: string;
-  field: FieldSpec;
+  field: NamedField;
   /** The creator's colour, so the screen can say which end to walk to. */
   colour: Color;
   /** Overridden in tests and by the deep-link driver. */
@@ -46,7 +52,7 @@ export interface InviteDeps {
  */
 const EC_LEVEL = 'M';
 
-export function inviteFor(joinCode: string, field: FieldSpec, origin: string): Invite {
+export function inviteFor(joinCode: string, field: NamedField, origin: string): Invite {
   return { url: joinUrl(origin, joinCode), code: joinCode, fieldName: field.name };
 }
 
@@ -151,7 +157,7 @@ function shareNote(url: string): string {
  * walk in, not a button to press. See O-08: the clock can start while nobody is
  * looking at a phone, so it is worth saying so before it does.
  */
-function startNote(colour: Color, field: FieldSpec): string {
+function startNote(colour: Color, field: NamedField): string {
   const rank = colour === 'w' ? 'a1–h1' : 'a8–h8';
   return (
     `Walk to your back rank — ${rank} on ${field.name}. ` +

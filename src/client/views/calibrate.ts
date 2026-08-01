@@ -145,6 +145,16 @@ export interface CalibrateDeps {
   store: FieldStore;
   /** Called once the field is on disk, never before. */
   onSaved(spec: FieldSpec): void;
+  /**
+   * A way out without saving, offered only when there is somewhere to go back to.
+   *
+   * There was not one while a phone with no fields landed here automatically:
+   * calibrating *was* the first run, and "back" meant nothing. Since stage 6.3 a
+   * phone that has never calibrated anything still has a home screen — it can
+   * join a game on someone else's field — so walking in here by accident has to
+   * be undoable.
+   */
+  onCancel?(): void;
   existing?: FieldSpec;
 }
 
@@ -174,7 +184,10 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
   });
 
   function paint(): void {
-    root.innerHTML = draft.step === 'review' ? reviewHtml(draft) : cornerHtml(draft, gpsState);
+    const screen = draft.step === 'review' ? reviewHtml(draft) : cornerHtml(draft, gpsState);
+    root.innerHTML = deps.onCancel
+      ? `${screen}<p><button data-cancel class="secondary">Not now</button></p>`
+      : screen;
     wire();
   }
 
@@ -201,6 +214,11 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
     root.querySelector<HTMLButtonElement>('[data-save]')?.addEventListener('click', () => {
       void save();
     });
+
+    const cancel = deps.onCancel;
+    if (cancel) {
+      root.querySelector<HTMLButtonElement>('[data-cancel]')?.addEventListener('click', cancel);
+    }
   }
 
   async function save(): Promise<void> {

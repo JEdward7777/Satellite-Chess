@@ -148,16 +148,16 @@ describe('creating and joining', () => {
 
   it('seats the joiner in the other colour and moves to staging', async () => {
     const stub = await createGame(nextCode());
-    expect(await stub.join(BLACK)).toEqual({ ok: true, color: 'b' });
+    expect(await stub.join(BLACK)).toMatchObject({ ok: true, color: 'b' });
     expect(await stub.peek()).toMatchObject({ status: 'staging', seatsFree: 0 });
   });
 
   it('is idempotent for a player already seated', async () => {
     const stub = await createGame(nextCode());
-    expect(await stub.join(BLACK)).toEqual({ ok: true, color: 'b' });
+    expect(await stub.join(BLACK)).toMatchObject({ ok: true, color: 'b' });
     // Reopening the link must not be an error, and must not take the other seat.
-    expect(await stub.join(BLACK)).toEqual({ ok: true, color: 'b' });
-    expect(await stub.join(WHITE)).toEqual({ ok: true, color: 'w' });
+    expect(await stub.join(BLACK)).toMatchObject({ ok: true, color: 'b' });
+    expect(await stub.join(WHITE)).toMatchObject({ ok: true, color: 'w' });
   });
 
   it('refuses a third player', async () => {
@@ -176,6 +176,22 @@ describe('creating and joining', () => {
     const peeked = await stub.peek();
     expect(peeked.field?.a1).toEqual(FIELD.a1);
     expect(peeked.field?.squareM).toBeCloseTo(SQUARE_M, 6);
+  });
+
+  it('hands the field back with the seat (6.3)', async () => {
+    // The joining phone has calibrated nothing. Without the field here it would
+    // have no geometry until the socket's first snapshot, so the board it draws
+    // between joining and connecting would be a guess or a blank.
+    const stub = await createGame(nextCode());
+    const joined = await stub.join(BLACK);
+    expect(joined.ok).toBe(true);
+    expect(joined.ok && joined.field.a1).toEqual(FIELD.a1);
+    expect(joined.ok && joined.field.squareM).toBeCloseTo(SQUARE_M, 6);
+
+    // And again on a re-join, because reopening the link is the commonest way
+    // back into a game after a phone has been locked in a pocket.
+    const again = await stub.join(BLACK);
+    expect(again.ok && again.field.a1).toEqual(FIELD.a1);
   });
 });
 
@@ -215,6 +231,45 @@ describe('the HTTP routes', () => {
 
     const peek = await SELF.fetch(`https://example.com/api/game/${body.joinCode}`);
     expect(await peek.json()).toMatchObject({ exists: true, status: 'waiting' });
+  });
+
+  it('answers a join with the seat and the field (6.3)', async () => {
+    // The whole scan-to-play flow rests on this response: the joining phone has
+    // never calibrated anything, and this is the only place it is told what
+    // ground the game is played on before the socket opens.
+    const created = await SELF.fetch('https://example.com/api/game', {
+      method: 'POST',
+      body: JSON.stringify({
+        playerId: WHITE,
+        field: makeFieldSpec('The common', A1, fromLocal(A1, { e: 56, n: 56 })),
+      }),
+    });
+    const { joinCode } = (await created.json()) as { joinCode: string };
+
+    const joined = await SELF.fetch(`https://example.com/api/game/${joinCode}`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId: BLACK }),
+    });
+    expect(joined.status).toBe(200);
+    const body = (await joined.json()) as { color: string; field: { name: string; squareM: number } };
+    expect(body.color).toBe('b');
+    expect(body.field.name).toBe('The common');
+    expect(body.field.squareM).toBeCloseTo(8, 6);
+
+    // And the failures the join screen has to tell apart.
+    const third = await SELF.fetch(`https://example.com/api/game/${joinCode}`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId: THIRD }),
+    });
+    expect(third.status).toBe(409);
+    expect(await third.json()).toMatchObject({ error: 'game_full' });
+
+    const nowhere = await SELF.fetch(`https://example.com/api/game/${nextCode()}`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId: BLACK }),
+    });
+    expect(nowhere.status).toBe(404);
+    expect(await nowhere.json()).toMatchObject({ error: 'not_found' });
   });
 
   it('folds a mistyped code rather than rejecting it', async () => {

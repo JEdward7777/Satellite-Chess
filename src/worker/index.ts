@@ -180,7 +180,10 @@ async function joinGame(request: Request, stub: DurableObjectStub<GameDO>): Prom
 
   const result = await stub.join(playerId);
   if (result.ok) {
-    return json({ color: result.color });
+    // The field travels back with the seat (stage 6.3). A phone that arrived by
+    // scanning a QR has calibrated nothing, and this is the only thing it is
+    // missing — the game snapshotted the creator's field when it was created.
+    return json({ color: result.color, field: result.field });
   }
   if (result.reason === 'full') {
     return apiError('game_full', 'That game already has two players.', 409);

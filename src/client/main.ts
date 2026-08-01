@@ -5,9 +5,15 @@
  * The board itself (stage 1.3) mounts from here too, once it exists.
  */
 
-import { type FieldSpec, deriveGeometry } from '../shared/field.js';
+import {
+  type FieldSnapshot,
+  type FieldSpec,
+  deriveGeometry,
+  snapshotField,
+} from '../shared/field.js';
 import { fromLocal } from '../shared/geo.js';
 import { formatJoinCode, normaliseJoinCode } from '../shared/joincode.js';
+import { parseAppRoute } from '../shared/routes.js';
 import {
   type GpsProvider,
   type GpsState,
@@ -17,12 +23,14 @@ import {
   simRequested,
 } from './gps.js';
 import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
+import { type JoinRejection, joinGame } from './join.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountGame } from './views/game.js';
 import { mountInvite } from './views/invite.js';
+import { mountJoinFailed, mountJoining } from './views/join.js';
 import { mountSurvey } from './views/survey.js';
 import type { Color } from '../shared/squares.js';
 import { connectToGame } from './net.js';
@@ -105,12 +113,19 @@ async function boot(): Promise<void> {
     teardown = mount();
   };
 
+  /**
+   * Home, and the only screen that reads the field list.
+   *
+   * It is shown even with nothing saved. It used to hand a fresh phone straight
+   * to calibration, which was right while a field was the only way in — but since
+   * stage 6.3 it is not: a phone that has never walked out a board can join a game
+   * on someone else's field, and it needs a screen with a code box on it to do so.
+   */
   const showHome = async () => {
+    // The URL keeps whatever brought us here, so a reload from the board resumes
+    // the game. Home is not that game, and a reload here should not re-join one.
+    forgetDeepLink();
     const fields = await store.list();
-    if (fields.length === 0) {
-      showCalibrate();
-      return;
-    }
     swap(() =>
       mountHome(root, {
         gps,
@@ -118,10 +133,46 @@ async function boot(): Promise<void> {
         onCalibrate: () => showCalibrate(),
         onOpen: showBoard,
         onNew: () => showCreate(fields),
-        onJoin: (code, field) => void joinGame(code, field),
+        onJoin: (code) => showJoin(code),
       }),
     );
   };
+
+  /**
+   * Take a seat, from a scanned link or from a typed code (stages 6.2.1–6.2.2).
+   *
+   * Both arrive here, because they are the same act. The screen in between is not
+   * decoration: this runs on the phone with the worst signal in the game — the
+   * one that has just been handed a link in a park — and an unexplained blank
+   * page is what makes someone scan the QR a second time.
+   */
+  function showJoin(code: string): void {
+    swap(() => mountJoining(root, { code, onCancel: () => void showHome() }));
+    void joinGame(code, getPlayerId()).then((outcome) => {
+      if (!outcome.ok) {
+        showJoinFailed(code, outcome);
+        return;
+      }
+      // Whichever way this game was reached, the address bar now describes it, so
+      // a reload — or a phone that ran out of battery and came back — resumes
+      // instead of landing on the home screen. The join is idempotent at the far
+      // end, which is what makes that safe.
+      rememberGame(outcome.code);
+      // The field comes back with the seat, so this phone needs none of its own.
+      enterGame(outcome.code, outcome.field, getPlayerId(), outcome.colour);
+    });
+  }
+
+  function showJoinFailed(code: string, rejection: JoinRejection): void {
+    swap(() =>
+      mountJoinFailed(root, {
+        code,
+        rejection,
+        onRetry: () => showJoin(code),
+        onHome: () => void showHome(),
+      }),
+    );
+  }
 
   /** The create screen (6.1.1). The network work is here, not in the view. */
   function showCreate(fields: FieldSpec[]): void {
@@ -160,22 +211,12 @@ async function boot(): Promise<void> {
     }
     // The server's answer wins over the one asked for, because it is the one
     // the Durable Object recorded.
-    showInvite(body.joinCode, field, body.color ?? colour);
-  }
-
-  async function joinGame(joinCode: string, field: FieldSpec): Promise<void> {
-    const playerId = getPlayerId();
-    const response = await fetch(`/api/game/${encodeURIComponent(joinCode)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ playerId }),
-    });
-    const body = (await response.json()) as { color?: Color; message?: string };
-    if (!response.ok) {
-      alert(body.message ?? 'Could not join that game.');
-      return;
-    }
-    enterGame(joinCode, field, playerId, body.color ?? 'b');
+    //
+    // Snapshotted here for the same reason the server snapshots it: from now on
+    // this is a *game's* field, and it must not change shape because someone
+    // re-calibrates the saved one. A joiner is handed the server's copy of the
+    // same thing, so both phones hold a snapshot and neither holds a live field.
+    showInvite(body.joinCode, snapshotField(field), body.color ?? colour);
   }
 
   /**
@@ -188,7 +229,7 @@ async function boot(): Promise<void> {
    * overlay that has to keep the board alive underneath it, for a screen nobody
    * looks at for more than a few seconds.
    */
-  function showInvite(joinCode: string, field: FieldSpec, colour: Color): void {
+  function showInvite(joinCode: string, field: FieldSnapshot, colour: Color): void {
     swap(() =>
       mountInvite(root, {
         joinCode,
@@ -202,7 +243,7 @@ async function boot(): Promise<void> {
 
   function enterGame(
     joinCode: string,
-    field: FieldSpec,
+    field: FieldSnapshot,
     playerId: string,
     colour: Color,
   ): void {
@@ -267,11 +308,43 @@ async function boot(): Promise<void> {
         store,
         existing,
         onSaved: () => void showHome(),
+        onCancel: () => void showHome(),
       }),
     );
   }
 
+  // A scanned QR, a shared link, or a reload of either: the path is the whole
+  // instruction (stage 6.2.1). `parseAppRoute` is the same parser the Worker used
+  // to decide this document was worth serving at all, so the two cannot disagree
+  // about what a path means — which is the failure O-06 was about.
+  const route = parseAppRoute(location.pathname);
+  if (route?.kind === 'join') {
+    showJoin(route.code);
+    return;
+  }
+  // `/f/<blob>` is stage 6.4 and there is nothing to open yet. Falling through to
+  // home is the honest answer: the Worker served the shell for it, so a phone that
+  // followed one is at least in the app rather than at a 404.
+
   await showHome();
+}
+
+/**
+ * Put this game in the address bar, without navigating.
+ *
+ * A typed code and a scanned link end up in the same place, so they should
+ * survive a reload the same way. The query string is carried over deliberately:
+ * losing `?sim=1` here would end a simulated game the moment the page refreshed,
+ * and that is how every browser check in this project is run.
+ */
+function rememberGame(code: string): void {
+  history.replaceState(null, '', `/j/${code}${location.search}${location.hash}`);
+}
+
+/** And take it back out, so a reload of the home screen is a home screen. */
+function forgetDeepLink(): void {
+  if (parseAppRoute(location.pathname) === null) return;
+  history.replaceState(null, '', `/${location.search}${location.hash}`);
 }
 
 interface HomeDeps {
@@ -280,7 +353,7 @@ interface HomeDeps {
   onCalibrate(): void;
   onOpen(field: FieldSpec): void;
   onNew(): void;
-  onJoin(joinCode: string, field: FieldSpec): void;
+  onJoin(joinCode: string): void;
 }
 
 /**
@@ -309,19 +382,28 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       <ul class="fields" data-fields>
         ${deps.fields.map(fieldItem).join('')}
       </ul>
-      <p><button data-calibrate>Calibrate a new field</button></p>
       ${
-        deps.fields.length > 0
-          ? `<h2>Play</h2>
-             <p><button data-new>New game</button></p>
-             <p>
-               <label>Or join a code<br />
-                 <input data-code type="text" maxlength="8" placeholder="ABC 123" />
-               </label>
-             </p>
-             <p><button data-join class="secondary">Join</button></p>`
+        deps.fields.length === 0
+          ? `<p class="dim" data-no-fields>
+               No fields yet. Walk one out, or join a game on someone else's — a
+               game brings its own field with it.
+             </p>`
           : ''
       }
+      <p><button data-calibrate>Calibrate a new field</button></p>
+      <h2>Play</h2>
+      ${
+        // Starting a game means choosing a field to play it on, so this is the
+        // one control that really does need one. Joining does not: the field
+        // travels with the game (stage 6.3).
+        deps.fields.length > 0 ? `<p><button data-new>New game</button></p>` : ''
+      }
+      <p>
+        <label>${deps.fields.length > 0 ? 'Or join a code' : 'Join a code'}<br />
+          <input data-code type="text" maxlength="8" placeholder="ABC 123" />
+        </label>
+      </p>
+      <p><button data-join class="secondary">Join</button></p>
     `;
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
@@ -336,7 +418,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         alert('That is not a six-character game code. The letters I, L, O and U are never used.');
         return;
       }
-      if (deps.fields[0]) deps.onJoin(code, deps.fields[0]);
+      deps.onJoin(code);
     });
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {

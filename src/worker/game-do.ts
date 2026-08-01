@@ -254,13 +254,22 @@ export class GameDO extends DurableObject<Env> {
    *
    * Idempotent for a player already in the game, so reopening the link is not an
    * error. Rejects a third player.
+   *
+   * The field snapshot comes back with the seat, and that is the whole of stage
+   * 6.3: a phone that has never calibrated anything has no geometry at all, and
+   * without one here it could not draw a board until the socket's first snapshot
+   * arrived. The game already carries the creator's field; the joiner only ever
+   * needed to be told what it is.
    */
-  async join(playerId: string): Promise<{ ok: true; color: Color } | { ok: false; reason: 'not_found' | 'full' }> {
+  async join(playerId: string): Promise<
+    | { ok: true; color: Color; field: FieldSnapshot }
+    | { ok: false; reason: 'not_found' | 'full' }
+  > {
     const game = this.game();
     if (game === null) return { ok: false, reason: 'not_found' };
 
     const existing = this.colorOf(game, playerId);
-    if (existing !== null) return { ok: true, color: existing };
+    if (existing !== null) return { ok: true, color: existing, field: this.fieldOf(game) };
 
     const free: Color | null =
       game.white_player_id === null ? 'w' : game.black_player_id === null ? 'b' : null;
@@ -284,7 +293,7 @@ export class GameDO extends DurableObject<Env> {
     await this.timers.cancel('gc');
     this.bumpRev();
     this.broadcastState();
-    return { ok: true, color: free };
+    return { ok: true, color: free, field: this.fieldOf(game) };
   }
 
   // -------------------------------------------------------------------------

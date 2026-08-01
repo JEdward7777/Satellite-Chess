@@ -20,7 +20,7 @@
 import {
   type BoardPoint,
   type FieldGeometry,
-  type FieldSpec,
+  type FieldSnapshot,
   deriveGeometry,
   distanceFromBoardPointToSquareM,
   fromBoardPoint,
@@ -192,8 +192,14 @@ export function carryPrompt(guidance: CarryGuidance): string {
 export interface GameViewDeps {
   gps: GpsProvider;
   connection: GameConnection;
-  /** Only needed until the server's snapshot arrives with its own field. */
-  field: FieldSpec;
+  /**
+   * Only needed until the server's snapshot arrives with its own field.
+   *
+   * A snapshot rather than a saved field, because the joining phone may never
+   * have calibrated anything: what it holds is the copy that came back with its
+   * seat (stage 6.3), which is the same immutable geometry the game is played on.
+   */
+  field: FieldSnapshot;
   onLeave(): void;
   /** The simulator hooks the canvas here, exactly as the board view does. */
   onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;

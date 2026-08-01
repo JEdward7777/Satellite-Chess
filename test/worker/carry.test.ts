@@ -147,6 +147,38 @@ async function walked(stub: DurableObjectStub<GameDO>, seconds = 10): Promise<vo
   });
 }
 
+/**
+ * Close a socket and wait until the object has finished reacting to it.
+ *
+ * This is O-09, and it was a real race rather than flakiness in the abstract.
+ * `close()` returns as soon as the client end is shut; the object's own
+ * `webSocketClose` runs whenever the runtime gets round to delivering it, and
+ * that handler schedules `disconnect` at now + the 20 s grace. A test that
+ * overwrites that row *before* the handler runs has its own row replaced by the
+ * object's, `runDurableObjectAlarm` then finds nothing due, and the game stays
+ * active — which the assertion reports as suspension being broken. Both sides
+ * were doing their job; the test was racing the runtime.
+ *
+ * Waiting on the timer rather than on `presence.connected` is deliberate: the
+ * handler writes presence *first* and schedules afterwards, so presence going to
+ * zero would still leave a window where the schedule has not landed. The row
+ * appearing is the last thing that can move the deadline.
+ */
+async function closeAndSettle(
+  client: Client,
+  stub: DurableObjectStub<GameDO>,
+): Promise<void> {
+  client.close();
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const rows = await runInDurableObject(stub, (_i, state) => [
+      ...state.storage.sql.exec(`SELECT due_at FROM timers WHERE kind = 'disconnect'`),
+    ]);
+    if (rows.length > 0) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error('the object never scheduled a disconnect deadline');
+}
+
 describe('the start handshake', () => {
   it('does not start until both players are on their own back rank', async () => {
     const joinCode = nextCode();
@@ -460,19 +492,15 @@ describe('placing a piece', () => {
   it('lets both players move in turn', async () => {
     const { white, black, stub } = await startedGame();
 
-    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
-    await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
-    await walked(stub);
-    white.send({ t: 'place', to: 'e4', pos: at('e4') });
-    await black.next((m) => m.t === 'state' && ((m.game as Msg).clock as Msg).active === 'b');
-
-    black.send({ t: 'lift', from: 'e7', pos: at('e7') });
-    await black.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
-    await walked(stub);
-    black.send({ t: 'place', to: 'e5', pos: at('e5') });
-    await white.next(
-      (m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg)?.san === 'e5',
-    );
+    // Through `move()` rather than by hand, and that is the fix for the oldest
+    // half of O-09. Written out inline, black's "wait until a carry exists"
+    // matched the broadcast of *white's* lift, which black had already received
+    // — so `walked()` backdated a row that did not exist yet, black's place read
+    // as a teleport, and the test timed out waiting for a move the server had
+    // rightly refused. It passed most of the time because the round trip into the
+    // object was usually slow enough for the real lift to land first.
+    await move(white, stub, 'e2', 'e4');
+    await move(black, stub, 'e7', 'e5');
 
     const moves = await runInDurableObject(stub, (_i, state) =>
       [...state.storage.sql.exec<{ san: string }>(`SELECT san FROM moves ORDER BY seq`)].map((r) => r.san),
@@ -620,13 +648,11 @@ describe('suspension puts the piece back (decision 0009)', () => {
     white.send({ t: 'lift', from: 'e2', pos: at('e2') });
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
 
-    // Black walks behind a building and the grace period expires. Drive the
-    // disconnect timer the way the runtime would.
-    black.close();
+    // Black walks behind a building and the grace period expires. The object
+    // schedules that deadline itself; all this does is bring it forward, once the
+    // object has actually scheduled it (see `closeAndSettle`).
+    await closeAndSettle(black, stub);
     await runInDurableObject(stub, async (_i, state) => {
-      state.storage.sql.exec(
-        `UPDATE presence SET connected = 0 WHERE color = 'b'`,
-      );
       state.storage.sql.exec(
         `INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('disconnect', ?)`,
         Date.now() - 1,
@@ -660,16 +686,15 @@ describe('suspension puts the piece back (decision 0009)', () => {
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
     await new Promise((r) => setTimeout(r, 150));
 
-    black.close();
+    await closeAndSettle(black, stub);
     await runInDurableObject(stub, async (_i, state) => {
-      state.storage.sql.exec(`UPDATE presence SET connected = 0 WHERE color = 'b'`);
       state.storage.sql.exec(
         `INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('disconnect', ?)`,
         Date.now() - 1,
       );
       await state.storage.setAlarm(Date.now() + 3_600_000);
     });
-    await runDurableObjectAlarm(stub);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
 
     const clocks = await stub.clocks();
     expect(clocks.running).toBe(false);
