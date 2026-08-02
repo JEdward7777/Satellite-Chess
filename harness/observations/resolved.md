@@ -4,6 +4,29 @@ Moved here once promoted to a stage, fixed, or dismissed. Keep the outcome — a
 dismissed observation is as valuable as a fixed one, because it stops the next
 session re-raising it.
 
+### O-04 — Nothing decides what happens to a game whose opponent never returns
+**Resolved:** 2026-08-02, stage 5.3.4 (decision 0025)
+**Outcome:** Decided and built. A suspended game freezes indefinitely and is never
+deleted on a timer; after **30 days** the player who did *not* stop it may claim
+the win, by a button that is never automatic and stays available until pressed.
+The opponent may still resume right up to that moment. A claim is recorded as
+`abandoned` — an honest label for how it ended, not a discount on the result.
+
+Three things the observation did not contain:
+
+- **Who may claim is the load-bearing part.** The obvious implementation, "you may
+  claim if your opponent is not connected", inverts the rule: after a month
+  *nobody* is connected, so the player who walked off could claim against the one
+  who stayed. The game now records `suspended_by` at the moment of suspension and
+  excludes them. If both vanished at once, neither may claim.
+- **A loss, not a draw, and the reason is incentives.** If abandoning cost
+  nothing, closing the app would be the correct move in any lost position. It
+  cannot be made perfectly fair; it only has to be worse than losing honestly.
+- **`ABANDONED_GAME_TTL_MS` had to go.** Fourteen days contradicts a thirty-day
+  window outright — the game would have been deleted a fortnight before the button
+  appeared. `FINISHED_GAME_TTL_MS` went with it. Only the unclaimed *join code*
+  still expires, at 30 minutes, because nobody has invested anything in it.
+
 ### O-05 — `@cloudflare/workers-types` shadows DOM globals in client code
 **Resolved:** 2026-07-25, stage 1.7 (decision 0021)
 **Outcome:** Fixed. One `tsconfig.json` covering both halves is now four: a

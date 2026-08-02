@@ -167,6 +167,30 @@ export function carryGuidance(
   };
 }
 
+/**
+ * What a frozen game says to the player looking at it (decision 0025).
+ *
+ * Three different people read this screen: the one who stopped the game, the one
+ * who is waiting, and the one who has waited long enough to end it. Telling all
+ * three "game paused" would leave the middle one with no idea that anything will
+ * ever change.
+ */
+export function suspendedPrompt(suspension: GameSnapshot['suspension']): string {
+  if (!suspension) return 'Game paused — waiting for both players.';
+  if (suspension.canClaim) {
+    return 'Your opponent has not come back. You can claim the win, or keep waiting.';
+  }
+  if (suspension.claimableInMs > 0) {
+    const days = Math.ceil(suspension.claimableInMs / (24 * 3600_000));
+    return `Paused. Both walk to your own back ranks to resume — or claim the win in ${days} day${
+      days === 1 ? '' : 's'
+    } if they never do.`;
+  }
+  // The player who stopped it. They cannot claim, and saying so plainly is
+  // kinder than leaving them to discover it by tapping a button that is absent.
+  return 'You paused this game. Both walk to your own back ranks to resume.';
+}
+
 /** Distances are read while walking, so they are short and never reflow. */
 export function metres(m: number): string {
   return m < 10 ? `${m.toFixed(1)} m` : `${Math.round(m)} m`;
@@ -251,6 +275,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         <p>
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
+          <button data-claim hidden>Claim the win</button>
+          <button data-pause class="secondary" hidden>Pause</button>
           <button data-leave class="secondary">Leave</button>
         </p>
       </div>
@@ -406,6 +432,15 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.querySelector<HTMLButtonElement>('[data-drop]')?.addEventListener('click', () => {
     deps.connection.send({ t: 'drop' });
   });
+  root.querySelector<HTMLButtonElement>('[data-pause]')?.addEventListener('click', () => {
+    deps.connection.send({ t: 'pause' });
+  });
+  root.querySelector<HTMLButtonElement>('[data-claim]')?.addEventListener('click', () => {
+    // Confirmed, because it ends someone else's game and cannot be undone.
+    if (confirm('End this game and record a win? Your opponent has not returned.')) {
+      deps.connection.send({ t: 'claim' });
+    }
+  });
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-promote]')) {
     button.addEventListener('click', () => {
       choosePromotion(button.dataset.promote as PromotionPiece);
@@ -438,7 +473,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       return `${game.result.outcome} — ${game.result.reason.replace(/_/g, ' ')}.`;
     }
     if (game.status === 'staging') return 'Walk to your own back rank, then tap Ready.';
-    if (game.status === 'suspended') return 'Game paused — waiting for both players.';
+    if (game.status === 'suspended') return suspendedPrompt(game.suspension);
 
     const carry = guidanceNow();
     if (carry) return carryPrompt(carry);
@@ -562,6 +597,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       readyButton.hidden = !staging;
       readyButton.disabled = !fix;
     }
+
+    // Pause is offered only while the clock is actually running, and the claim
+    // only to the player entitled to it — the server decides both, and says so
+    // in the snapshot, so the screen never has to work out who stopped the game
+    // (decision 0025).
+    const pauseButton = root.querySelector<HTMLButtonElement>('[data-pause]');
+    if (pauseButton) pauseButton.hidden = net.game?.status !== 'active';
+
+    const claimButton = root.querySelector<HTMLButtonElement>('[data-claim]');
+    if (claimButton) claimButton.hidden = net.game?.suspension?.canClaim !== true;
 
     const picker = root.querySelector<HTMLElement>('[data-promotion]');
     if (picker) {

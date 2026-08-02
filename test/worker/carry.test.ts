@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { deriveGeometry, makeFieldSpec, snapshotField, squareCentreLatLng } from '../../src/shared/field.js';
 import { fromLocal } from '../../src/shared/geo.js';
-import { POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
+import { CLAIM_AFTER_MS, POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
 import { fromSquare } from '../../src/shared/squares.js';
 import type { GameDO } from '../../src/worker/game-do.js';
 
@@ -634,7 +634,10 @@ describe('checkmate', () => {
       [...state.storage.sql.exec<{ kind: string }>(`SELECT kind FROM timers`)].map((r) => r.kind),
     );
     expect(timers).not.toContain('flag');
-    expect(timers).toContain('gc');
+    // No `gc` either. Decision 0025: once two people have played, the game is
+    // theirs to keep until one of them clears it — a timer that deletes it
+    // saves a few kilobytes and costs the only record of an afternoon.
+    expect(timers).not.toContain('gc');
 
     white.close();
     black.close();
@@ -1170,6 +1173,175 @@ describe('the start handshake is positional (decision 0005)', () => {
     await new Promise((r) => setTimeout(r, 200));
 
     expect(await stub.peek()).toMatchObject({ status: 'staging' });
+    white.close();
+    black.close();
+  });
+});
+
+describe('pause, and claiming a game nobody came back to (decision 0025)', () => {
+  /** Wind the suspension into the past, rather than waiting a month. */
+  async function suspendedFor(stub: DurableObjectStub<GameDO>, ms: number): Promise<void> {
+    await runInDurableObject(stub, (_i, state) => {
+      state.storage.sql.exec(`UPDATE game SET suspended_at = suspended_at - ? WHERE id = 1`, ms);
+    });
+  }
+
+  it('freezes both clocks on a requested pause', async () => {
+    const { white, black, stub } = await startedGame({ initialMs: 600_000, incrementMs: 0 });
+    white.send({ t: 'pause' });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+
+    expect((await stub.clocks()).running).toBe(false);
+    const timers = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ kind: string }>(`SELECT kind FROM timers`)].map((r) => r.kind),
+    );
+    expect(timers).not.toContain('flag');
+    white.close();
+    black.close();
+  });
+
+  it('puts a carried piece back when paused (decision 0009)', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
+    await white.next((m) => m.t === 'state' && ((m.game as Msg).carry as Msg | null)?.from === 'e2');
+
+    white.send({ t: 'pause' });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+    const carry = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec(`SELECT * FROM carry WHERE id = 1`)],
+    );
+    expect(carry).toHaveLength(0);
+    white.close();
+    black.close();
+  });
+
+  it('tells each player whether they may claim, and when', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'pause' });
+    const paused = await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+
+    // White stopped it, so white may never claim it.
+    const mine = (paused.game as Msg).suspension as Msg;
+    expect(mine).toMatchObject({ by: 'w', canClaim: false, claimableInMs: 0 });
+
+    const theirs = (
+      (await black.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended'))
+        .game as Msg
+    ).suspension as Msg;
+    // Black may, eventually — roughly a month away.
+    expect(theirs.canClaim).toBe(false);
+    expect(theirs.claimableInMs).toBeGreaterThan(29 * 24 * 3600_000);
+
+    white.close();
+    black.close();
+  });
+
+  it('refuses a claim before the month is up, and says how long is left', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'pause' });
+    await black.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+    black.clear();
+
+    black.send({ t: 'claim' });
+    const err = await black.next((m) => m.t === 'error');
+    expect(err.code).toBe('cannot_claim');
+    expect(String(err.message)).toMatch(/\d+ days?/);
+    white.close();
+    black.close();
+  });
+
+  it('lets the other player claim once the month has passed', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'pause' });
+    await black.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+    await suspendedFor(stub, CLAIM_AFTER_MS + 1000);
+    black.clear();
+
+    black.send({ t: 'claim' });
+    const ended = await black.next(
+      (m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null,
+    );
+    // A real loss for the player who stopped it, labelled honestly.
+    expect((ended.game as Msg).result).toMatchObject({ outcome: '0-1', reason: 'abandoned' });
+    expect(await stub.peek()).toMatchObject({ status: 'finished' });
+    white.close();
+    black.close();
+  });
+
+  it('will not let the player who stopped the game claim it', async () => {
+    // The whole point: "claim if your opponent is offline" would invert the
+    // rule, because after a month nobody is connected — so the player who
+    // walked off could claim the win against the one who waited.
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'pause' });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+    await suspendedFor(stub, CLAIM_AFTER_MS + 1000);
+    white.clear();
+
+    white.send({ t: 'claim' });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('cannot_claim');
+    expect(String(err.message)).toMatch(/you stopped this game/i);
+    expect(await stub.peek()).toMatchObject({ status: 'suspended' });
+    white.close();
+    black.close();
+  });
+
+  it('lets the opponent resume right up until the button is pressed', async () => {
+    const { white, black, stub } = await startedGame();
+    white.send({ t: 'pause' });
+    await black.next((m) => m.t === 'state' && (m.game as Msg).status === 'suspended');
+    // Forty days late, with an apology.
+    await suspendedFor(stub, CLAIM_AFTER_MS + 10 * 24 * 3600_000);
+
+    white.send({ t: 'ready', pos: at('e1') });
+    black.send({ t: 'ready', pos: at('e8') });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).status === 'active');
+
+    expect(await stub.peek()).toMatchObject({ status: 'active' });
+    // And the suspension record is gone, so a later pause starts its own month.
+    const [row] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ suspended_at: number | null }>(
+        `SELECT suspended_at FROM game WHERE id = 1`,
+      )],
+    );
+    expect(row.suspended_at).toBeNull();
+    white.close();
+    black.close();
+  });
+
+  it('credits a disconnect to whoever went missing', async () => {
+    const { white, black, stub } = await startedGame();
+    black.close();
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(`UPDATE presence SET connected = 0 WHERE color = 'b'`);
+      state.storage.sql.exec(
+        `INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('disconnect', ?)`,
+        Date.now() - 1,
+      );
+      await state.storage.setAlarm(Date.now() + 3_600_000);
+    });
+    await runDurableObjectAlarm(stub);
+
+    const [row] = await runInDurableObject(stub, (_i, state) =>
+      [...state.storage.sql.exec<{ suspended_by: string | null }>(
+        `SELECT suspended_by FROM game WHERE id = 1`,
+      )],
+    );
+    // Black walked off, so white is the one who may claim.
+    expect(row.suspended_by).toBe('b');
+    white.close();
+  });
+
+  it('refuses a pause on a game that is not running', async () => {
+    const { white, black } = await startedGame();
+    white.send({ t: 'resign' });
+    await white.next((m) => m.t === 'state' && ((m.game as Msg).result as Msg | null) !== null);
+    white.clear();
+
+    white.send({ t: 'pause' });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('not_active');
     white.close();
     black.close();
   });

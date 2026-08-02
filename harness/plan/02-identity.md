@@ -47,6 +47,21 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
     bump. Written on calibration confirm with no extra prompt (decision 0013's
     surviving rule: never leave a hard-won field living only in memory).
   - `2.3.4` todo: Game index, for a cross-device resumable game list
+    Until this exists, **a paused game is reachable only by its join code**, which
+    matters more since decision 0025 — a game may now sit suspended for a month and
+    the code is the only handle on it. Say so on the pause screen if the index is
+    still missing when `5.3.4` ships to real players.
+    - `2.3.4.1` todo: The index must list suspended games, showing who stopped each
+      one and how long is left before the other player may claim (decision 0025).
+      The snapshot already carries `suspension.claimableInMs`; the index needs the
+      same numbers without opening the game.
+    - `2.3.4.2` todo: Clearing out old games is an **offer, never a timer**
+      (decision 0025). A prompt — shown when the index has grown, not on a
+      schedule — suggesting finished and long-dead games to remove, with the
+      player choosing. A game the player wants to keep lasts forever. Nothing
+      server-side ever deletes a played game, so this UI is the only path by which
+      one goes away, and it must never be able to remove a game that is merely
+      suspended and still claimable.
   - `2.3.5` todo: The permanent record — games played, results, total distance
     walked, biggest field, longest carry, and fields played on. This is the reason
     accounts are mandatory, so it is a first-class feature rather than a stats

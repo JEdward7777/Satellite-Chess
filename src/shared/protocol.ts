@@ -160,6 +160,18 @@ export interface GameSnapshot {
   result: GameResult | null;
   /** Set when the opponent has offered a draw and it is still open. */
   drawOfferFrom: Color | null;
+  /**
+   * Present while suspended: when it froze, who stopped it, and whether the
+   * receiving player may claim the win yet (decision 0025).
+   */
+  suspension: {
+    at: number;
+    by: Color | null;
+    /** True only for the player entitled to claim, and only once the month is up. */
+    canClaim: boolean;
+    /** Milliseconds until `canClaim` could become true. Zero once it has. */
+    claimableInMs: number;
+  } | null;
   createdAt: number;
 }
 
@@ -230,6 +242,17 @@ export interface PauseMsg {
   t: 'pause';
 }
 
+/**
+ * End a game the opponent never came back to (decision 0025).
+ *
+ * Only available to the player who did *not* cause the suspension, and only once
+ * `CLAIM_AFTER_MS` has passed. Never automatic — only the stranded player knows
+ * whether their friend is still coming.
+ */
+export interface ClaimMsg {
+  t: 'claim';
+}
+
 /** Full state, please — sent after a reconnect. */
 export interface SyncMsg {
   t: 'sync';
@@ -244,6 +267,7 @@ export type ClientMsg =
   | ResignMsg
   | DrawMsg
   | PauseMsg
+  | ClaimMsg
   | SyncMsg;
 
 // ---------------------------------------------------------------------------
@@ -279,7 +303,9 @@ export type ErrorCode =
   /** Tried to place without carrying anything, or lift while already carrying. */
   | 'not_carrying'
   | 'already_carrying'
-  | 'no_legal_moves';
+  | 'no_legal_moves'
+  /** Claimed too early, or by the player who caused the suspension. */
+  | 'cannot_claim';
 
 export interface ErrorMsg {
   t: 'error';
@@ -303,11 +329,23 @@ export const POS_MIN_INTERVAL_MS = 2500;
 export const POS_SERVER_MIN_INTERVAL_MS = 1500;
 /** How long a player may be gone before the game suspends and clocks freeze. */
 export const DISCONNECT_GRACE_MS = 20_000;
-/** Unjoined games evaporate, so stale join codes don't linger. */
+/**
+ * Unjoined games evaporate, so stale join codes don't linger.
+ *
+ * The one timer that still deletes anything. Nobody has played, nobody will miss
+ * it, and dead codes would eventually collide with live ones (decision 0025).
+ */
 export const UNCLAIMED_GAME_TTL_MS = 30 * 60_000;
-/** Finished and abandoned games are garbage-collected on an alarm. */
-export const FINISHED_GAME_TTL_MS = 30 * 24 * 3600_000;
-export const ABANDONED_GAME_TTL_MS = 14 * 24 * 3600_000;
+
+/**
+ * How long a suspended game waits before the other player may claim the win.
+ *
+ * A month, because the failure this protects against is rain. Two people who
+ * cannot meet within thirty days probably are not going to — and anything much
+ * shorter starts turning a cancelled Saturday into a defeat, in a game whose
+ * whole premise is meeting someone outdoors (decision 0025).
+ */
+export const CLAIM_AFTER_MS = 30 * 24 * 3600_000;
 
 export function isClientMsg(x: unknown): x is ClientMsg {
   return typeof x === 'object' && x !== null && typeof (x as { t?: unknown }).t === 'string';

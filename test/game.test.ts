@@ -11,6 +11,7 @@ import {
   metres,
   myReachBonusM,
   promotesOn,
+  suspendedPrompt,
 } from '../src/client/views/game.js';
 
 /** An 8 m board, axis-aligned so board space and metres east/north coincide. */
@@ -220,5 +221,41 @@ describe('myReachBonusM', () => {
     // Reachable while waiting for an opponent: the joiner's `PlayerView` is
     // null until they connect, and the screen still has to draw a circle.
     expect(myReachBonusM(snapshot({ players: { w: null, b: null } }))).toBe(0);
+  });
+});
+
+describe('suspendedPrompt (decision 0025)', () => {
+  const suspension = (over: Record<string, unknown> = {}) => ({
+    at: 1_000,
+    by: 'w' as const,
+    canClaim: false,
+    claimableInMs: 0,
+    ...over,
+  });
+
+  it('offers the claim to the player entitled to it', () => {
+    expect(suspendedPrompt(suspension({ by: 'b', canClaim: true }))).toMatch(/claim the win/i);
+  });
+
+  it('tells the waiting player how long is left, so they know it will end', () => {
+    const text = suspendedPrompt(suspension({ by: 'w', claimableInMs: 3 * 24 * 3600_000 }));
+    expect(text).toMatch(/3 days/);
+    expect(text).toMatch(/back ranks to resume/);
+  });
+
+  it('says "1 day" rather than "1 days"', () => {
+    expect(suspendedPrompt(suspension({ claimableInMs: 12 * 3600_000 }))).toMatch(/ 1 day\b/);
+  });
+
+  it('tells the player who stopped it that resuming is the way out', () => {
+    // They cannot claim, and finding that out by hunting for a missing button
+    // would be worse than being told.
+    const text = suspendedPrompt(suspension({ by: 'w', canClaim: false, claimableInMs: 0 }));
+    expect(text).toMatch(/you paused this game/i);
+    expect(text).not.toMatch(/claim/i);
+  });
+
+  it('falls back when there is no suspension record at all', () => {
+    expect(suspendedPrompt(null)).toMatch(/waiting for both players/i);
   });
 });

@@ -12,7 +12,7 @@ written" at a DO half that was written, tested and playing whole games. Audited
 against the code and the suite on 2026-08-02; the evidence is named per stage
 below.
 
-- `5` active: Clock, flag-fall and suspension
+- `5` done: Clock, flag-fall and suspension
 
 - `5.1` done: Clock in the DO
   - `5.1.1` done: Persist `ClockState`; recompute on every wake, never in memory
@@ -43,20 +43,25 @@ below.
     that still has time. Covered by "does not end a game that still has time on
     the clock".
 
-- `5.3` active: Suspension
+- `5.3` done: Suspension
   - `5.3.1` done: On disconnect, schedule a 20 s grace timer
   - `5.3.2` done: On expiry, freeze both clocks and set status `suspended`. A
     dropped connection is a network or GPS failure, not a decision, so it must not
     cost anyone time.
   - `5.3.3` done: Cancel the grace timer on reconnect inside the window
     `openWebSocket` cancels `disconnect` once `allConnected()`.
-  - `5.3.4` todo: Player-requested pause, same freeze path
-    **The one part of `5.3` that genuinely does not exist.** `handle` answers
-    `pause` with an explicit "not implemented yet" rather than silence, which is
-    the right shape but is not the feature. Worth settling alongside O-04 (nothing
-    decides what happens to a game whose opponent never returns), since a
-    deliberate pause and an abandonment resolve to the same frozen state and want
-    one rule between them.
+  - `5.3.4` done: Player-requested pause, same freeze path
+    `GameDO.onPause` banks the clock, sets `suspended`, cancels the flag alarm and
+    puts a carried piece back — the same path `suspendForDisconnect` takes, so
+    there is one frozen state and one way out of it. Settled **O-04** with it, as
+    the note below anticipated: decision 0025 records *who* stopped the game
+    (`suspended_by`) and lets only the other player claim the win, after 30 days,
+    by a button that is never automatic. That the responsible player is recorded
+    is load-bearing rather than incidental — "claim if your opponent is offline"
+    would let the player who walked off claim, because after a month nobody is
+    connected. `[data-pause]` and `[data-claim]` in `client/views/game.ts`, nine
+    tests in `test/worker/carry.test.ts`, five over `suspendedPrompt` in
+    `test/game.test.ts`, and verified in two browsers against `wrangler dev`.
   - `5.3.5` done: Cancel any carry on suspension (decision 0009)
 
 - `5.4` done: Clock on the client
@@ -74,10 +79,13 @@ below.
     because the remedy here involves *walking*. Fires on worsening only, and
     re-arms when the increment hands time back.
 
-- `5.5` active: Tests for flag-fall, freeze/resume, and alarm-after-hibernation
+- `5.5` done: Tests for flag-fall, freeze/resume, and alarm-after-hibernation
   Flag-fall, the freeze, and an alarm fired against stored state are all covered in
   `test/worker/carry.test.ts`; the carry surviving hibernation has its own
-  describe block. **Resume from `suspended` back to `active` is the gap** — the
-  positional handshake is tested from `staging` only, and `startIfBothReady`
-  treats the two identically, so the untested half is the one nobody has run.
-  Waiting on `5.3.4` so pause and resume can be tested through one path.
+  describe block. The gap was **resume from `suspended` back to `active`** — the
+  positional handshake was tested from `staging` only, and `startIfBothReady`
+  treats the two identically, so the untested half was the one nobody had run.
+  `5.3.4` closed it: "lets the opponent resume right up until the button is
+  pressed" pauses, jumps forty days forward, resumes by both players standing on
+  their back ranks, and then asserts the suspension record is cleared so a later
+  pause starts its own month rather than inheriting a spent one.

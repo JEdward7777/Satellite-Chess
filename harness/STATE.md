@@ -4,11 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `5` — the clock. `5.1`, `5.2` and `5.4` are done; `5.3.4`
-(player-requested pause) and `5.5`'s resume gap are what is left.
-**Next action**: `5.3.4`, player-requested pause — and settle **O-04** with it,
-since a deliberate pause and an abandoned game land in the same frozen state.
-**Last session**: `harness/sessions/2026-08-02-01.md`
+**Active stage**: none — **phase 5 is closed.** Phases 0, 3, 4 and 5 are done;
+phase 6 is the live one, with the camera and field sharing left in it.
+**Next action**: `6.2.3`/`6.2.4`, the camera — or `6.4`, sharing a field. Neither
+needs anything from the operator; both are described below.
+**Last session**: `harness/sessions/2026-08-02-02.md`
 
 ## In one paragraph
 
@@ -45,8 +45,17 @@ half is not written" for five sessions at a DO half that was written. Audited
 against the source on 2026-08-02; `harness/plan/05-clock.md` names the evidence
 per stage. What was genuinely missing was the client half, `5.4`, which is now
 written: both clocks on screen, ticking locally for zero messages, red under a
-minute, and a buzz and a beep for a phone that is in a pocket. **462 tests pass**,
-and `scripts/check-clock.mjs` proves the screen half in Chromium.
+minute, and a buzz and a beep for a phone that is in a pocket.
+`scripts/check-clock.mjs` proves the screen half in Chromium.
+
+**`5.3.4` closed the phase, and settled O-04 with it (decision 0025).** Either
+player may pause; the game freezes indefinitely, keeps the position, puts a
+carried piece back, and either player may resume by the back-rank handshake. The
+game records **who** stopped it, and after **30 days** the *other* player may
+claim the win by a button — never automatic, never expiring, and still
+overtakeable by an opponent who turns up on day 40 with an apology. Games are no
+longer deleted on any timer. **476 tests pass**, and the three-way messaging was
+checked in two browsers against a real `wrangler dev`.
 
 ## The field survey is ready and waiting on a walk
 
@@ -77,22 +86,20 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **`5.3.4`, player-requested pause** — the last unimplemented stage in `5.3`.
-   `handle` answers `pause` with an explicit "not implemented yet" today. Do it
-   together with **O-04** (nothing decides what happens to a game whose opponent
-   never returns): a deliberate pause and an abandonment both land in the same
-   frozen state, they want one rule between them, and O-04 has been waiting for
-   exactly this stage to hang on. `5.5`'s untested half — resume from `suspended`
-   back to `active` — falls out of the same work.
-2. **`6.2.3`/`6.2.4`, the camera.** `BarcodeDetector` where it exists, and a
+1. **`6.2.3`/`6.2.4`, the camera.** `BarcodeDetector` where it exists, and a
    decision about Safari, which has none — measure the WASM bundle before
    committing, because the service worker has to cache whatever is chosen. Note
    that the typed code already covers this case completely, so it buys speed
    rather than capability.
-3. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
+2. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
    already reads the route and `main.ts` deliberately falls through to home for
    it. This is also where "should a joiner keep the field they played on?" gets
    answered — `6.3` deliberately does not save it.
+3. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
+   Since decision 0025 a game can sit suspended for a month, and until the index
+   exists **its join code is the only handle on it**. `2.3.4.1` and `2.3.4.2` are
+   new stages: list suspended games with the claim countdown, and offer to clear
+   out old ones rather than ever deleting them on a timer.
 4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
@@ -125,6 +132,19 @@ Nothing is half-finished.
   them for five sessions after they were written, tested and playing games. Before
   recommending the next phase, grep for its identifiers rather than trusting the
   previous session's "Next" list.
+- **Whoever stopped a game cannot also win it by default** (decision 0025), and
+  this is the one part of the claim rule that must not be simplified. The obvious
+  implementation — "you may claim if your opponent is not connected" — inverts it
+  completely, because after thirty days *nobody* is connected, so the player who
+  walked off could open the app and claim against the one who stayed. `suspended_by`
+  is written at the moment of suspension precisely so that they can be excluded.
+  If both vanished at once, neither may claim.
+- **Nothing deletes a played game any more** (decision 0025). `FINISHED_GAME_TTL_MS`
+  and `ABANDONED_GAME_TTL_MS` are gone, and the `gc` timer is *cancelled* when a
+  game finishes rather than scheduled. A fourteen-day TTL and a thirty-day claim
+  window cannot both exist: the game would be destroyed a fortnight before the
+  button appeared. The only thing that still expires is an unclaimed join code, at
+  30 minutes, because nobody has played anything yet.
 - **Chess legality is checked before the carry verdict**, and the order matters.
   Legality does not depend on where anyone stands, so it is the cheaper and the
   honest check — the other way round, an illegal move is reported as

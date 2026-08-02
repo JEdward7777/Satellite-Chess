@@ -38,6 +38,13 @@ const STATEMENTS = [
      white_reach_bonus_m REAL    NOT NULL DEFAULT 0,
      black_reach_bonus_m REAL    NOT NULL DEFAULT 0,
      draw_offer_from     TEXT,
+     -- Who stopped the game, and when. Decision 0025: after CLAIM_AFTER_MS the
+     -- *other* player may claim the win, so the player responsible has to be
+     -- recorded at the moment of suspension. Without this, "claim if your
+     -- opponent is offline" would let whoever walked off claim the win, since
+     -- after a month nobody is connected.
+     suspended_at        INTEGER,
+     suspended_by        TEXT,
      result_outcome      TEXT,
      result_reason       TEXT,
      result_at           INTEGER,

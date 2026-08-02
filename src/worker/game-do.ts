@@ -40,7 +40,7 @@ import {
   PONG,
   POS_SERVER_MIN_INTERVAL_MS,
   PROTOCOL_VERSION,
-  FINISHED_GAME_TTL_MS,
+  CLAIM_AFTER_MS,
   type PlayerView,
   type PosFix,
   type ResultOutcome,
@@ -86,6 +86,8 @@ interface GameRow {
   white_reach_bonus_m: number;
   black_reach_bonus_m: number;
   draw_offer_from: Color | null;
+  suspended_at: number | null;
+  suspended_by: Color | null;
   result_outcome: string | null;
   result_reason: string | null;
   result_at: number | null;
@@ -474,13 +476,11 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'pause':
-        // Phase 7's stage. Answering explicitly is better than silence, which
-        // would look like a dropped message to a client in a field.
-        this.send(ws, {
-          t: 'error',
-          code: 'bad_message',
-          message: `"${t}" is not implemented yet. See harness/plan/07-resume.md.`,
-        });
+        await this.onPause(ws, who);
+        return;
+
+      case 'claim':
+        await this.onClaim(ws, who);
         return;
 
       default:
@@ -642,7 +642,8 @@ export class GameDO extends DurableObject<Env> {
 
     const now = Date.now();
     this.sql.exec(
-      `UPDATE game SET status = 'active', last_clock_start_at = ?, updated_at = ? WHERE id = 1`,
+      `UPDATE game SET status = 'active', last_clock_start_at = ?,
+                       suspended_at = NULL, suspended_by = NULL, updated_at = ? WHERE id = 1`,
       now,
       now,
     );
@@ -972,8 +973,132 @@ export class GameDO extends DurableObject<Env> {
     this.clearCarry();
     await this.timers.cancel('flag');
     await this.timers.cancel('disconnect');
-    // Finished games are kept for review, then collected.
-    await this.timers.schedule('gc', now + FINISHED_GAME_TTL_MS);
+    // Deliberately no `gc` timer. Decision 0025: once two people have played,
+    // the game persists until a player clears it. A finished game is a few
+    // kilobytes, so a timer that deletes someone's history saves nothing and
+    // costs them the only record of an afternoon.
+    await this.timers.cancel('gc');
+  }
+
+  // -------------------------------------------------------------------------
+  // Pause, and claiming a game nobody came back to (stage 5.3.4, decision 0025)
+  // -------------------------------------------------------------------------
+
+  /** Whoever is not connected, or null when both are — or neither is. */
+  private absentColour(): Color | null {
+    const rows = this.presence();
+    const absent = rows.filter((row) => row.connected !== 1);
+    return absent.length === 1 ? absent[0].color : null;
+  }
+
+  /**
+   * Freeze the game deliberately. "Let's get a coffee."
+   *
+   * The same state a disconnect produces, on purpose — which is why decision
+   * 0025 gives them one rule rather than two. The requester is recorded as
+   * responsible, so they cannot later claim the win against someone who was
+   * simply waiting for them.
+   */
+  private async onPause(ws: WebSocket, who: SocketAttachment): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'active') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+
+    const now = Date.now();
+    const clock = this.clockOf(game);
+    const spent = clock.startedAt === null ? 0 : Math.max(0, now - clock.startedAt);
+    const banked = Math.max(0, (clock.active === 'w' ? clock.whiteMs : clock.blackMs) - spent);
+
+    this.sql.exec(
+      clock.active === 'w'
+        ? `UPDATE game SET white_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended',
+                           suspended_at = ?, suspended_by = ?, updated_at = ? WHERE id = 1`
+        : `UPDATE game SET black_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended',
+                           suspended_at = ?, suspended_by = ?, updated_at = ? WHERE id = 1`,
+      banked,
+      now,
+      who.color,
+      now,
+    );
+
+    // No clock runs, so no flag can fall; and a carried piece goes back
+    // (decision 0009), because whoever resumes will be standing somewhere else.
+    await this.timers.cancel('flag');
+    this.clearCarry();
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /**
+   * How a suspension looks to one player.
+   *
+   * `canClaim` is deliberately per-player: only the one who did *not* stop the
+   * game may end it, so the same suspension is claimable for one socket and not
+   * the other.
+   */
+  private suspensionFor(game: GameRow, color: Color, now = Date.now()): GameSnapshot['suspension'] {
+    if (game.status !== 'suspended' || game.suspended_at === null) return null;
+    const elapsed = now - game.suspended_at;
+    const by = game.suspended_by;
+    const eligible = by !== null && by !== color;
+    return {
+      at: game.suspended_at,
+      by,
+      canClaim: eligible && elapsed >= CLAIM_AFTER_MS,
+      claimableInMs: eligible ? Math.max(0, CLAIM_AFTER_MS - elapsed) : 0,
+    };
+  }
+
+  /**
+   * End a game the opponent never came back to.
+   *
+   * Never automatic: only the stranded player knows whether their friend is
+   * still coming, and the common outcome is that nobody presses this and the
+   * game simply resumes. It is a real loss for the absent player — if walking
+   * away cost nothing it would be the correct move whenever you are losing.
+   */
+  private async onClaim(ws: WebSocket, who: SocketAttachment): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'suspended') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+
+    const now = Date.now();
+    const suspension = this.suspensionFor(game, who.color, now);
+    if (suspension === null || suspension.by === null) {
+      this.send(ws, {
+        t: 'error',
+        code: 'cannot_claim',
+        message: 'Nobody is recorded as having stopped this game, so it cannot be claimed.',
+      });
+      return;
+    }
+    if (suspension.by === who.color) {
+      this.send(ws, {
+        t: 'error',
+        code: 'cannot_claim',
+        message: 'You stopped this game, so you cannot claim it. Your opponent can.',
+      });
+      return;
+    }
+    if (!suspension.canClaim) {
+      const days = Math.ceil(suspension.claimableInMs / (24 * 3600_000));
+      this.send(ws, {
+        t: 'error',
+        code: 'cannot_claim',
+        message: `You can claim this game in ${days} day${days === 1 ? '' : 's'}, if your opponent has not returned by then.`,
+      });
+      return;
+    }
+
+    await this.finish(who.color === 'w' ? '1-0' : '0-1', 'abandoned', now);
+    this.bumpRev();
+    this.broadcastState();
   }
 
   // -------------------------------------------------------------------------
@@ -1173,9 +1298,16 @@ export class GameDO extends DurableObject<Env> {
 
     this.sql.exec(
       clock.active === 'w'
-        ? `UPDATE game SET white_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended', updated_at = ? WHERE id = 1`
-        : `UPDATE game SET black_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended', updated_at = ? WHERE id = 1`,
+        ? `UPDATE game SET white_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended',
+                           suspended_at = ?, suspended_by = ?, updated_at = ? WHERE id = 1`
+        : `UPDATE game SET black_ms_remaining = ?, last_clock_start_at = NULL, status = 'suspended',
+                           suspended_at = ?, suspended_by = ?, updated_at = ? WHERE id = 1`,
       banked,
+      now,
+      // Whoever went missing is responsible, and so cannot be the one to claim
+      // (decision 0025). If both are gone, nobody is credited and nobody may
+      // claim — neither of them earned anything.
+      this.absentColour(),
       now,
     );
 
@@ -1341,6 +1473,7 @@ export class GameDO extends DurableObject<Env> {
               at: game.result_at ?? 0,
             },
       drawOfferFrom: game.draw_offer_from,
+      suspension: this.suspensionFor(game, you),
       createdAt: game.created_at,
     };
   }

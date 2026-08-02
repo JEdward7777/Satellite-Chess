@@ -38,6 +38,7 @@ function snapshot(over: Partial<GameSnapshot> = {}): GameSnapshot {
   return {
     v: 1,
     rev: 7,
+    suspension: null,
     joinCode: 'ABC123',
     status: 'active',
     fen: START,

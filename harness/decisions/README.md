@@ -60,3 +60,4 @@ The conditions under which this should be reopened.
 | [0022](0022-survey-is-a-secret-gated-debug-facility.md) | The field survey is a secret-gated debug facility, off by default | accepted |
 | [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | accepted |
 | [0024](0024-own-qr-encoder-byte-mode.md) | Ship our own QR encoder, byte mode only | accepted |
+| [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted |
