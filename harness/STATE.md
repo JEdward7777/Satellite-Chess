@@ -4,11 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `6` — the join flow. Only `6.2.3`/`6.2.4` (camera scanning) and
-`6.4` (share a field) are left in it.
-**Next action**: `6.2.3`, `BarcodeDetector` scanning — or skip to **phase 5, the
-clock**, which is the larger hole and needs no decision first.
-**Last session**: `harness/sessions/2026-08-01-05.md`
+**Active stage**: `5` — the clock. `5.1`, `5.2` and `5.4` are done; `5.3.4`
+(player-requested pause) and `5.5`'s resume gap are what is left.
+**Next action**: `5.3.4`, player-requested pause — and settle **O-04** with it,
+since a deliberate pause and an abandoned game land in the same frozen state.
+**Last session**: `harness/sessions/2026-08-02-01.md`
 
 ## In one paragraph
 
@@ -35,9 +35,18 @@ through the picker.
 What is missing is reach, not plumbing. Phase 6 is now what decision 0015
 describes in both directions — you can hand someone a link and they can follow
 it. What is left of it is the camera (`6.2.3`/`6.2.4`, and the typed code already
-covers the case) and field sharing (`6.4`). **The clock, phase 5, is now the
-largest untouched system**, and the game has no time pressure at all until it
-exists.
+covers the case) and field sharing (`6.4`).
+
+**The clock is done, and most of it was done before this session started.**
+`5.1`–`5.3` went in during phase 4, because a move cannot be applied without
+banking time, handing over and re-arming the flag — the code was written and
+tested and nobody marked the stages, so this file recommended "phase 5, the DO
+half is not written" for five sessions at a DO half that was written. Audited
+against the source on 2026-08-02; `harness/plan/05-clock.md` names the evidence
+per stage. What was genuinely missing was the client half, `5.4`, which is now
+written: both clocks on screen, ticking locally for zero messages, red under a
+minute, and a buzz and a beep for a phone that is in a pocket. **462 tests pass**,
+and `scripts/check-clock.mjs` proves the screen half in Chromium.
 
 ## The field survey is ready and waiting on a walk
 
@@ -68,11 +77,13 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **Phase 5, the clock** — the largest untouched system, and the game has no
-   time pressure at all until it exists. `shared/clock.ts` is already written and
-   tested; what is missing is the DO half and the flag-fall alarm. This is the
-   recommendation: it needs no decision first, and phase 6's remaining stages are
-   both smaller and both optional to a playable game.
+1. **`5.3.4`, player-requested pause** — the last unimplemented stage in `5.3`.
+   `handle` answers `pause` with an explicit "not implemented yet" today. Do it
+   together with **O-04** (nothing decides what happens to a game whose opponent
+   never returns): a deliberate pause and an abandonment both land in the same
+   frozen state, they want one rule between them, and O-04 has been waiting for
+   exactly this stage to hang on. `5.5`'s untested half — resume from `suspended`
+   back to `active` — falls out of the same work.
 2. **`6.2.3`/`6.2.4`, the camera.** `BarcodeDetector` where it exists, and a
    decision about Safari, which has none — measure the WASM bundle before
    committing, because the service worker has to cache whatever is chosen. Note
@@ -101,6 +112,19 @@ Nothing is half-finished.
 - **Location privacy is load-bearing.** Decisions 0017, 0018, 0019 before anything
   social.
 - **Nothing timing-related may live in memory.** The DO hibernates.
+- **The phone's clock and the server's are different clocks**, and the client must
+  never compare a stored timestamp against `Date.now()`. Elapsed time is measured
+  locally and added to the server's own `serverNow` — `estimateServerNow` in
+  `client/clock.ts` is the one place that arithmetic lives, and `net.ts` does the
+  same conversion for the opponent's last fix. Getting it wrong does not look like
+  a bug at first: the clock ticks, it is simply wrong by however far the handset
+  drifts, and the two phones disagree about whether anyone has flagged.
+- **A stage built as a side effect of another stage never gets marked**, and the
+  cost compounds. `5.1`–`5.3` went in during phase 4 — a move cannot be applied
+  without banking time and re-arming the flag — so this file recommended writing
+  them for five sessions after they were written, tested and playing games. Before
+  recommending the next phase, grep for its identifiers rather than trusting the
+  previous session's "Next" list.
 - **Chess legality is checked before the carry verdict**, and the order matters.
   Legality does not depend on where anyone stands, so it is the cheaper and the
   honest check — the other way round, an illegal move is reported as
@@ -238,6 +262,7 @@ node scripts/drive-game.mjs                                    # two phones, a g
 node scripts/check-deeplink.mjs                                # deep links, offline
 node scripts/check-invite.mjs                                  # create, code, QR, share
 node scripts/check-join.mjs                                    # joining, with no field
+node scripts/check-clock.mjs                                   # clocks, low time, tenths
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

@@ -58,6 +58,13 @@ long.
 claim-the-win timer, a mutual-abandon draw, and the interaction with the permanent
 record all have to be settled together. Promote to a stage in phase 5 once the
 suspension path exists to hang it on.
+**Updated 2026-08-02 (phase 5 audit):** the suspension path this was waiting for
+already exists and has since phase 4 — `suspendForDisconnect` freezes both clocks
+and sets `suspended`, and it was simply never marked in the plan. So the trigger
+above has been met for some time. `5.3.4` (player-requested pause) is the one
+stage left in `5.3` and is the natural place to settle this: a deliberate pause
+and an abandoned game land in exactly the same frozen state, and giving them two
+different rules would mean two ways out of one condition. Decide them together.
 
 ### O-07 — A predicate over a shared broadcast stream must identify itself
 **Spotted:** 2026-07-26, stage 4.5.4

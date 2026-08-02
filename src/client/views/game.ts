@@ -30,6 +30,14 @@ import type { LatLng } from '../../shared/geo.js';
 import type { CarryState, GameSnapshot } from '../../shared/protocol.js';
 import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/reach.js';
 import { type Color, type Square, fromSquare, toSquare } from '../../shared/squares.js';
+import {
+  type AlertLevel,
+  alertLevel,
+  browserClockAlertOptions,
+  clockReadout,
+  createClockAlerts,
+  nextAlert,
+} from '../clock.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
@@ -208,11 +216,30 @@ export interface GameViewDeps {
 /** How long a rejection stays on screen before it stops being useful. */
 const ERROR_LINGER_MS = 6_000;
 
+/**
+ * How often the clock readout is redrawn.
+ *
+ * Fast enough that the tenths shown under ten seconds count smoothly, which is
+ * the only reason it is not one second. Cheap because `paintClock` touches text
+ * rather than the canvas.
+ */
+const CLOCK_FRAME_MS = 100;
+
 export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.innerHTML = `
     <div class="board-screen">
       <canvas data-board></canvas>
       <div class="board-status">
+        <div class="clocks" data-clocks hidden>
+          <div class="clock" data-clock-side="mine">
+            <span class="clock-label">You</span>
+            <span class="clock-time" data-clock-mine>—</span>
+          </div>
+          <div class="clock" data-clock-side="theirs">
+            <span class="clock-label">Them</span>
+            <span class="clock-time" data-clock-theirs>—</span>
+          </div>
+        </div>
         <dl class="readout">
           <dt>On</dt><dd data-square>—</dd>
           <dt>Reach</dt><dd data-reach>—</dd>
@@ -262,6 +289,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    */
   const opponentTrack = new OpponentTrack();
   let animator: ReturnType<typeof setInterval> | null = null;
+  /**
+   * The worst thing already said about my clock, so it is said once rather than
+   * ten times a second. Improves again when the increment hands time back.
+   */
+  let alertedAt: AlertLevel = 'none';
+  const alerts = createClockAlerts(browserClockAlertOptions());
 
   /** The field the *game* is played on, which outranks the one we were handed. */
   const geometry = () =>
@@ -357,6 +390,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   }
 
   const onPointerUp = (event: PointerEvent) => {
+    // Inside a real gesture, which is the only place a mobile browser will let
+    // audio start — and it refuses silently, so the low-time warning would
+    // simply never be heard if this were done at mount. Every player taps the
+    // board long before their clock is low, so by the time it matters the
+    // context is running. Idempotent after the first call.
+    alerts.arm();
     const rect = canvas.getBoundingClientRect();
     const square = squareAtPointer(event.clientX - rect.left, event.clientY - rect.top);
     if (square) onTap(square);
@@ -405,6 +444,51 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (carry) return carryPrompt(carry);
     if (game.clock.active !== myColor()) return 'Your opponent to move.';
     return 'Your move — tap a piece you can reach.';
+  }
+
+  /**
+   * Draw both clocks, and shout if mine is nearly out.
+   *
+   * Deliberately separate from {@link paint} and driven by its own faster timer:
+   * under ten seconds `formatClock` counts in tenths, which a once-a-second
+   * repaint renders as a stuttering slideshow at exactly the moment the number
+   * matters most. This touches two text nodes and a class, where `paint`
+   * redraws the whole canvas — so it is cheap enough to run ten times a second
+   * on a phone that is outdoors and not on charge, and `paint` is not.
+   */
+  function paintClock(): void {
+    const clocks = root.querySelector<HTMLElement>('[data-clocks]');
+    const game = net.game;
+    if (!clocks) return;
+
+    // Nothing to show before the first snapshot, and nothing worth showing once
+    // the game is over — the result line says everything at that point.
+    if (!game || net.gameAt === null || game.result !== null) {
+      clocks.hidden = true;
+      return;
+    }
+    clocks.hidden = false;
+
+    const readout = clockReadout(game, net.gameAt, Date.now());
+    set('[data-clock-mine]', readout.mine);
+    set('[data-clock-theirs]', readout.theirs);
+
+    // Which clock is running is the thing read at a glance from arm's length,
+    // so it is a visual state rather than a label to parse.
+    for (const el of root.querySelectorAll<HTMLElement>('.clock')) {
+      const mine = el.dataset.clockSide === 'mine';
+      el.classList.toggle('clock-running', readout.running && mine === readout.yourTurn);
+      el.classList.toggle('clock-low', mine && alertLevel(readout.mineMs) !== 'none');
+    }
+
+    // Only my own clock, and only while it is actually going down. Being told
+    // about an opponent's time trouble is information they earned; being buzzed
+    // for it while walking is noise.
+    const level =
+      readout.running && readout.yourTurn ? alertLevel(readout.mineMs) : 'none';
+    const decision = nextAlert(alertedAt, level);
+    alertedAt = decision.level;
+    if (decision.fire && decision.level !== 'none') alerts.fire(decision.level);
   }
 
   /**
@@ -459,6 +543,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       net.game ? (net.game.clock.active === myColor() ? 'yours' : 'theirs') : '—',
     );
     set('[data-prompt]', prompt());
+    // So a snapshot's arrival shows on the clock immediately rather than at the
+    // next tick — most visibly the increment landing as a move is accepted.
+    paintClock();
 
     // The carry line earns its space only while there is something in hand;
     // a permanent "Carrying —" is a row of screen spent saying nothing.
@@ -527,9 +614,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paint();
   });
 
-  // The notice has to expire on its own, and a clock has to tick, so the screen
-  // cannot only repaint when something arrives.
+  // The notice has to expire on its own, so the screen cannot only repaint when
+  // something arrives.
   const ticker = setInterval(paint, 1_000);
+  // The clock gets its own, faster one. See `paintClock`.
+  const clockTicker = setInterval(paintClock, CLOCK_FRAME_MS);
   const onResize = () => paint();
   addEventListener('resize', onResize);
 
@@ -542,6 +631,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     offGps();
     offNet();
     clearInterval(ticker);
+    clearInterval(clockTicker);
+    alerts.dispose();
     syncAnimator(false);
     removeEventListener('resize', onResize);
     canvas.removeEventListener('pointerup', onPointerUp);

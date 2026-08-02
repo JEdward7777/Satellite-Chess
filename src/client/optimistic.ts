@@ -265,7 +265,18 @@ export function predict(
         // The remaining times are left alone: they are the server's arithmetic
         // over server timestamps (`shared/clock.ts`), and guessing at them here
         // would put a second clock in the world.
-        clock: { ...game.clock, active: other(game.you) },
+        //
+        // `startedAt` goes to null with it, which is what stops the displayed
+        // clock (`client/clock.ts`) from lying during the one round trip this
+        // prediction covers. Flipping `active` while leaving the old start
+        // instant in place would have the opponent's clock ticking *from the
+        // moment the mover's turn began* — so it would appear to lose the whole
+        // of their think time in a single jump, which reads as the game stealing
+        // time from them. Shown frozen instead: the handover instant belongs to
+        // the server and the client cannot name it in server time, and a clock
+        // that pauses for a few hundred milliseconds is invisible where one that
+        // jumps by two minutes is not.
+        clock: { ...game.clock, active: other(game.you), startedAt: null },
       };
     }
   }

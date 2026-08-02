@@ -40,6 +40,16 @@ export interface NetState {
   status: ConnStatus;
   /** The last snapshot the server sent, or null before the first one. */
   game: GameSnapshot | null;
+  /**
+   * Local time at which `game` arrived, so a ticking clock can be drawn without
+   * asking the server what time it is.
+   *
+   * Kept here rather than derived in the view because the pair is only
+   * meaningful together: `game.serverNow` is on the server's clock and this is on
+   * the phone's, and the two have never been synchronised. See
+   * `client/clock.ts`.
+   */
+  gameAt: number | null;
   /** The most recent rejection, for the view to show and then dismiss. */
   lastError: ErrorMsg | null;
   /** Opponent's last relayed position — atmosphere, never correctness. */
@@ -114,6 +124,7 @@ class Connection implements GameConnection {
   private current: NetState = {
     status: 'idle',
     game: null,
+    gameAt: null,
     lastError: null,
     opponent: null,
     reconnects: 0,
@@ -215,6 +226,7 @@ class Connection implements GameConnection {
         // well as on its own, and a listener should see one update either way.
         this.patch({
           game: msg.game,
+          gameAt: this.now(),
           lastError: null,
           opponent: this.opponentFrom(msg.game) ?? this.current.opponent,
         });

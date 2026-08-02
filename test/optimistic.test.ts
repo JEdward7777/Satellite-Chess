@@ -206,6 +206,21 @@ describe('predict', () => {
     expect(out?.clock.whiteMs).toBe(600_000);
   });
 
+  /**
+   * The turn flips locally but the *handover instant* cannot: it is a server
+   * timestamp and the client has no way to name one. Leaving the mover's start
+   * instant in place while pointing `active` at the opponent would have the
+   * displayed clock (`client/clock.ts`) charge the opponent for the whole of the
+   * mover's thinking, in one jump, the moment a piece went down.
+   */
+  it('stops the predicted clock rather than handing the opponent a stale start', () => {
+    const carrying = snapshot({
+      carry: { color: 'w', from: 'e2', piece: 'p', at: 1, destinations: ['e3', 'e4'] },
+    });
+    const out = predict(carrying, { t: 'place', to: 'e4', pos: standingOn(4, 3) }, 2_000);
+    expect(out?.clock.startedAt).toBeNull();
+  });
+
   it('refuses a place on a square the server did not list', () => {
     const carrying = snapshot({
       carry: { color: 'w', from: 'e2', piece: 'p', at: 1, destinations: ['e3'] },
@@ -286,6 +301,7 @@ function fakeConnection(initial: GameSnapshot | null = snapshot()) {
   let state: NetState = {
     status: 'open',
     game: initial,
+    gameAt: 0,
     lastError: null,
     opponent: null,
     reconnects: 0,

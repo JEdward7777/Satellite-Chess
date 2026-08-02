@@ -311,6 +311,63 @@ h2 {
   grid-template-columns: 5rem 1fr;
 }
 
+/*
+ * The clocks.
+ *
+ * Given a whole row of their own above the readout, and set larger than
+ * anything else on the screen, because this is the one number read at arm's
+ * length while walking away from the phone. Everything else is read with the
+ * handset held up.
+ *
+ * The author `display` below beats the user agent's `[hidden] { display: none }`
+ * whatever the specificity, so it has to opt back out explicitly — the same trap
+ * that left the promotion picker covering the board for a whole game in 4.3.5.
+ */
+.clocks[hidden] {
+  display: none;
+}
+
+.clocks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.clock {
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  /* Tabular figures, so the width does not jitter as the digits change. */
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-label {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+.clock-time {
+  font-size: 1.8rem;
+  line-height: 1.1;
+}
+
+/* Whose clock is going down, without a word to read. */
+.clock-running {
+  border-color: var(--accent);
+}
+
+/*
+ * Under a minute. Colour only — the sound and the vibration are what actually
+ * reach a player who is not looking at the screen (`client/clock.ts`), and this
+ * is for the glance that follows them.
+ */
+.clock-low .clock-time {
+  color: var(--poor);
+}
+
 .fields li[role="button"] {
   cursor: pointer;
 }
