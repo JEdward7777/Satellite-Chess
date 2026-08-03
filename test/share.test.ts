@@ -3,11 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type Invite,
   copyInvite,
+  copyLink,
   detectShareCapabilities,
+  fieldShareData,
   inviteMailto,
   inviteShareData,
+  mailtoFor,
   preferredTier,
   shareInvite,
+  shareLink,
 } from '../src/client/share.js';
 
 /**
@@ -132,6 +136,47 @@ describe('shareInvite', () => {
     const outcome = await shareInvite(INVITE, { nav: nav({}), navigate });
     expect(outcome).toEqual({ ok: true, tier: 'mailto' });
     expect(navigate).toHaveBeenCalledOnce();
+  });
+});
+
+describe('sharing a field (stage 6.4)', () => {
+  const URL_ = 'https://sat.example/f/AQaFdQ__8Yr';
+
+  it('names the place, because the link cannot be read', () => {
+    // A join link ends in six characters a recipient can read and type. A field
+    // link ends in a hundred characters of base64, so the sentence is the only
+    // thing saying what is being offered.
+    const data = fieldShareData('Hackney Marshes', URL_);
+    expect(data.title).toContain('Hackney Marshes');
+    expect(data.text).toContain('Hackney Marshes');
+    expect(data.url).toBe(URL_);
+  });
+
+  it('goes down the same ladder as an invite', () => {
+    const share = vi.fn(async () => {});
+    const payload = fieldShareData('The common', URL_);
+    const promise = shareLink(payload, { nav: nav({ share }) });
+    // Synchronously, as ever: one await and the gesture is gone.
+    expect(share).toHaveBeenCalledWith(payload);
+    return expect(promise).resolves.toEqual({ ok: true, tier: 'share-sheet' });
+  });
+
+  it('falls to a mailto carrying the field\'s own subject line', async () => {
+    const navigate = vi.fn();
+    const payload = fieldShareData('The common', URL_);
+    const outcome = await shareLink(payload, { nav: nav({}), navigate });
+    expect(outcome).toEqual({ ok: true, tier: 'mailto' });
+    expect(navigate).toHaveBeenCalledWith(mailtoFor(payload));
+    expect(mailtoFor(payload)).toContain(encodeURIComponent('The common'));
+  });
+
+  it('copies the bare link, which is the whole field', async () => {
+    const writeText = vi.fn(async () => {});
+    expect(await copyLink(URL_, { nav: nav({ writeText }) })).toEqual({
+      ok: true,
+      tier: 'clipboard',
+    });
+    expect(writeText).toHaveBeenCalledWith(URL_);
   });
 });
 

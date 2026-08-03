@@ -1,6 +1,6 @@
 # Phase 6 — Join: QR and typed code
 
-- `6` active: Join flow
+- `6` done: Join flow
 
 - `6.0` done: Serve the app shell from any path (closes O-06)
   - Everything else in this phase points a camera at a URL that is not `/`. Until
@@ -112,9 +112,41 @@
       most: `check-deeplink.mjs` opens a deep link with the network cut and
       asserts the screen blames the network rather than the code.
 
-- `6.4` todo: Share a field, reusing the same share sheet and QR encoder as the game
+- `6.4` done: Share a field, reusing the same share sheet and QR encoder as the game
   invite. A field link is self-contained, so it also works printed on a sign at the
   park — worth making the QR sparse enough to scan off paper in sunlight.
+  - Verified end to end by `scripts/check-field.mjs`, the seventh browser driver
+    and the only one where **both ends of a share are real**: the symbol is
+    decoded out of a screenshot of the sender's screen with jsQR, and the URL
+    that comes back out is the one the receiver's browser is then pointed at.
+    Nothing in between is constructed by the test. 40 checks.
+  - `6.4.1` done: The wire format (`src/shared/fieldlink.ts`). Twelve bytes of
+    geometry exactly as decision 0016 sized it — a1 at full precision, h8 as a
+    decimetre offset **in metres east and north, not in degrees**, because a
+    degree of longitude is a different distance at every latitude and quantising
+    it would vary the square-size error with where on the planet you are. Plus a
+    format tag, provenance, and the name. A decimetre on the diagonal is about a
+    centimetre on a square edge: a hundredth of the GPS error the game absorbs.
+  - `6.4.2` done: Provenance, and therefore de-duplication (`FieldOrigin`). The
+    lineage key is an eight-byte digest of the original field id, **inherited by
+    every copy rather than re-derived**, so A → B → C still matches A. Without it
+    a regular fixture leaves one field per game and a re-share sits beside the
+    field it improves. `client/fields.ts` holds the whole policy: new, update, or
+    already-held.
+  - `6.4.3` done: A screen for a field of your own (`views/field.ts`) — share,
+    rename, re-calibrate, delete. Decision 0016 promises a recipient owns their
+    copy outright and until this screen existed **none of those four was
+    reachable from anywhere in the app**. Tapping a field on home lands here
+    now, with Open the board as its first button.
+  - `6.4.4` done: The receiving end. `/f/<blob>` resolves with no request at all,
+    so it works on the phone in the park with no signal, and always asks before
+    writing — a link can be opened out of curiosity or forwarded three times.
+  - `6.4.5` done: **A joiner keeps the field they played on — decision 0027.**
+    The question 6.3 deliberately left open. Yes, and without being asked: a seat
+    is an act where a link is only a message, and the moment between a tapped
+    invitation and a board is the worst possible moment to open a dialogue.
+    Labelled *from a game* in the list rather than passed off as ground the
+    player walked.
 
 - `6.3` done: The joiner needs the field
   - The creator's field snapshot travels with the game, so a joiner who has never

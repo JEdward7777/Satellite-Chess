@@ -4,11 +4,10 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: `6.4` — sharing a field, the only thing left in phase 6.
-Phases 0, 3, 4 and 5 are closed, and `6.0`–`6.3` with them.
-**Next action**: `6.4`, `/f/<blob>` (decision 0016), then phase 2's game index —
-which decision 0025 made load-bearing rather than bookkeeping.
-**Last session**: `harness/sessions/2026-08-03-01.md`
+**Active stage**: none — **phase 6 is closed**. Phases 0, 3, 4, 5 and 6 are done.
+**Next action**: phase 2, `2.3.4`, the game index — which decision 0025 made
+load-bearing rather than bookkeeping.
+**Last session**: `harness/sessions/2026-08-03-02.md`
 
 ## In one paragraph
 
@@ -23,8 +22,9 @@ invite (a code shown large as `ABC 123`, a QR encoder written here rather than
 fetched from a CDN — decision 0024 — and the OS share sheet), and `6.2.1`,
 `6.2.2`, `6.2.5` and `6.3` now make following one *arrive*: a phone that has
 never calibrated a field can scan a link, take a seat, and play on the creator's
-ground, because the field travels back with the seat. **439 tests pass, and
-`carry.test.ts` no longer flakes — O-09 is closed, two separate races.**
+ground, because the field travels back with the seat. **548 tests pass, and
+`carry.test.ts` no longer flakes — O-09 and O-11 are both closed, and all three
+were races between a test and the Durable Object's own handlers.**
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -39,8 +39,21 @@ where it does not we ship nothing** (decision 0026). Android Chrome gets a real
 viewfinder through `BarcodeDetector`; an iPhone gets one sentence pointing at the
 Camera app, which reads a QR and offers the link in fewer taps than our own
 scanner would need. The bundle that fallback would have cost was measured, not
-guessed: jsQR is 45 KB gzipped against the whole app's 27 KB. Only `6.4`, sharing
-a field, is left in the phase.
+guessed: jsQR is 45 KB gzipped against the whole app's 27 KB.
+
+**`6.4` closed the phase: a field is now a thing you can send.** `/f/<blob>`
+carries the whole field — twelve bytes of geometry, provenance, and a name — so
+opening one is arithmetic rather than a request, and it works on a phone with no
+signal and on a sign at the park. It arrives as a copy the recipient owns
+outright, which needed a screen it did not have: tapping a field now opens one
+that can share, rename, re-calibrate and **delete** it. Copies de-duplicate by
+lineage, so a re-calibration arrives as an improvement to the field you have
+rather than as a second entry beside it. **And the joiner keeps the field they
+played on** — decision 0027, the question `6.3` deliberately left open, answered
+yes and without asking. `scripts/check-field.mjs` is the seventh driver and the
+only one where both ends of a share are real: the QR is decoded out of a
+screenshot of the sender's screen and the URL that comes back is the one the
+receiver's browser is then pointed at.
 
 **The clock is done, and most of it was done before this session started.**
 `5.1`–`5.3` went in during phase 4, because a move cannot be applied without
@@ -59,8 +72,8 @@ carried piece back, and either player may resume by the back-rank handshake. The
 game records **who** stopped it, and after **30 days** the *other* player may
 claim the win by a button — never automatic, never expiring, and still
 overtakeable by an opponent who turns up on day 40 with an apology. Games are no
-longer deleted on any timer. **476 tests pass**, and the three-way messaging was
-checked in two browsers against a real `wrangler dev`.
+longer deleted on any timer, and the three-way messaging was checked in two
+browsers against a real `wrangler dev`.
 
 ## The field survey is ready and waiting on a walk
 
@@ -91,19 +104,15 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
-   already reads the route and `main.ts` deliberately falls through to home for
-   it. This is also where "should a joiner keep the field they played on?" gets
-   answered — `6.3` deliberately does not save it.
-2. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
+1. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
    Since decision 0025 a game can sit suspended for a month, and until the index
    exists **its join code is the only handle on it**. `2.3.4.1` and `2.3.4.2` are
    new stages: list suspended games with the claim countdown, and offer to clear
    out old ones rather than ever deleting them on a timer.
-3. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
-4. `1.9.3.5` — fold the findings back into square size and the reach constants.
+3. `1.9.3.5` — fold the findings back into square size and the reach constants.
 
 ## Things a new thread should know before touching anything
 
@@ -218,8 +227,38 @@ Nothing is half-finished.
   Home is therefore shown even with nothing saved — it used to send a fresh phone
   straight into calibration, which meant the one phone that needed a code box
   could not reach one — and calibration therefore needed a way out that is not
-  "save a field". A joiner is deliberately *not* given a copy of the field to
-  keep; that is 6.4's question.
+  "save a field". Since 6.4 it *does* keep a copy of the field (decision 0027),
+  which was that stage's open question.
+- **A shared link is always asked about; a game's field never is** (decision
+  0027), and the asymmetry is the decision rather than an oversight in it. A link
+  is a message — opened out of curiosity, forwarded three times, tapped by
+  someone nowhere near the place. A seat is an act, followed immediately by an
+  hour of walking that exact ground. Do not "make them consistent"; making the
+  join ask puts a dialogue between a tapped invitation and a board, at the worst
+  possible moment, and it will be dismissed unread.
+- **Copies of a field de-duplicate by lineage, and the key is inherited, never
+  re-derived.** `FieldOrigin.key` is an eight-byte digest of the *original*
+  field's id, carried forward by every copy, so A → B → C still matches A.
+  Re-deriving it at each hop is the obvious simplification and it silently stops
+  the matching after one forward — at which point a weekly fixture on the same
+  common leaves one field per game. `fieldKey()` in `shared/fieldlink.ts` is the
+  one place it is computed, and it falls back to the field's own id so that a
+  sender recognises their own link coming back.
+- **h8 travels as decimetres of east and north, not as degrees.** A degree of
+  longitude is a different distance at every latitude, so quantising degrees puts
+  a square-size error into the link that varies with where on the planet you are.
+  Two bytes per axis of metric offset is uniform, and 0.1 m on the diagonal is
+  0.01 m on a square edge.
+- **A truncated field link usually still decodes**, because the name is at the
+  end of the blob. Cutting the last few characters removes part of the *name* and
+  leaves the geometry intact, so a test that truncates a link to prove the error
+  screen works can quite happily assert against a successful decode. Cut into the
+  header (under ~31 characters of blob) to get a real failure.
+- **Decision 0016 promised rename, re-calibrate and delete before any of them
+  existed.** They live on `views/field.ts` now, reached by tapping a field on
+  home. If a future change moves that screen, those three go with it — a field
+  that arrives on a phone with no way to be rid of it is not a gift, and it is
+  what makes decision 0027 defensible.
 - **Do not ship a QR decoder** (decision 0026), and the missing iOS scanner is
   not a gap to be closed. jsQR is 45 KB gzipped against the whole app's 27 KB,
   the service worker would precache it onto a phone on one bar, and the iPhone's
@@ -252,6 +291,14 @@ Nothing is half-finished.
   it except the creator's has never calibrated a field, which is the only way to
   tell a working join from one that merely renders. Run it after anything
   touching joining, routing, or the home screen.
+- **There is a seventh: `scripts/check-field.mjs`**, and it is the only one where
+  **both ends of a share are real**. The QR is decoded out of a screenshot of the
+  sender's screen with jsQR, and the URL that comes back out is the one the
+  receiver's browser is then pointed at — nothing in between is constructed by
+  the test. Run it after anything touching fields, the home screen, or sharing.
+  One trap in it: an empty `<ul data-fields>` has no height, so Playwright calls
+  it hidden and a wait on it times out after the last field is deleted. Wait for
+  `[data-calibrate]`, which is always on home.
 - **There is a sixth: `scripts/check-scan.mjs`**, and it injects a
   `BarcodeDetector` on purpose. Chromium on Linux ships none, so without the
   injection the driver could only ever test the *unsupported* path — the fake is
@@ -307,6 +354,7 @@ node scripts/check-invite.mjs                                  # create, code, Q
 node scripts/check-join.mjs                                    # joining, with no field
 node scripts/check-clock.mjs                                   # clocks, low time, tenths
 node scripts/check-scan.mjs                                    # camera, advice, camera released
+node scripts/check-field.mjs                                   # sharing a field, and keeping one
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

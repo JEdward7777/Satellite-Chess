@@ -35,6 +35,36 @@ import { type FileRank, type Square, fromSquare } from './squares.js';
 /** Centre-to-centre distance from a1 to h8, in units of one square. */
 const DIAGONAL_SQUARES = 7 * Math.SQRT2;
 
+/**
+ * Where a copied field came from, carried by every copy of it.
+ *
+ * Provenance is what makes copying survivable. Without it, joining ten games on
+ * the same common leaves ten identical fields on a phone, and a friend who
+ * re-calibrates and shares the link again gives you a second entry rather than a
+ * better one. Decision 0016 asks for the original field's identity and version
+ * for exactly this.
+ *
+ * It is **not** the sharer's identity — decision 0017 amends 0016 on that point.
+ * A field link carries ground and a name, and nothing about people.
+ */
+export interface FieldLineage {
+  /**
+   * A stable key for the ground, inherited by every copy rather than re-derived.
+   *
+   * Inherited, so that A → B → C still recognises C's copy as the same field A
+   * shared; re-deriving at each hop would make every copy its own lineage.
+   * `fieldKey` in `fieldlink.ts` is the one place it is computed.
+   */
+  key: string;
+  /** The lineage's version at the moment this copy was taken. */
+  version: number;
+}
+
+export interface FieldOrigin extends FieldLineage {
+  /** How the copy arrived. Local only — never on the wire. */
+  via: 'link' | 'game';
+}
+
 /** A saved, re-calibratable field. Raw taps only — no derived geometry. */
 export interface FieldSpec {
   id: string;
@@ -50,6 +80,14 @@ export interface FieldSpec {
   version: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Absent on a field walked out on this phone; present on one that arrived as a
+   * copy, from a shared link or from a game played on it (decisions 0016, 0027).
+   *
+   * A copy is owned outright — renameable, re-calibratable, deletable — so this
+   * is a note about where it came from, not a claim on it by anyone.
+   */
+  origin?: FieldOrigin;
 }
 
 /** Everything derived from a FieldSpec. Cheap to recompute; never stored. */

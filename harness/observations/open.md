@@ -131,24 +131,3 @@ note was worried about: a well-formed code that names no game is now the client'
 business either way — it asks the server and says "no game with that code" — so
 the Worker's 404 was never the mechanism a player relied on. Revisit only if
 something starts depending on `/j/<junk>` being distinguishable offline.
-
-### O-11 — One unidentified suite failure, after O-09 was closed
-**Spotted:** 2026-08-01, stage 6.3
-**Why it matters:** Mostly so the next thread does not read it as "O-09 is back"
-and re-derive a mechanism that has already been fixed. One `npm run check` run
-reported `1 failed | 438 passed` and the name was not captured — the failure block
-had scrolled past a `tail`. Twelve further full-suite runs were clean, including
-two under 2x CPU oversubscription, and eight targeted runs of the worker project
-before that.
-
-What is known: the failing run took **69 s of test time** against a normal 18–30 s,
-and it coincided with `wrangler dev` still running and a Playwright driver
-finishing. The worker tests wait on `Client.next()` with a 2 s wall-clock timeout,
-so a machine that slow is a plausible cause and the failure would then be the
-harness rather than the product. That is a hypothesis, not a diagnosis — the
-deliberate-load attempt did not reproduce it.
-**Not doing yet because:** there is nothing to fix without knowing which test it
-was. If it recurs, capture the whole vitest output rather than a `tail`, and if it
-is a `next()` timeout, the fix is to scale that 2 s with an environment variable
-rather than to chase it. Do not treat one failure as a reason to weaken an
-assertion.

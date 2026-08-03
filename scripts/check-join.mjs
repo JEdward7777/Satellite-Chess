@@ -18,6 +18,11 @@
  * travelled back with the seat, `main.ts` would not even offer Join without a
  * saved field, and the game screen had no geometry to draw a board with.
  *
+ * They do not stay fieldless: since decision 0027 a joiner keeps a copy of the
+ * ground they played on. `check-field.mjs` is where that is examined properly;
+ * what matters here is that it happens without getting between a tapped invite
+ * and a board.
+ *
  * ## What it checks
  *
  * 1. A phone with no fields gets a home screen with a code box on it, rather
@@ -180,9 +185,26 @@ try {
   await scanner.page.goto(`${ORIGIN}/j/${code}?sim=1`, { waitUntil: 'domcontentloaded' });
   await scanner.page.waitForSelector('[data-board]', { timeout: 20_000 });
   check(true, 'the deep link opens the board, not the home screen (6.2.1)');
+  // It needed none of its own to get here — the field travelled with the seat
+  // (6.3) — and since decision 0027 it keeps a copy of the ground it is about to
+  // spend an hour walking. `check-field.mjs` is where that is examined; here it
+  // only has to be true, and it has to have happened without blocking the board.
   check(
-    (await scanner.page.evaluate(() => localStorage.getItem('satchess.fields'))) === null,
-    'and the phone still has no field of its own',
+    await scanner.page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('satellite-chess', 1);
+          req.onsuccess = () => {
+            const all = req.result
+              .transaction('fields', 'readonly')
+              .objectStore('fields')
+              .getAll();
+            all.onsuccess = () => resolve(all.result.length);
+          };
+          req.onerror = () => resolve(-1);
+        }),
+    ) === 1,
+    'and it kept the field it is playing on (decision 0027)',
   );
   await scanner.page.waitForFunction(
     () => /\d/.test(document.querySelector('[data-reach]')?.textContent ?? ''),

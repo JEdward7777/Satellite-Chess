@@ -1312,7 +1312,17 @@ describe('pause, and claiming a game nobody came back to (decision 0025)', () =>
 
   it('credits a disconnect to whoever went missing', async () => {
     const { white, black, stub } = await startedGame();
+    white.clear();
     black.close();
+    // Wait for the Durable Object's own close handler to have run before writing
+    // over what it wrote. `onDisconnect` schedules the disconnect deadline
+    // `DISCONNECT_GRACE_MS` in the *future*; the lines below replace it with one
+    // in the past so the alarm fires now. Without this wait the two writes race,
+    // and when the handler lands second the alarm finds nothing due and
+    // `suspended_by` stays null — which is O-11, seen once under load and
+    // reproduced nowhere else. `onDisconnect` broadcasts after it writes, so
+    // white's next `state` is the signal that it has finished.
+    await white.next((m) => m.t === 'state');
     await runInDurableObject(stub, async (_i, state) => {
       state.storage.sql.exec(`UPDATE presence SET connected = 0 WHERE color = 'b'`);
       state.storage.sql.exec(

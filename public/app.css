@@ -250,6 +250,19 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The same box, for a field being offered (stage 6.4).
+ *
+ * Not the same type. A join code is six characters read aloud across a field, so
+ * it is tracked out and set in the code face; a field is a *name* — "Wandsworth
+ * Common" in that treatment reads as a serial number rather than as a place.
+ */
+.invite-code.field-name strong {
+  font-family: inherit;
+  font-size: 1.8rem;
+  letter-spacing: normal;
+}
+
 .invite-qr {
   /* White, and padded, because the quiet zone is part of the symbol and this
      app's chrome is nearly black. A QR bled into a dark page does not scan. */

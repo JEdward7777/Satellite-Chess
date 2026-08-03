@@ -127,3 +127,42 @@ structural" trigger has arguably now been met — the third was the same bug in 
 older test rather than a new one, and converting the last hand-rolled sequence to
 `move()` removed it. The `rev` floor is still the structural answer if a fourth
 turns up.
+
+### O-11 — One unidentified suite failure — **closed 2026-08-03, a third `carry.test.ts` race**
+**Resolved:** 2026-08-03, stage 6.4
+**Outcome:** Identified and fixed in the test. The failure was
+`credits a disconnect to whoever went missing` asserting `suspended_by === 'b'`
+and getting `null`, and it reproduced on the first full-suite run of the session
+— a run with `wrangler dev` up and the client bundle rebuilding, exactly the
+loaded conditions the original note guessed at.
+
+**The guess about the cause was wrong, and that is the useful part.** O-11
+hypothesised a `Client.next()` wall-clock timeout on a slow machine. This test
+does not wait on the clock at all: it drives the alarm itself with
+`runDurableObjectAlarm`. Acting on the hypothesis would have meant scaling a
+timeout the failing test never uses.
+
+The real cause is a write race between the test and the Durable Object:
+
+1. `black.close()` returns immediately; `webSocketClose` runs whenever it runs.
+2. The test writes a `disconnect` timer due **in the past**, so the alarm it
+   runs next has something due.
+3. `onDisconnect` also schedules a `disconnect` timer — `DISCONNECT_GRACE_MS` in
+   the **future**, through `INSERT OR REPLACE`, which replaces the row rather
+   than adding one.
+
+When 3 lands after 2 the past deadline is gone, the alarm finds nothing due, no
+suspension is recorded, and `suspended_by` is null. Load changes the
+interleaving, which is why it never appeared in isolation across twenty-odd runs.
+
+Fixed by waiting for white's next `state` broadcast — which `onDisconnect` sends
+*after* it writes — before overwriting the deadline. The assertion is untouched.
+That matters: `suspended_by` is the one part of decision 0025 that must not be
+weakened, and "expected null" is exactly the shape of failure that tempts someone
+to relax it.
+
+**The transferable lesson is the same one O-09 and O-07 taught, for the third
+time:** a test that writes to a Durable Object's storage is racing that object's
+own handlers unless it waits for them. `close()`, like `next()`, is not a
+synchronisation point. Three of the four flakes this suite has produced have been
+this shape.

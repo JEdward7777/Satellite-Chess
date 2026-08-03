@@ -1,5 +1,9 @@
 /**
- * Sharing an invite, through whatever the device actually has.
+ * Sharing a link, through whatever the device actually has.
+ *
+ * Two kinds of link go through here — an invitation to a game (decision 0015)
+ * and a field (decision 0016, stage 6.4). The ladder is identical for both, so
+ * it is written once against a payload; only the sentence differs.
  *
  * Decision 0015 is the specification: the OS share sheet first, then a
  * `mailto:` link, then the clipboard. One generic path covers Mail, Messages,
@@ -24,6 +28,20 @@
  */
 
 import { formatJoinCode } from '../shared/joincode.js';
+
+/**
+ * What actually goes to the OS: a title, a sentence, and a link.
+ *
+ * Two things are shared through this ladder — an invitation to a game and a
+ * field (decision 0016) — and the ladder cannot tell them apart, which is the
+ * point. Composing the words is the caller's job; getting them out of the phone
+ * is this file's.
+ */
+export interface SharePayload {
+  title: string;
+  text: string;
+  url: string;
+}
 
 /** Everything the tiers need to say. */
 export interface Invite {
@@ -85,12 +103,28 @@ const SUBJECT = 'A game of Satellite Chess';
  * of it and type it in. That redundancy is the reason the code is in the path
  * rather than a query parameter.
  */
-export function inviteShareData(invite: Invite): { title: string; text: string; url: string } {
+export function inviteShareData(invite: Invite): SharePayload {
   const where = invite.fieldName ? ` at ${invite.fieldName}` : '';
   return {
     title: SUBJECT,
     text: `Come and play chess on a real field${where}. Join code ${formatJoinCode(invite.code)}.`,
     url: invite.url,
+  };
+}
+
+/**
+ * The same, for a field rather than a game (stage 6.4).
+ *
+ * No code to read out, because there is nothing at the far end to look a code up
+ * in: the link *is* the field. So the sentence has to carry what the recipient
+ * is being offered — a place, by name — since a bare URL with a hundred
+ * characters of base64 in it reads like something to be suspicious of.
+ */
+export function fieldShareData(name: string, url: string): SharePayload {
+  return {
+    title: `${name} — a Satellite Chess field`,
+    text: `Here is ${name}, laid out as a chessboard. Open this to add it to your fields.`,
+    url,
   };
 }
 
@@ -102,10 +136,13 @@ export function inviteShareData(invite: Invite): { title: string; text: string; 
  * the `mailto:` grammar wants — a bare `\n` is dropped by some clients and the
  * message arrives as one run-on paragraph.
  */
+export function mailtoFor(payload: SharePayload): string {
+  const body = `${payload.text}\r\n\r\n${payload.url}\r\n`;
+  return `mailto:?subject=${encodeURIComponent(payload.title)}&body=${encodeURIComponent(body)}`;
+}
+
 export function inviteMailto(invite: Invite): string {
-  const { text, url } = inviteShareData(invite);
-  const body = `${text}\r\n\r\n${url}\r\n`;
-  return `mailto:?subject=${encodeURIComponent(SUBJECT)}&body=${encodeURIComponent(body)}`;
+  return mailtoFor(inviteShareData(invite));
 }
 
 // ---------------------------------------------------------------------------
@@ -125,35 +162,40 @@ export interface ShareDeps {
  * with nothing awaited in front of it, which is the only way the browser will
  * accept the gesture.
  */
-export function shareInvite(invite: Invite, deps: ShareDeps = {}): Promise<ShareOutcome> {
+export function shareLink(payload: SharePayload, deps: ShareDeps = {}): Promise<ShareOutcome> {
   const nav = deps.nav ?? navigator;
   const caps = detectShareCapabilities(nav);
 
   if (caps.shareSheet) {
     // No `await` above this line. Deliberately.
     return nav
-      .share(inviteShareData(invite))
+      .share(payload)
       .then<ShareOutcome>(() => ({ ok: true, tier: 'share-sheet' }))
       .catch((error: unknown): Promise<ShareOutcome> | ShareOutcome => {
         if (isAbort(error)) return { ok: false, tier: 'share-sheet', reason: 'cancelled' };
         // A share sheet that failed for any other reason — no targets, a
-        // webview that lied about supporting it — should still get the invite
+        // webview that lied about supporting it — should still get the link
         // out, so keep going down the tiers.
-        return fallback(invite, caps, deps);
+        return fallback(payload, caps, deps);
       });
   }
 
-  return fallback(invite, caps, deps);
+  return fallback(payload, caps, deps);
+}
+
+/** The invite, through the same ladder. Kept as its own name because it reads. */
+export function shareInvite(invite: Invite, deps: ShareDeps = {}): Promise<ShareOutcome> {
+  return shareLink(inviteShareData(invite), deps);
 }
 
 function fallback(
-  invite: Invite,
+  payload: SharePayload,
   caps: ShareCapabilities,
   deps: ShareDeps,
 ): Promise<ShareOutcome> {
   if (caps.navigate) {
     try {
-      (deps.navigate ?? defaultNavigate)(inviteMailto(invite));
+      (deps.navigate ?? defaultNavigate)(mailtoFor(payload));
       return Promise.resolve<ShareOutcome>({ ok: true, tier: 'mailto' });
     } catch {
       // A device with no mail client configured. Nothing is thrown on most
@@ -161,19 +203,23 @@ function fallback(
       // braces rather than the expected path.
     }
   }
-  return copyInvite(invite, deps);
+  return copyLink(payload.url, deps);
 }
 
 /** The last tier that can still act: put the link on the clipboard. */
-export function copyInvite(invite: Invite, deps: ShareDeps = {}): Promise<ShareOutcome> {
+export function copyLink(url: string, deps: ShareDeps = {}): Promise<ShareOutcome> {
   const nav = deps.nav ?? navigator;
   if (typeof nav.clipboard?.writeText !== 'function') {
     return Promise.resolve<ShareOutcome>({ ok: false, tier: 'manual', reason: 'failed' });
   }
   return nav.clipboard
-    .writeText(invite.url)
+    .writeText(url)
     .then<ShareOutcome>(() => ({ ok: true, tier: 'clipboard' }))
     .catch<ShareOutcome>(() => ({ ok: false, tier: 'clipboard', reason: 'failed' }));
+}
+
+export function copyInvite(invite: Invite, deps: ShareDeps = {}): Promise<ShareOutcome> {
+  return copyLink(invite.url, deps);
 }
 
 function defaultNavigate(href: string): void {

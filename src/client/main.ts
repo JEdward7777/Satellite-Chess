@@ -11,9 +11,11 @@ import {
   deriveGeometry,
   snapshotField,
 } from '../shared/field.js';
+import { decodeFieldLink } from '../shared/fieldlink.js';
 import { fromLocal } from '../shared/geo.js';
 import { formatJoinCode } from '../shared/joincode.js';
 import { parseAppRoute } from '../shared/routes.js';
+import { adoptField, keepGameField, offerFor } from './fields.js';
 import {
   type GpsProvider,
   type GpsState,
@@ -31,6 +33,7 @@ import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
+import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
 import { mountInvite } from './views/invite.js';
 import { mountJoinFailed, mountJoining } from './views/join.js';
@@ -143,7 +146,7 @@ async function boot(): Promise<void> {
         scanning,
         platform,
         onCalibrate: () => showCalibrate(),
-        onOpen: showBoard,
+        onOpen: showField,
         onNew: () => showCreate(fields),
         onJoin: (code) => showJoin(code),
         onScan: () => showScan(),
@@ -210,6 +213,11 @@ async function boot(): Promise<void> {
       // end, which is what makes that safe.
       rememberGame(outcome.code);
       // The field comes back with the seat, so this phone needs none of its own.
+      //
+      // And it keeps a copy of it (decision 0027). Deliberately not awaited: a
+      // slow IndexedDB write must never sit between a tapped invite and a board,
+      // and there is nothing on the next screen that depends on the answer.
+      void keepGameField(store, outcome.field);
       enterGame(outcome.code, outcome.field, getPlayerId(), outcome.colour);
     });
   }
@@ -352,6 +360,68 @@ async function boot(): Promise<void> {
     });
   }
 
+  /**
+   * One field of your own: what it is, how to send it, and how to be rid of it.
+   *
+   * Tapping a field on the home screen used to open the board directly. It now
+   * lands here first, because since stage 6.4 a field is a thing you can *do*
+   * something with — share it, rename it, re-calibrate it, delete it — and the
+   * board is the screen you walk with, not the screen you administer from. Open
+   * the board is the first button on it, so the old path is one tap longer and
+   * the other four are reachable at all.
+   */
+  function showField(field: FieldSpec): void {
+    // Reached from the home screen (where the URL is already `/`) and from
+    // accepting a `/f/<blob>` (where it is not, and a reload would otherwise
+    // re-offer a field that is now saved).
+    forgetDeepLink();
+    swap(() =>
+      mountField(root, {
+        field,
+        onOpenBoard: () => showBoard(field),
+        onRecalibrate: () => showCalibrate(field),
+        onRename: (name) => {
+          const renamed = { ...field, name, updatedAt: Date.now() };
+          // Saved before the screen changes, for the same reason calibration is
+          // (decision 0013): a rename that only exists on screen is a rename
+          // that is gone when the phone is put in a pocket.
+          void store.save(renamed).then(() => showField(renamed));
+        },
+        onDelete: () => void store.remove(field.id).then(() => showHome()),
+        onBack: () => void showHome(),
+      }),
+    );
+  }
+
+  /**
+   * A shared field has been opened (stage 6.4, decision 0016).
+   *
+   * Everything needed to answer is in the path — there is no request here and no
+   * server that knows this field exists — so this works on the phone in the park
+   * with no signal, which is most of the point of putting the field in the link
+   * rather than behind a lookup.
+   */
+  async function showFieldLink(blob: string): Promise<void> {
+    const incoming = decodeFieldLink(blob);
+    if (incoming === null) {
+      swap(() => mountFieldLinkFailed(root, () => void showHome()));
+      return;
+    }
+    // Against everything already held, so a copy of a copy is recognised rather
+    // than piling up, and a re-calibration arrives as an improvement.
+    const offer = offerFor(incoming, await store.list());
+    swap(() =>
+      mountFieldOffer(root, {
+        offer,
+        onAccept: () => void adoptField(store, offer, 'link').then(showField),
+        onOpen: () => {
+          if (offer.kind !== 'new') showField(offer.existing);
+        },
+        onDecline: () => void showHome(),
+      }),
+    );
+  }
+
   function showCalibrate(existing?: FieldSpec): void {
     swap(() =>
       mountCalibrate(root, {
@@ -373,9 +443,10 @@ async function boot(): Promise<void> {
     showJoin(route.code);
     return;
   }
-  // `/f/<blob>` is stage 6.4 and there is nothing to open yet. Falling through to
-  // home is the honest answer: the Worker served the shell for it, so a phone that
-  // followed one is at least in the app rather than at a 404.
+  if (route?.kind === 'field') {
+    await showFieldLink(route.blob);
+    return;
+  }
 
   await showHome();
 }
@@ -514,9 +585,16 @@ function scanAdviceHtml(deps: HomeDeps): string {
 
 function fieldItem(spec: FieldSpec): string {
   const geo = deriveGeometry(spec);
+  // Ground you have never walked reads exactly like ground you have, unless it
+  // is labelled — and since stage 6.4 a phone can acquire fields two ways
+  // without anyone tapping a corner (decisions 0016 and 0027).
+  const from =
+    spec.origin === undefined
+      ? ''
+      : ` · ${spec.origin.via === 'game' ? 'from a game' : 'shared with you'}`;
   return `<li data-field="${spec.id}" tabindex="0" role="button">
     <strong>${escapeHtml(spec.name)}</strong>
-    <span class="dim">${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side</span>
+    <span class="dim">${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side${from}</span>
   </li>`;
 }
 
