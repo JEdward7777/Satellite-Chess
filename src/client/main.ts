@@ -17,13 +17,16 @@ import { parseAppRoute } from '../shared/routes.js';
 import {
   type GpsProvider,
   type GpsState,
+  type Platform,
   browserGeolocationOptions,
   createGeolocationGps,
+  detectPlatform,
   qualityLabel,
   simRequested,
 } from './gps.js';
 import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { type JoinRejection, joinGame } from './join.js';
+import { type ScanSupport, browserScanEnv, detectScanSupport, scanAdvice } from './scan.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
@@ -31,6 +34,7 @@ import { type CreateDraft, createGameBody, mountCreate } from './views/create.js
 import { mountGame } from './views/game.js';
 import { mountInvite } from './views/invite.js';
 import { mountJoinFailed, mountJoining } from './views/join.js';
+import { mountScan } from './views/scan.js';
 import { mountSurvey } from './views/survey.js';
 import type { Color } from '../shared/squares.js';
 import { connectToGame } from './net.js';
@@ -106,6 +110,12 @@ async function boot(): Promise<void> {
 
   const store = await createFieldStore();
 
+  // Asked once, here, because the answer needs `await` and the home screen
+  // repaints on every GPS fix — a check that far down would run several times a
+  // second to produce the same constant. It cannot change while the page is open.
+  const platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
+  const scanning = await detectScanSupport(browserScanEnv());
+
   /** Only one screen is mounted at a time, and each cleans up after itself. */
   let teardown: (() => void) | null = null;
   const swap = (mount: () => () => void) => {
@@ -130,13 +140,33 @@ async function boot(): Promise<void> {
       mountHome(root, {
         gps,
         fields,
+        scanning,
+        platform,
         onCalibrate: () => showCalibrate(),
         onOpen: showBoard,
         onNew: () => showCreate(fields),
         onJoin: (code) => showJoin(code),
+        onScan: () => showScan(),
       }),
     );
   };
+
+  /**
+   * The viewfinder (stage 6.2.3), reached only where the browser can actually
+   * scan — home offers advice instead of a button otherwise.
+   *
+   * A scanned code goes through `showJoin`, which is the same path a deep link
+   * and a typed code take. Three ways in, one join.
+   */
+  function showScan(): void {
+    swap(() =>
+      mountScan(root, {
+        platform,
+        onCode: (code) => showJoin(code),
+        onCancel: () => void showHome(),
+      }),
+    );
+  }
 
   /**
    * Take a seat, from a scanned link or from a typed code (stages 6.2.1–6.2.2).
@@ -371,10 +401,14 @@ function forgetDeepLink(): void {
 interface HomeDeps {
   gps: GpsProvider;
   fields: FieldSpec[];
+  /** Whether this browser can read a QR from inside a page (stage 6.2.3). */
+  scanning: ScanSupport;
+  platform: Platform;
   onCalibrate(): void;
   onOpen(field: FieldSpec): void;
   onNew(): void;
   onJoin(joinCode: string): void;
+  onScan(): void;
 }
 
 /**
@@ -419,12 +453,21 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         // travels with the game (stage 6.3).
         deps.fields.length > 0 ? `<p><button data-new>New game</button></p>` : ''
       }
+      ${
+        // Offered only where it will work. Where it will not, the advice below
+        // the box names what does — on iOS that is the Camera app, which is
+        // better at this than we would be (decision 0026).
+        deps.scanning === 'ready' ? `<p><button data-scan>Scan an invite</button></p>` : ''
+      }
       <p>
-        <label>${deps.fields.length > 0 ? 'Or join a code' : 'Join a code'}<br />
+        <label>${
+          deps.fields.length > 0 || deps.scanning === 'ready' ? 'Or join a code' : 'Join a code'
+        }<br />
           <input data-code type="text" maxlength="8" placeholder="ABC 123" />
         </label>
       </p>
       <p><button data-join class="secondary">Join</button></p>
+      ${scanAdviceHtml(deps)}
     `;
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
@@ -440,6 +483,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       // one that cannot be a code with the same screen every other failure uses.
       deps.onJoin(typed);
     });
+    root.querySelector<HTMLButtonElement>('[data-scan]')?.addEventListener('click', deps.onScan);
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {
         const field = deps.fields.find((f) => f.id === item.dataset.field);
@@ -453,6 +497,19 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     unsubscribe();
     root.innerHTML = '';
   };
+}
+
+/**
+ * The line that stands in for a Scan button on a phone that cannot have one.
+ *
+ * Rendered as a hint rather than a warning, because nothing is wrong: an iPhone
+ * held up to a QR still joins the game, just through the Camera app instead of
+ * through us. Silence here is what would be wrong — it would leave someone
+ * looking for a scanner that is never going to appear.
+ */
+function scanAdviceHtml(deps: HomeDeps): string {
+  const advice = scanAdvice(deps.scanning, deps.platform);
+  return advice === null ? '' : `<p class="dim" data-scan-advice>${escapeHtml(advice)}</p>`;
 }
 
 function fieldItem(spec: FieldSpec): string {

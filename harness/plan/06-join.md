@@ -55,10 +55,15 @@
       user gesture, with no visible cause. A dismissed sheet is a decision, not
       a failure, and must not cascade into opening a mail client.
 
-- `6.2` active: Join
+- `6.2` done: Join
   - Verified end to end by `scripts/check-join.mjs`, the fourth browser driver.
     Every phone in it except the creator's has never calibrated a field, which is
     the only way to tell a working join from one that merely renders.
+  - And by `scripts/check-scan.mjs`, the sixth, for the camera. It injects a
+    `BarcodeDetector` because Chromium on Linux ships none — without one the
+    driver could only ever exercise the *unsupported* path. What is faked is the
+    platform API; the camera is Chrome's own fake device, so the tracks are real
+    and "was the camera released?" is a real question with a real answer.
   - `6.2.1` done: `/j/CODE` deep link resolving straight into the game
     - `main.ts` reads `parseAppRoute(location.pathname)` at boot. The same parser
       the Worker used to decide the path was worth serving, so the two cannot
@@ -70,10 +75,33 @@
     - The folding was already right; what was missing is that the home screen
       only offered the box when a field was saved. Both ways in now go through
       one `joinGame` in `client/join.ts`, so they cannot fail differently.
-  - `6.2.3` todo: `BarcodeDetector` scanning where available
-  - `6.2.4` todo: Safari has no `BarcodeDetector`. Decide between a WASM fallback
-    and leaning on the typed code — measure the bundle cost before committing,
-    since the service worker has to cache whatever we choose.
+  - `6.2.3` done: `BarcodeDetector` scanning where available
+    `client/scan.ts` is the model half — capability detection, the advice, and
+    `codeFromScan`, which is a *filter* before it is a parser because a camera
+    swept across a park sees posters, bus stops and other people's wifi.
+    `views/scan.ts` is the viewfinder. A scanned code goes through the same
+    `showJoin` a deep link and a typed code take: three ways in, one join.
+    - The camera is the part that bites. A `MediaStreamTrack` that is not
+      stopped leaves the lens live after the screen has gone, so `stop()` runs
+      on every path out — including the nasty one, where the screen is torn down
+      while `getUserMedia` is still waiting on a permission prompt and the
+      stream arrives with nothing left to display it. Tested directly, and
+      `scripts/check-scan.mjs` asserts `readyState === 'ended'` on real tracks
+      from Chrome's fake device.
+  - `6.2.4` done: Safari has no `BarcodeDetector` — **decision 0026**: ship no
+    decoder, advise the Camera app.
+    The bundle cost was measured rather than guessed, and it decided this. The
+    whole app is 74 KB minified / 27 KB gzipped; jsQR — the *pure-JS* option,
+    no WASM needed — is 128 KB / 45 KB, nearly twice the application, and the
+    service worker would precache it onto a phone in a field on one bar. iOS
+    Camera already reads a QR and offers the link, which lands on `/j/CODE` and
+    joins in fewer taps than our scanner would need. So the fallback is a line
+    of advice naming the Camera app and the typed code, and `scanAdvice` is
+    per-platform for the same reason `describeGpsError` is.
+    - This is *not* a Cloudflare cost, which was the first thing worried about:
+      a decoder is a static asset, run on the phone, outside the Worker bundle
+      and outside the 100k requests/day. It fails the player's byte budget, not
+      the free tier's. Written into the decision so the question is settled once.
   - `6.2.5` done: Clear failures — code not found, game already full, expired
     - Four outcomes, each with the server's own words and a hint that is ours,
       because the server does not know how the phone arrived: not found, full,

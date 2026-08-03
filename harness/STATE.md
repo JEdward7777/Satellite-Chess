@@ -4,11 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phase 5 is closed.** Phases 0, 3, 4 and 5 are done;
-phase 6 is the live one, with the camera and field sharing left in it.
-**Next action**: `6.2.3`/`6.2.4`, the camera — or `6.4`, sharing a field. Neither
-needs anything from the operator; both are described below.
-**Last session**: `harness/sessions/2026-08-02-02.md`
+**Active stage**: `6.4` — sharing a field, the only thing left in phase 6.
+Phases 0, 3, 4 and 5 are closed, and `6.0`–`6.3` with them.
+**Next action**: `6.4`, `/f/<blob>` (decision 0016), then phase 2's game index —
+which decision 0025 made load-bearing rather than bookkeeping.
+**Last session**: `harness/sessions/2026-08-03-01.md`
 
 ## In one paragraph
 
@@ -34,8 +34,13 @@ through the picker.
 
 What is missing is reach, not plumbing. Phase 6 is now what decision 0015
 describes in both directions — you can hand someone a link and they can follow
-it. What is left of it is the camera (`6.2.3`/`6.2.4`, and the typed code already
-covers the case) and field sharing (`6.4`).
+it — and `6.2` is closed: **the camera works where the browser allows it, and
+where it does not we ship nothing** (decision 0026). Android Chrome gets a real
+viewfinder through `BarcodeDetector`; an iPhone gets one sentence pointing at the
+Camera app, which reads a QR and offers the link in fewer taps than our own
+scanner would need. The bundle that fallback would have cost was measured, not
+guessed: jsQR is 45 KB gzipped against the whole app's 27 KB. Only `6.4`, sharing
+a field, is left in the phase.
 
 **The clock is done, and most of it was done before this session started.**
 `5.1`–`5.3` went in during phase 4, because a move cannot be applied without
@@ -86,24 +91,19 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **`6.2.3`/`6.2.4`, the camera.** `BarcodeDetector` where it exists, and a
-   decision about Safari, which has none — measure the WASM bundle before
-   committing, because the service worker has to cache whatever is chosen. Note
-   that the typed code already covers this case completely, so it buys speed
-   rather than capability.
-2. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
+1. **`6.4`, sharing a field** (`/f/<blob>`, decision 0016). `parseAppRoute`
    already reads the route and `main.ts` deliberately falls through to home for
    it. This is also where "should a joiner keep the field they played on?" gets
    answered — `6.3` deliberately does not save it.
-3. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
+2. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
    Since decision 0025 a game can sit suspended for a month, and until the index
    exists **its join code is the only handle on it**. `2.3.4.1` and `2.3.4.2` are
    new stages: list suspended games with the claim countdown, and offer to clear
    out old ones rather than ever deleting them on a timer.
-4. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+3. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
    **Not a gate** (decision 0023) — it sizes the squares, it does not decide
    whether the game works. Do not hold anything for it.
-5. `1.9.3.5` — fold the findings back into square size and the reach constants.
+4. `1.9.3.5` — fold the findings back into square size and the reach constants.
 
 ## Things a new thread should know before touching anything
 
@@ -220,6 +220,20 @@ Nothing is half-finished.
   could not reach one — and calibration therefore needed a way out that is not
   "save a field". A joiner is deliberately *not* given a copy of the field to
   keep; that is 6.4's question.
+- **Do not ship a QR decoder** (decision 0026), and the missing iOS scanner is
+  not a gap to be closed. jsQR is 45 KB gzipped against the whole app's 27 KB,
+  the service worker would precache it onto a phone on one bar, and the iPhone's
+  own Camera app already reads the QR and opens `/j/CODE` in fewer taps than our
+  scanner would take. `scanAdvice` exists so the absence is explained rather than
+  silent. The one thing that would change this is Safari shipping
+  `BarcodeDetector` — at which point the capability check already routes to the
+  real scanner and the advice stops rendering by itself.
+- **A camera track outlives the screen that showed it.** Clearing `srcObject`
+  does nothing; only `track.stop()` turns the lens off, and the case that gets
+  missed is a teardown *during* the permission prompt, where the stream arrives
+  after the screen has gone. `startScan` returns its stop function synchronously
+  for exactly that reason, and `check-scan.mjs` asserts `readyState === 'ended'`
+  on real tracks rather than trusting the code to look right.
 - **A scanned link and a typed code are one code path** (`client/join.ts`).
   Anything that can only fail on one of them is a bug. The client refuses an
   impossible code before spending a request, and every other failure is the
@@ -238,6 +252,15 @@ Nothing is half-finished.
   it except the creator's has never calibrated a field, which is the only way to
   tell a working join from one that merely renders. Run it after anything
   touching joining, routing, or the home screen.
+- **There is a sixth: `scripts/check-scan.mjs`**, and it injects a
+  `BarcodeDetector` on purpose. Chromium on Linux ships none, so without the
+  injection the driver could only ever test the *unsupported* path — the fake is
+  the platform API, and everything on our side of it is real. The camera is
+  Chrome's own fake device, which is what makes "was the track stopped?" a
+  question with a real answer. It also reads pixels out of the viewfinder:
+  `videoWidth > 0` says the stream has dimensions, not that anything is being
+  painted, and the fake camera's pattern is dark enough that the first screenshot
+  of a *working* viewfinder read as a black box.
 - **There is a second browser driver: `scripts/check-deeplink.mjs`.** It loads a
   cold deep link, cuts the network, loads it again, and separately asks the server
   what it says with a request that bypasses the service worker. Run it after
@@ -283,6 +306,7 @@ node scripts/check-deeplink.mjs                                # deep links, off
 node scripts/check-invite.mjs                                  # create, code, QR, share
 node scripts/check-join.mjs                                    # joining, with no field
 node scripts/check-clock.mjs                                   # clocks, low time, tenths
+node scripts/check-scan.mjs                                    # camera, advice, camera released
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

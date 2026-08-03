@@ -61,3 +61,4 @@ The conditions under which this should be reopened.
 | [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | accepted |
 | [0024](0024-own-qr-encoder-byte-mode.md) | Ship our own QR encoder, byte mode only | accepted |
 | [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted |
+| [0026](0026-no-qr-decoder-ships-the-camera-app-is-the-fallback.md) | Ship no QR decoder; the phone's own camera app is the iOS fallback | accepted |

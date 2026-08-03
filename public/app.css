@@ -524,3 +524,32 @@ h2 {
 body:has(.sim-panel) #app {
   padding-bottom: 14rem;
 }
+
+/*
+ * The viewfinder (stage 6.2.3).
+ *
+ * `object-fit: cover` on a fixed aspect box, because the camera's aspect ratio is
+ * whatever the device feels like and a letterboxed preview makes people hold the
+ * phone at the wrong distance. The frame is the thing they aim, so it has to be
+ * the thing they see filled.
+ */
+.viewfinder {
+  position: relative;
+  width: 100%;
+  max-width: 22rem;
+  aspect-ratio: 1;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  /* Visible before the first frame arrives, so the box does not flash as a hole
+     in the page while a permission prompt is up. */
+  background: #000000;
+}
+
+.viewfinder video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
