@@ -12,7 +12,7 @@ import { Timers } from '../../src/worker/timers.js';
 const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;
 const FIELD = snapshotField(
-  makeFieldSpec('Test field', A1, fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M })),
+  makeFieldSpec('Test field', { a1: A1, h8: fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }) }),
 );
 const GEO = deriveGeometry(FIELD);
 
@@ -175,7 +175,7 @@ describe('creating and joining', () => {
     const stub = await createGame(nextCode());
     const peeked = await stub.peek();
     expect(peeked.field?.a1).toEqual(FIELD.a1);
-    expect(peeked.field?.squareM).toBeCloseTo(SQUARE_M, 6);
+    expect(peeked.field?.fileM).toBeCloseTo(SQUARE_M, 6);
   });
 
   it('hands the field back with the seat (6.3)', async () => {
@@ -186,7 +186,7 @@ describe('creating and joining', () => {
     const joined = await stub.join(BLACK);
     expect(joined.ok).toBe(true);
     expect(joined.ok && joined.field.a1).toEqual(FIELD.a1);
-    expect(joined.ok && joined.field.squareM).toBeCloseTo(SQUARE_M, 6);
+    expect(joined.ok && joined.field.fileM).toBeCloseTo(SQUARE_M, 6);
 
     // And again on a re-join, because reopening the link is the commonest way
     // back into a game after a phone has been locked in a pocket.
@@ -219,7 +219,7 @@ describe('the HTTP routes', () => {
       method: 'POST',
       body: JSON.stringify({
         playerId: WHITE,
-        field: makeFieldSpec('f', A1, fromLocal(A1, { e: 56, n: 56 })),
+        field: makeFieldSpec('f', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }),
         initialMs: 600_000,
         incrementMs: 10_000,
       }),
@@ -241,7 +241,7 @@ describe('the HTTP routes', () => {
       method: 'POST',
       body: JSON.stringify({
         playerId: WHITE,
-        field: makeFieldSpec('The common', A1, fromLocal(A1, { e: 56, n: 56 })),
+        field: makeFieldSpec('The common', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }),
       }),
     });
     const { joinCode } = (await created.json()) as { joinCode: string };
@@ -251,10 +251,10 @@ describe('the HTTP routes', () => {
       body: JSON.stringify({ playerId: BLACK }),
     });
     expect(joined.status).toBe(200);
-    const body = (await joined.json()) as { color: string; field: { name: string; squareM: number } };
+    const body = (await joined.json()) as { color: string; field: { name: string; fileM: number } };
     expect(body.color).toBe('b');
     expect(body.field.name).toBe('The common');
-    expect(body.field.squareM).toBeCloseTo(8, 6);
+    expect(body.field.fileM).toBeCloseTo(8, 6);
 
     // And the failures the join screen has to tell apart.
     const third = await SELF.fetch(`https://example.com/api/game/${joinCode}`, {
@@ -290,7 +290,7 @@ describe('the HTTP routes', () => {
   it('requires a plausible playerId', async () => {
     const res = await SELF.fetch('https://example.com/api/game', {
       method: 'POST',
-      body: JSON.stringify({ playerId: 'x', field: makeFieldSpec('f', A1, fromLocal(A1, { e: 56, n: 56 })) }),
+      body: JSON.stringify({ playerId: 'x', field: makeFieldSpec('f', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }) }),
     });
     expect(res.status).toBe(400);
   });

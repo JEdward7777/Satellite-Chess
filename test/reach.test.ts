@@ -23,7 +23,7 @@ import { fromSquare } from '../src/shared/squares.js';
 
 const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;
-const spec = makeFieldSpec('t', A1, fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }));
+const spec = makeFieldSpec('t', { a1: A1, h8: fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }) });
 const geo = deriveGeometry(spec);
 
 /** A coordinate `du`/`dv` metres from the centre of `sq`, in board space. */

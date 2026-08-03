@@ -20,7 +20,7 @@ const A1 = { lat: 51.4779, lng: -0.0015 };
 
 function local(name = 'The common', opts: Partial<FieldSpec> = {}): FieldSpec {
   return {
-    ...makeFieldSpec(name, A1, fromLocal(A1, { e: 56, n: 56 }), { id: 'local-1', now: 1000 }),
+    ...makeFieldSpec(name, { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }, { id: 'local-1', now: 1000 }),
     ...opts,
   };
 }
@@ -146,7 +146,7 @@ describe('taking the copy', () => {
 });
 
 describe('keeping the field a game was played on (decision 0027)', () => {
-  const theirs = makeFieldSpec('The common', A1, fromLocal(A1, { e: 56, n: 56 }), {
+  const theirs = makeFieldSpec('The common', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }, {
     id: 'creator-field',
     now: 500,
   });

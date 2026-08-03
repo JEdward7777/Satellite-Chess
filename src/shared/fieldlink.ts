@@ -45,11 +45,21 @@
 import type { FieldLineage, FieldSpec, FieldSnapshot } from './field.js';
 import { type LatLng, fromLocal, toLocal } from './geo.js';
 
-/** The only layout so far. Bump it, do not reuse it. */
-const FORMAT = 1;
+/**
+ * Layouts. Bump, do not reuse.
+ *
+ * `1` is the two-corner square board — still written for any field that is one,
+ * so a square board's QR never grew a byte for a feature it does not use, and
+ * every link already printed on a sign still decodes.
+ * `2` adds the other two corners for an affine board (decision 0028).
+ */
+const FORMAT_TWO_CORNER = 1;
+const FORMAT_FOUR_CORNER = 2;
 
 /** Fixed part: tag, two corners, provenance. The name follows. */
 const HEADER_BYTES = 23;
+/** Two more offsets, four bytes each, sit between the corners and the key. */
+const HEADER_BYTES_4 = HEADER_BYTES + 8;
 
 /** Coordinates are stored as integers, this many per degree. About 1.1 cm. */
 const COORD_SCALE = 1e7;
@@ -78,6 +88,9 @@ export interface FieldLink {
   name: string;
   a1: LatLng;
   h8: LatLng;
+  /** Present only in a four-corner link; absent means the square board. */
+  h1?: LatLng;
+  a8?: LatLng;
   /** No `via`: that is decided by whoever takes the copy, not by the link. */
   origin: FieldLineage;
 }
@@ -119,7 +132,10 @@ export function originKeyFor(fieldId: string): string {
 // ---------------------------------------------------------------------------
 
 /** What a field looks like on the way into a link. Either kind of copy fits. */
-type Shareable = Pick<FieldSpec, 'id' | 'name' | 'a1' | 'h8' | 'version' | 'origin'>;
+type Shareable = Pick<
+  FieldSpec,
+  'id' | 'name' | 'a1' | 'h8' | 'h1' | 'a8' | 'version' | 'origin'
+>;
 
 /**
  * Encode a field as the blob half of `/f/<blob>`.
@@ -129,28 +145,45 @@ type Shareable = Pick<FieldSpec, 'id' | 'name' | 'a1' | 'h8' | 'version' | 'orig
  * screen treats an unencodable QR: lose the feature, not the screen.
  */
 export function encodeFieldLink(spec: Shareable): string {
-  const offset = toLocal(spec.a1, spec.h8);
-  const east = Math.round(offset.e * 10);
-  const north = Math.round(offset.n * 10);
-  if (Math.abs(east) > MAX_OFFSET_DM || Math.abs(north) > MAX_OFFSET_DM) {
-    throw new Error('field too large to encode into a link');
-  }
+  /** Decimetres of east and north from a1, or a throw if it is off the scale. */
+  const offsetDm = (p: LatLng): { east: number; north: number } => {
+    const offset = toLocal(spec.a1, p);
+    const east = Math.round(offset.e * 10);
+    const north = Math.round(offset.n * 10);
+    if (Math.abs(east) > MAX_OFFSET_DM || Math.abs(north) > MAX_OFFSET_DM) {
+      throw new Error('field too large to encode into a link');
+    }
+    return { east, north };
+  };
 
+  const four = spec.h1 != null && spec.a8 != null;
+  const h8 = offsetDm(spec.h8);
   const name = truncateUtf8(spec.name.trim(), MAX_LINK_NAME_BYTES);
-  const bytes = new Uint8Array(HEADER_BYTES + name.length);
+  const headerBytes = four ? HEADER_BYTES_4 : HEADER_BYTES;
+  const bytes = new Uint8Array(headerBytes + name.length);
   const view = new DataView(bytes.buffer);
 
-  bytes[0] = FORMAT;
+  bytes[0] = four ? FORMAT_FOUR_CORNER : FORMAT_TWO_CORNER;
   view.setInt32(1, coordToInt(spec.a1.lat), false);
   view.setInt32(5, coordToInt(spec.a1.lng), false);
-  view.setInt16(9, east, false);
-  view.setInt16(11, north, false);
-  bytes.set(keyToBytes(fieldKey(spec)), 13);
+  view.setInt16(9, h8.east, false);
+  view.setInt16(11, h8.north, false);
+  let at = 13;
+  if (four) {
+    const h1 = offsetDm(spec.h1 as LatLng);
+    const a8 = offsetDm(spec.a8 as LatLng);
+    view.setInt16(13, h1.east, false);
+    view.setInt16(15, h1.north, false);
+    view.setInt16(17, a8.east, false);
+    view.setInt16(19, a8.north, false);
+    at = 21;
+  }
+  bytes.set(keyToBytes(fieldKey(spec)), at);
   // Clamped rather than refused: a version counter overflowing at 65535 is not a
   // reason to refuse to share ground, and the only cost is that the recipient
   // stops being offered updates.
-  view.setUint16(21, Math.min(0xffff, Math.max(0, Math.trunc(spec.version))), false);
-  bytes.set(name, HEADER_BYTES);
+  view.setUint16(at + 8, Math.min(0xffff, Math.max(0, Math.trunc(spec.version))), false);
+  bytes.set(name, headerBytes);
 
   return base64UrlEncode(bytes);
 }
@@ -174,8 +207,11 @@ export function fieldUrl(origin: string, blob: string): string {
  */
 export function decodeFieldLink(blob: string): FieldLink | null {
   const bytes = base64UrlDecode(blob);
-  if (bytes === null || bytes.length < HEADER_BYTES) return null;
-  if (bytes[0] !== FORMAT) return null;
+  if (bytes === null) return null;
+  const four = bytes[0] === FORMAT_FOUR_CORNER;
+  if (!four && bytes[0] !== FORMAT_TWO_CORNER) return null;
+  const headerBytes = four ? HEADER_BYTES_4 : HEADER_BYTES;
+  if (bytes.length < headerBytes) return null;
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const a1 = {
@@ -190,25 +226,52 @@ export function decodeFieldLink(blob: string): FieldLink | null {
   // on it, and every screen downstream assumes it does not have to.
   if (east === 0 && north === 0) return null;
 
+  let h1: LatLng | undefined;
+  let a8: LatLng | undefined;
+  if (four) {
+    const h1e = view.getInt16(13, false) / 10;
+    const h1n = view.getInt16(15, false) / 10;
+    const a8e = view.getInt16(17, false) / 10;
+    const a8n = view.getInt16(19, false) / 10;
+    // Any two corners coincident collapses the parallelogram to a line, which
+    // `deriveGeometry` refuses. Catch it here, where the answer is "not a
+    // field" rather than an exception on somebody's home screen.
+    const corners = [
+      { e: 0, n: 0 },
+      { e: h1e, n: h1n },
+      { e: east, n: north },
+      { e: a8e, n: a8n },
+    ];
+    for (let i = 0; i < corners.length; i++) {
+      for (let j = i + 1; j < corners.length; j++) {
+        if (corners[i].e === corners[j].e && corners[i].n === corners[j].n) return null;
+      }
+    }
+    h1 = fromLocal(a1, { e: h1e, n: h1n });
+    a8 = fromLocal(a1, { e: a8e, n: a8n });
+  }
+
   let name: string;
   try {
     // `ignoreBOM` is spelt out because the Workers typings require it, and
     // `src/shared` compiles under both runtimes (decision 0021).
     const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
-    name = decoder.decode(bytes.subarray(HEADER_BYTES));
+    name = decoder.decode(bytes.subarray(headerBytes));
   } catch {
     // A name that is not UTF-8 means the blob is not what it claims to be, and
     // the geometry alongside it is not worth trusting either.
     return null;
   }
 
+  const keyAt = four ? 21 : 13;
   return {
     name: name.trim(),
     a1,
     h8: fromLocal(a1, { e: east, n: north }),
+    ...(four ? { h1, a8 } : {}),
     origin: {
-      key: keyFromBytes(bytes.subarray(13, 21)),
-      version: view.getUint16(21, false),
+      key: keyFromBytes(bytes.subarray(keyAt, keyAt + 8)),
+      version: view.getUint16(keyAt + 8, false),
     },
   };
 }
@@ -227,6 +290,7 @@ export function fieldLinkFromSnapshot(snap: FieldSnapshot): FieldLink {
     name: snap.name,
     a1: snap.a1,
     h8: snap.h8,
+    ...(snap.h1 != null && snap.a8 != null ? { h1: snap.h1, a8: snap.a8 } : {}),
     origin: { key: originKeyFor(snap.fieldId), version: snap.version },
   };
 }

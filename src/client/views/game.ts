@@ -21,6 +21,7 @@ import {
   type BoardPoint,
   type FieldGeometry,
   type FieldSnapshot,
+  boardIndexOf,
   deriveGeometry,
   distanceFromBoardPointToSquareM,
   fromBoardPoint,
@@ -351,8 +352,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (!projection) return null;
     const geo = geometry();
     const bp = projection.toBoard(x, y);
-    const file = Math.round(bp.u / geo.squareM);
-    const rank = Math.round(bp.v / geo.squareM);
+    // Through the affine inverse: a tap lands somewhere in metres, and only the
+    // fitted board knows which square that is once the board can be skewed.
+    const bi = boardIndexOf(geo, bp);
+    const file = Math.round(bi.file);
+    const rank = Math.round(bi.rank);
     if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
     return toSquare(file, rank);
   }

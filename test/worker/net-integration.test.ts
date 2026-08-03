@@ -20,7 +20,7 @@ import type { GameDO } from '../../src/worker/game-do.js';
 const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;
 const FIELD = snapshotField(
-  makeFieldSpec('Net field', A1, fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M })),
+  makeFieldSpec('Net field', { a1: A1, h8: fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }) }),
 );
 const GEO = deriveGeometry(FIELD);
 

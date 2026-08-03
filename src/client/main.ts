@@ -9,6 +9,7 @@ import {
   type FieldSnapshot,
   type FieldSpec,
   deriveGeometry,
+  describeSquares,
   snapshotField,
 } from '../shared/field.js';
 import { decodeFieldLink } from '../shared/fieldlink.js';
@@ -594,7 +595,7 @@ function fieldItem(spec: FieldSpec): string {
       : ` · ${spec.origin.via === 'game' ? 'from a game' : 'shared with you'}`;
   return `<li data-field="${spec.id}" tabindex="0" role="button">
     <strong>${escapeHtml(spec.name)}</strong>
-    <span class="dim">${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side${from}</span>
+    <span class="dim">${describeSquares(geo)}${from}</span>
   </li>`;
 }
 

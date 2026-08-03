@@ -33,13 +33,27 @@ validated on real ground before a line of game-server code is written.
   - The model is pure and tested in node; the view is DOM and is driven through a
     real browser against `?sim=1`. Worth keeping that split for later views — the
     whole input to this flow is a satellite, so nothing else is testable.
-  - `1.2.1` done: Walk to a1, tap; walk to h8, tap; show live accuracy at each
+  - `1.2.1` done: Walk the four corners — a1, h1, h8, a8 — tapping each, with
+    live accuracy shown throughout (**decision 0028**; was two taps on the
+    diagonal until 2026-08-03)
+    The owner challenged the two-tap model directly, and the challenge held up.
+    Measured over 400 simulated calibrations at 3 m per tap: two taps misidentify
+    **22.3%** of squares, four taps fitted affine **11.9%**. Two taps were worst
+    not because of the shape they assume but because they use half the
+    measurements available. `scripts/check-calibrate.mjs` walks the flow for real
+    on a 12 x 6 m board — the shape two taps could not express at all.
   - `1.2.2` done: Show derived square size and board size before committing, and
     surface `checkCalibration` errors and warnings
-  - `1.2.3` done: Re-tap either corner without restarting
+  - `1.2.3` done: Re-tap any corner without restarting — a re-tap returns
+    straight to the review rather than marching round the remaining corners
   - `1.2.4` done: Name and save the field locally
   - `1.2.5` done: Refuse a corner tap on a fix the move validator would refuse,
     rather than warning about it after the board is built
+    Since 0028 the review also reports a **corner fit** residual, which is the
+    one thing four taps can tell you and two never could: with two taps the fit
+    passes through both points whatever they are, so a mis-tap is invisible.
+    Weak on purpose and documented as such — an affine fit absorbs most of a
+    single corner's error, so the residual shows about a quarter of it.
 
 - `1.3` done: Board render (`src/client/render.ts`)
   - Canvas, drawn in board space so the field appears as an ordinary chessboard

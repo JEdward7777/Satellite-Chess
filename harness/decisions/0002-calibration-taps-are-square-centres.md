@@ -1,7 +1,8 @@
 # 0002 — Calibration taps are the centres of a1 and h8
 
 - **Date:** 2026-07-25
-- **Status:** accepted
+- **Status:** accepted; two-tap calibration superseded by 0028, which keeps the
+  square-centre convention and reverses the "three or four taps" rejection below
 - **Stage:** 0.3.1
 
 ## Decision

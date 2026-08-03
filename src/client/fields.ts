@@ -96,7 +96,11 @@ export async function adoptField(
   // from here on, and two phones sharing an id would collide the moment either
   // of them shared it onwards.
   const spec: FieldSpec = {
-    ...makeFieldSpec(incoming.name || 'Shared field', incoming.a1, incoming.h8, { now }),
+    ...makeFieldSpec(
+      incoming.name || 'Shared field',
+      { a1: incoming.a1, h8: incoming.h8, h1: incoming.h1, a8: incoming.a8 },
+      { now },
+    ),
     version: incoming.origin.version,
     origin,
   };

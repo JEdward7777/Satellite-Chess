@@ -26,7 +26,7 @@ const A1 = { lat: 51.4779, lng: -0.0015 };
 const H8 = { lat: 51.47841, lng: -0.00068 };
 
 function field(name: string) {
-  return makeFieldSpec(name, A1, H8);
+  return makeFieldSpec(name, { a1: A1, h8: H8 });
 }
 
 const PARK = field('The park');

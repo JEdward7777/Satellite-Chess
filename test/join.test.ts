@@ -22,7 +22,8 @@ const FIELD: FieldSnapshot = {
   version: 1,
   a1: { lat: 51.4779, lng: -0.0015 },
   h8: { lat: 51.4784, lng: -0.0007 },
-  squareM: 8,
+  fileM: 8,
+  rankM: 8,
   bearingDeg: 90,
   snapshotAt: 0,
 };

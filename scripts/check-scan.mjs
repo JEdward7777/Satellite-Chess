@@ -273,7 +273,14 @@ try {
 
   console.log('\n5. Backing out releases the camera');
   await poster.page.click('[data-cancel]');
-  await poster.page.waitForSelector('[data-join]', { timeout: 15_000 });
+  // Wait for the viewfinder to be *gone*, not for the home screen to appear.
+  // `[data-join]` is on both screens — the scan screen has its own typed-code
+  // box — so waiting for that matched the screen we were trying to leave and
+  // read the camera state before the teardown had run. O-07's shape again: a
+  // predicate has to identify the thing it is waiting for. The detached video
+  // is also the exact precondition of the claim being made here.
+  await poster.page.waitForSelector('[data-video]', { state: 'detached', timeout: 15_000 });
+  await poster.page.waitForSelector('[data-calibrate]', { timeout: 15_000 });
   const afterCancel = await trackStates(poster.page);
   check(afterCancel.length > 0, 'the camera really was opened', JSON.stringify(afterCancel));
   check(

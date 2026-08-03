@@ -13,14 +13,14 @@ const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;
 /** a1 to h8 running due north-east, so the a→h axis points due east. */
 const EAST = deriveGeometry(
-  makeFieldSpec('east', A1, fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M })),
+  makeFieldSpec('east', { a1: A1, h8: fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }) }),
 );
 
 const SIZE = 400;
 
 function screenOf(geo: typeof EAST, orientation: 'w' | 'b', square: { file: number; rank: number }) {
   const p = projectionFor(geo, orientation, SIZE, SIZE);
-  return p.toScreen({ u: square.file * geo.squareM, v: square.rank * geo.squareM });
+  return p.toScreen({ u: square.file * geo.fileM, v: square.rank * geo.fileM });
 }
 
 describe('projectionFor', () => {
@@ -41,8 +41,8 @@ describe('projectionFor', () => {
   it('is a rigid transform — squares stay square', () => {
     const p = projectionFor(EAST, 'w', SIZE, SIZE);
     const origin = p.toScreen({ u: 0, v: 0 });
-    const alongFile = p.toScreen({ u: EAST.squareM, v: 0 });
-    const alongRank = p.toScreen({ u: 0, v: EAST.squareM });
+    const alongFile = p.toScreen({ u: EAST.fileM, v: 0 });
+    const alongRank = p.toScreen({ u: 0, v: EAST.fileM });
     expect(Math.hypot(alongFile.x - origin.x, alongFile.y - origin.y)).toBeCloseTo(
       Math.hypot(alongRank.x - origin.x, alongRank.y - origin.y),
       6,
@@ -51,9 +51,9 @@ describe('projectionFor', () => {
 
   it('fits the whole board, outer half-squares included', () => {
     const p = projectionFor(EAST, 'w', SIZE, SIZE);
-    const half = EAST.squareM / 2;
+    const half = EAST.fileM / 2;
     const corner = p.toScreen({ u: -half, v: -half });
-    const far = p.toScreen({ u: 7 * EAST.squareM + half, v: 7 * EAST.squareM + half });
+    const far = p.toScreen({ u: 7 * EAST.fileM + half, v: 7 * EAST.fileM + half });
     for (const value of [corner.x, corner.y, far.x, far.y]) {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(SIZE);
@@ -82,7 +82,7 @@ describe('northOnScreen', () => {
   it('follows the board round as the field is rotated on the ground', () => {
     // A field whose a→h axis runs due north: north is then to the right.
     const northward = deriveGeometry(
-      makeFieldSpec('n', A1, fromLocal(A1, { e: -7 * SQUARE_M, n: 7 * SQUARE_M })),
+      makeFieldSpec('n', { a1: A1, h8: fromLocal(A1, { e: -7 * SQUARE_M, n: 7 * SQUARE_M }) }),
     );
     // Bearings wrap, so this comes out as 360 rather than 0.
     expect(Math.cos((northward.bearingDeg * Math.PI) / 180)).toBeCloseTo(1, 6);
@@ -115,9 +115,9 @@ describe('squareUnderFoot', () => {
   });
 
   it('claims the square you are on right to its edge', () => {
-    const justInside = { u: 7 * EAST.squareM + EAST.squareM / 2 - 0.01, v: 0 };
+    const justInside = { u: 7 * EAST.fileM + EAST.fileM / 2 - 0.01, v: 0 };
     expect(squareUnderFoot(EAST, justInside)?.file).toBe(7);
-    const justOutside = { u: 7 * EAST.squareM + EAST.squareM / 2 + 0.01, v: 0 };
+    const justOutside = { u: 7 * EAST.fileM + EAST.fileM / 2 + 0.01, v: 0 };
     expect(squareUnderFoot(EAST, justOutside)).toBeNull();
   });
 });

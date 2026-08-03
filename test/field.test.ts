@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  boardIndexOf,
+  boardPointOfIndex,
   boardSizeM,
+  calibrationResiduals,
   checkCalibration,
   deriveGeometry,
   distanceToSquareM,
@@ -13,6 +16,7 @@ import {
   squareCentreLatLng,
   squareCornersLatLng,
   squareAt,
+  toBoardIndex,
   toBoardPoint,
 } from '../src/shared/field.js';
 import { distanceM, fromLocal, toLocal, unitFromBearing } from '../src/shared/geo.js';
@@ -24,7 +28,7 @@ const A1 = { lat: 51.4779, lng: -0.0015 };
 function axisAlignedField(squareM: number, a1 = A1) {
   // a1 -> h8 is 7 squares east and 7 squares north.
   const h8 = fromLocal(a1, { e: 7 * squareM, n: 7 * squareM });
-  return makeFieldSpec('test', a1, h8);
+  return makeFieldSpec('test', { a1: a1, h8: h8 });
 }
 
 describe('geo projection', () => {
@@ -63,17 +67,17 @@ describe('geo projection', () => {
 describe('deriveGeometry', () => {
   it('recovers square size from the diagonal', () => {
     const geo = deriveGeometry(axisAlignedField(8));
-    expect(geo.squareM).toBeCloseTo(8, 6);
+    expect(geo.fileM).toBeCloseTo(8, 6);
     expect(boardSizeM(geo)).toBeCloseTo(64, 6);
   });
 
   it('recovers a due-east file axis for a north-east diagonal', () => {
     const geo = deriveGeometry(axisAlignedField(8));
     expect(geo.bearingDeg).toBeCloseTo(90, 6);
-    expect(geo.uFile.e).toBeCloseTo(1, 6);
-    expect(geo.uFile.n).toBeCloseTo(0, 6);
-    expect(geo.uRank.e).toBeCloseTo(0, 6);
-    expect(geo.uRank.n).toBeCloseTo(1, 6);
+    expect(geo.uHat.e).toBeCloseTo(1, 6);
+    expect(geo.uHat.n).toBeCloseTo(0, 6);
+    expect(geo.vHat.e).toBeCloseTo(0, 6);
+    expect(geo.vHat.n).toBeCloseTo(1, 6);
   });
 
   it('keeps the axes orthonormal at any rotation', () => {
@@ -87,13 +91,13 @@ describe('deriveGeometry', () => {
         n: 7 * s * (uFile.n + uRank.n),
       });
       const geo = deriveGeometry({ a1: A1, h8 });
-      expect(geo.squareM).toBeCloseTo(s, 4);
+      expect(geo.fileM).toBeCloseTo(s, 4);
       // Compare as angles: bearing 0 may legitimately come back as 359.9999…
       const angularError = Math.abs(((geo.bearingDeg - bearing + 540) % 360) - 180);
       expect(angularError).toBeLessThan(1e-3);
       // Orthonormal.
-      expect(geo.uFile.e * geo.uRank.e + geo.uFile.n * geo.uRank.n).toBeCloseTo(0, 9);
-      expect(Math.hypot(geo.uFile.e, geo.uFile.n)).toBeCloseTo(1, 9);
+      expect(geo.uHat.e * geo.vHat.e + geo.uHat.n * geo.vHat.n).toBeCloseTo(0, 9);
+      expect(Math.hypot(geo.uHat.e, geo.uHat.n)).toBeCloseTo(1, 9);
     }
   });
 
@@ -192,7 +196,7 @@ describe('checkCalibration', () => {
     const c = checkCalibration(axisAlignedField(8));
     expect(c.ok).toBe(true);
     expect(c.errors).toEqual([]);
-    expect(c.squareM).toBeCloseTo(8, 4);
+    expect(c.fileM).toBeCloseTo(8, 4);
   });
 
   it('rejects a field too small for GPS', () => {
@@ -231,21 +235,25 @@ describe('snapshots and versioning', () => {
     const snap = snapshotField(spec, 1000);
     expect(snap.a1).toEqual(spec.a1);
     expect(snap.h8).toEqual(spec.h8);
-    expect(snap.squareM).toBeCloseTo(8, 6);
+    expect(snap.fileM).toBeCloseTo(8, 6);
     expect(snap.version).toBe(1);
     expect(snap.snapshotAt).toBe(1000);
     // A snapshot re-derives to exactly the same geometry.
-    expect(deriveGeometry(snap).squareM).toBeCloseTo(deriveGeometry(spec).squareM, 12);
+    expect(deriveGeometry(snap).fileM).toBeCloseTo(deriveGeometry(spec).fileM, 12);
   });
 
   it('re-calibrating bumps the version and leaves old snapshots untouched', () => {
     const spec = axisAlignedField(8);
     const snap = snapshotField(spec, 1000);
-    const moved = recalibrate(spec, spec.a1, fromLocal(spec.a1, { e: 70, n: 70 }), { now: 2000 });
+    const moved = recalibrate(
+      spec,
+      { a1: spec.a1, h8: fromLocal(spec.a1, { e: 70, n: 70 }) },
+      { now: 2000 },
+    );
     expect(moved.version).toBe(2);
-    expect(deriveGeometry(moved).squareM).toBeCloseTo(10, 4);
+    expect(deriveGeometry(moved).fileM).toBeCloseTo(10, 4);
     // The snapshot the game holds is unaffected.
-    expect(snap.squareM).toBeCloseTo(8, 6);
+    expect(snap.fileM).toBeCloseTo(8, 6);
   });
 });
 
@@ -259,5 +267,153 @@ describe('squares', () => {
   it('rejects nonsense', () => {
     expect(() => fromSquare('i9')).toThrow();
     expect(() => toSquare(8, 0)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Four corners, and a board that need not be square (decision 0028)
+// ---------------------------------------------------------------------------
+
+/** A board `fileM` x `rankM`, laid due east/north, with all four corners. */
+function pitch(fileM: number, rankM = fileM, a1 = A1) {
+  return makeFieldSpec('pitch', {
+    a1,
+    h1: fromLocal(a1, { e: 7 * fileM, n: 0 }),
+    h8: fromLocal(a1, { e: 7 * fileM, n: 7 * rankM }),
+    a8: fromLocal(a1, { e: 0, n: 7 * rankM }),
+  });
+}
+
+describe('four-corner fields', () => {
+  it('reads a square board exactly as the two-tap version did', () => {
+    // The compatibility claim, checked rather than assumed: a field walked out
+    // with four corners on square ground must land on the same geometry as the
+    // same ground walked with two, or every saved field shifts underfoot.
+    const four = deriveGeometry(pitch(8));
+    const two = deriveGeometry(axisAlignedField(8));
+    expect(four.fileM).toBeCloseTo(two.fileM, 6);
+    expect(four.rankM).toBeCloseTo(two.rankM, 6);
+    expect(four.bearingDeg).toBeCloseTo(two.bearingDeg, 6);
+    expect(distanceM(four.origin, two.origin)).toBeLessThan(1e-6);
+  });
+
+  it('keeps a rectangle rectangular instead of forcing a square onto it', () => {
+    const geo = deriveGeometry(pitch(10, 6));
+    expect(geo.fileM).toBeCloseTo(10, 6);
+    expect(geo.rankM).toBeCloseTo(6, 6);
+    expect(geo.axisAngleDeg).toBeCloseTo(90, 6);
+  });
+
+  it('puts every square centre back where it was walked', () => {
+    const spec = pitch(10, 6);
+    const geo = deriveGeometry(spec);
+    for (const [name, index] of [
+      ['a1', { file: 0, rank: 0 }],
+      ['h1', { file: 7, rank: 0 }],
+      ['h8', { file: 7, rank: 7 }],
+      ['a8', { file: 0, rank: 7 }],
+    ] as const) {
+      const tapped = spec[name] as { lat: number; lng: number };
+      expect(squareAt(geo, tapped), name).toEqual(index);
+      expect(distanceM(squareCentreLatLng(geo, index), tapped), name).toBeLessThan(1e-6);
+    }
+  });
+
+  it('identifies squares across a sheared board', () => {
+    // Ranks running 20 degrees off perpendicular — a board laid into a corner
+    // of a park. Every square centre must still name itself.
+    const a1 = A1;
+    const skew = unitFromBearing(90 - 20);
+    const spec = makeFieldSpec('skew', {
+      a1,
+      h1: fromLocal(a1, { e: 56, n: 0 }),
+      h8: fromLocal(a1, { e: 56 + 56 * skew.e, n: 56 * skew.n }),
+      a8: fromLocal(a1, { e: 56 * skew.e, n: 56 * skew.n }),
+    });
+    const geo = deriveGeometry(spec);
+    for (let file = 0; file < 8; file++) {
+      for (let rank = 0; rank < 8; rank++) {
+        const centre = squareCentreLatLng(geo, { file, rank });
+        expect(squareAt(geo, centre), `${file},${rank}`).toEqual({ file, rank });
+      }
+    }
+  });
+
+  it('round-trips a point through the index and back', () => {
+    const geo = deriveGeometry(pitch(11, 5));
+    const p = fromLocal(A1, { e: 23, n: 17 });
+    const bi = toBoardIndex(geo, p);
+    expect(distanceM(fromBoardPoint(geo, boardPointOfIndex(geo, bi)), p)).toBeLessThan(1e-6);
+    // And the two entry points to the index agree.
+    expect(boardIndexOf(geo, toBoardPoint(geo, p)).file).toBeCloseTo(bi.file, 9);
+    expect(boardIndexOf(geo, toBoardPoint(geo, p)).rank).toBeCloseTo(bi.rank, 9);
+  });
+
+  it('measures reach on the ground, not in square counts', () => {
+    // The trap the two frames exist to avoid. On a 12 x 4 board, b1 is 12 m away
+    // along the files and a2 is 4 m away along the ranks — both "one square", and
+    // three times apart in the only unit that matters to a player's legs.
+    const geo = deriveGeometry(pitch(12, 4));
+    const a1Centre = squareCentreLatLng(geo, { file: 0, rank: 0 });
+    const alongFile = distanceToSquareM(geo, a1Centre, { file: 1, rank: 0 });
+    const alongRank = distanceToSquareM(geo, a1Centre, { file: 0, rank: 1 });
+    // Nearest point of the neighbouring square: half a step out from the centre.
+    expect(alongFile).toBeCloseTo(6, 4);
+    expect(alongRank).toBeCloseTo(2, 4);
+  });
+
+  it('gives distance zero anywhere inside a skewed square', () => {
+    const geo = deriveGeometry(pitch(10, 6));
+    const centre = squareCentreLatLng(geo, { file: 3, rank: 4 });
+    expect(distanceToSquareM(geo, centre, { file: 3, rank: 4 })).toBe(0);
+    for (const corner of squareCornersLatLng(geo, { file: 3, rank: 4 })) {
+      // On the boundary, so zero to within rounding rather than exactly zero.
+      expect(distanceToSquareM(geo, corner, { file: 3, rank: 4 })).toBeLessThan(1e-6);
+    }
+  });
+
+  it('reports no residual for four clean corners, and some for a bent one', () => {
+    expect(Math.max(...calibrationResiduals(pitch(8), deriveGeometry(pitch(8))))).toBeCloseTo(0, 6);
+    const bent = makeFieldSpec('bent', {
+      a1: A1,
+      h1: fromLocal(A1, { e: 56, n: 0 }),
+      h8: fromLocal(A1, { e: 56, n: 56 }),
+      a8: fromLocal(A1, { e: 0, n: 96 }),
+    });
+    expect(Math.max(...calibrationResiduals(bent, deriveGeometry(bent)))).toBeGreaterThan(2);
+  });
+
+  it('has no residual to report for a two-corner field', () => {
+    // Not zero-because-perfect: zero because there is nothing to check. Two taps
+    // and four unknowns always fit exactly, which is why a mis-tap was invisible.
+    const spec = axisAlignedField(8);
+    expect(calibrationResiduals(spec, deriveGeometry(spec))).toEqual([]);
+  });
+
+  it('refuses corners that do not describe a board at all', () => {
+    const collapsed = makeFieldSpec('flat', {
+      a1: A1,
+      h1: fromLocal(A1, { e: 56, n: 0 }),
+      h8: fromLocal(A1, { e: 56, n: 0 }),
+      a8: A1,
+    });
+    expect(() => deriveGeometry(collapsed)).toThrow();
+  });
+
+  it('carries all four corners through a snapshot', () => {
+    const spec = pitch(10, 6);
+    const snap = snapshotField(spec, 1000);
+    expect(snap.h1).toEqual(spec.h1);
+    expect(snap.a8).toEqual(spec.a8);
+    const geo = deriveGeometry(snap);
+    expect(geo.fileM).toBeCloseTo(10, 6);
+    expect(geo.rankM).toBeCloseTo(6, 6);
+  });
+
+  it('leaves a two-corner snapshot without corners it never had', () => {
+    const snap = snapshotField(axisAlignedField(8), 1000);
+    expect(snap.h1).toBeUndefined();
+    expect(snap.a8).toBeUndefined();
+    expect(deriveGeometry(snap).fileM).toBeCloseTo(8, 6);
   });
 });

@@ -18,7 +18,13 @@
  * rather than by unit tests.
  */
 
-import { type FieldSpec, checkCalibration, deriveGeometry } from '../../shared/field.js';
+import {
+  type FieldSpec,
+  boardSizeM,
+  checkCalibration,
+  deriveGeometry,
+  isSquareBoard,
+} from '../../shared/field.js';
 import { type FieldLink, encodeFieldLink, fieldUrl } from '../../shared/fieldlink.js';
 import { encodeQr, qrSvg } from '../../shared/qr.js';
 import type { FieldOffer } from '../fields.js';
@@ -80,8 +86,12 @@ export function mountField(root: HTMLElement, deps: FieldDeps): () => void {
     ${provenanceHtml(spec)}
 
     <dl class="readout">
-      <dt>Squares</dt><dd data-square>${geo.squareM.toFixed(1)} m across</dd>
-      <dt>Board</dt><dd data-board>${(geo.squareM * 8).toFixed(0)} m a side</dd>
+      <dt>Squares</dt><dd data-square>${
+        isSquareBoard(geo)
+          ? `${geo.fileM.toFixed(1)} m across`
+          : `${geo.fileM.toFixed(1)} m along the files, ${geo.rankM.toFixed(1)} m along the ranks`
+      }</dd>
+      <dt>Board</dt><dd data-board>${Math.round(boardSizeM(geo))} m across</dd>
       <dt>Facing</dt><dd data-bearing>${geo.bearingDeg.toFixed(0)}° (a→h)</dd>
     </dl>
 

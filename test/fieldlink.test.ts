@@ -33,7 +33,7 @@ const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;
 
 function field(name = 'The common', square = SQUARE_M): FieldSpec {
-  return makeFieldSpec(name, A1, fromLocal(A1, { e: 7 * square, n: 7 * square }), {
+  return makeFieldSpec(name, { a1: A1, h8: fromLocal(A1, { e: 7 * square, n: 7 * square }) }, {
     id: 'field-under-test',
     now: 1_700_000_000_000,
   });
@@ -58,7 +58,7 @@ describe('a field survives the round trip', () => {
     const back = decodeFieldLink(encodeFieldLink(spec))!;
     const mine = deriveGeometry(spec);
     const theirs = deriveGeometry(back);
-    expect(Math.abs(theirs.squareM - mine.squareM)).toBeLessThan(0.02);
+    expect(Math.abs(theirs.fileM - mine.fileM)).toBeLessThan(0.02);
     expect(Math.abs(theirs.bearingDeg - mine.bearingDeg)).toBeLessThan(0.2);
   });
 
@@ -75,7 +75,7 @@ describe('a field survives the round trip', () => {
       { lat: -0.0001, lng: -0.0001 },
       { lat: 78.2232, lng: 15.6267 },
     ]) {
-      const spec = makeFieldSpec('x', a1, fromLocal(a1, { e: 56, n: -56 }));
+      const spec = makeFieldSpec('x', { a1: a1, h8: fromLocal(a1, { e: 56, n: -56 }) });
       const back = decodeFieldLink(encodeFieldLink(spec))!;
       expect(distanceM(spec.a1, back.a1)).toBeLessThan(0.02);
       expect(distanceM(spec.h8, back.h8)).toBeLessThan(0.2);
@@ -93,7 +93,7 @@ describe('a field survives the round trip', () => {
       { e: 56, n: -56 },
       { e: 0, n: 79 },
     ]) {
-      const spec = makeFieldSpec('x', A1, fromLocal(A1, offset));
+      const spec = makeFieldSpec('x', { a1: A1, h8: fromLocal(A1, offset) });
       const back = decodeFieldLink(encodeFieldLink(spec))!;
       expect(distanceM(spec.h8, back.h8)).toBeLessThan(0.2);
     }
@@ -184,7 +184,8 @@ describe('a blob that is not ours', () => {
     // from the length would read a version 2 layout as a version 1 field and put
     // somebody's board in the wrong place rather than saying it could not.
     const bytes = [...atob(toStdBase64(encodeFieldLink(field())))].map((c) => c.charCodeAt(0));
-    bytes[0] = 2;
+    // 1 and 2 are both real layouts now (two-corner and four-corner).
+    bytes[0] = 3;
     expect(decodeFieldLink(fromBytes(bytes))).toBeNull();
   });
 
@@ -207,7 +208,7 @@ describe('a blob that is not ours', () => {
   it('refuses a field too large to be one', () => {
     // A board over three kilometres across cannot be expressed in the offset,
     // and silently wrapping it would produce a plausible-looking wrong field.
-    const huge = makeFieldSpec('vast', A1, fromLocal(A1, { e: 9000, n: 9000 }));
+    const huge = makeFieldSpec('vast', { a1: A1, h8: fromLocal(A1, { e: 9000, n: 9000 }) });
     expect(() => encodeFieldLink(huge)).toThrow();
   });
 });
@@ -258,3 +259,59 @@ function fromBytes(bytes: number[]): string {
   const std = btoa(String.fromCharCode(...bytes));
   return std.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+
+describe('four-corner links (decision 0028)', () => {
+  /** A board `fileM` x `rankM` with every corner, ready to share. */
+  function pitch(fileM: number, rankM = fileM) {
+    return makeFieldSpec(
+      'The pitch',
+      {
+        a1: A1,
+        h1: fromLocal(A1, { e: 7 * fileM, n: 0 }),
+        h8: fromLocal(A1, { e: 7 * fileM, n: 7 * rankM }),
+        a8: fromLocal(A1, { e: 0, n: 7 * rankM }),
+      },
+      { id: 'pitch-1' },
+    );
+  }
+
+  it('carries a rectangular board through a link intact', () => {
+    const decoded = decodeFieldLink(encodeFieldLink(pitch(10, 6)));
+    expect(decoded).not.toBeNull();
+    const geo = deriveGeometry(decoded!);
+    expect(geo.fileM).toBeCloseTo(10, 1);
+    expect(geo.rankM).toBeCloseTo(6, 1);
+  });
+
+  it('keeps a square board on the short layout, so its QR does not grow', () => {
+    // The two-corner format is still written whenever it is enough. A field
+    // printed on a sign should not gain eight bytes — and several QR modules —
+    // for corners that carry no information.
+    const square = makeFieldSpec('Square', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) });
+    const shortBlob = encodeFieldLink(square);
+    const longBlob = encodeFieldLink(pitch(8));
+    expect(longBlob.length).toBeGreaterThan(shortBlob.length);
+    // And the old format still decodes to the board it always meant.
+    expect(deriveGeometry(decodeFieldLink(shortBlob)!).fileM).toBeCloseTo(8, 1);
+  });
+
+  it('refuses a four-corner blob whose corners collapse', () => {
+    const spec = pitch(8);
+    const bytes = [...atob(toStdBase64(encodeFieldLink(spec)))].map((c) => c.charCodeAt(0));
+    // h1 offset to zero, putting it on top of a1.
+    bytes[13] = 0;
+    bytes[14] = 0;
+    bytes[15] = 0;
+    bytes[16] = 0;
+    expect(decodeFieldLink(fromBytes(bytes))).toBeNull();
+  });
+
+  it('survives the same field going out and back through a game snapshot', () => {
+    const spec = pitch(10, 6);
+    const viaSnapshot = fieldLinkFromSnapshot(snapshotField(spec, 1000));
+    expect(viaSnapshot.h1).toEqual(spec.h1);
+    const geo = deriveGeometry(viaSnapshot);
+    expect(geo.fileM).toBeCloseTo(10, 6);
+    expect(geo.rankM).toBeCloseTo(6, 6);
+  });
+});

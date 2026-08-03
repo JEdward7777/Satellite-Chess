@@ -16,7 +16,11 @@ import {
   type BoardPoint,
   type FieldGeometry,
   boardExtentM,
+  boardIndexOf,
+  boardPointOfIndex,
   distanceFromBoardPointToSquareM,
+  squareCentre,
+  squareCornersBoard,
   toBoardPoint,
 } from '../shared/field.js';
 import type { LatLng } from '../shared/geo.js';
@@ -144,8 +148,11 @@ export function projectionFor(
   const size = Math.min(width, height);
   const pad = size * PADDING;
   const scale = (size - 2 * pad) / extent.sizeM;
-  const offsetX = (width - extent.sizeM * scale) / 2;
-  const offsetY = (height - extent.sizeM * scale) / 2;
+  // Centre the board's own bounding box, not a square of the longer side. On a
+  // square board these are the same number; on a 12 x 6 pitch the square version
+  // pushes the board to the top of the canvas and leaves the gap underneath.
+  const offsetX = (width - (extent.maxU - extent.minU) * scale) / 2;
+  const offsetY = (height - (extent.maxV - extent.minV) * scale) / 2;
 
   return {
     scale,
@@ -230,20 +237,53 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   return projection;
 }
 
-function squareRect(
+/**
+ * A square as four screen points, wound in order.
+ *
+ * Not a rectangle any more: since decision 0028 a board may be a parallelogram,
+ * and `fillRect` would draw the board the calibration *wished* for rather than
+ * the one the player walked out. The path is the honest shape, and on a square
+ * board it is pixel-for-pixel the old rectangle.
+ */
+function squarePath(
   geo: FieldGeometry,
   projection: Projection,
   fr: FileRank,
-): { x: number; y: number; size: number } {
-  const half = geo.squareM / 2;
-  const centre = { u: fr.file * geo.squareM, v: fr.rank * geo.squareM };
-  const a = projection.toScreen({ u: centre.u - half, v: centre.v - half });
-  const b = projection.toScreen({ u: centre.u + half, v: centre.v + half });
-  return {
-    x: Math.min(a.x, b.x),
-    y: Math.min(a.y, b.y),
-    size: geo.squareM * projection.scale,
-  };
+): { x: number; y: number }[] {
+  return squareCornersBoard(geo, fr).map((bp: BoardPoint) => projection.toScreen(bp));
+}
+
+function traceSquare(
+  ctx: CanvasRenderingContext2D,
+  geo: FieldGeometry,
+  projection: Projection,
+  fr: FileRank,
+): void {
+  const points = squarePath(geo, projection, fr);
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.closePath();
+}
+
+/**
+ * A representative cell size in screen pixels, for glyphs and line widths.
+ *
+ * Deliberately one number even where the two axes differ: a piece is drawn as a
+ * glyph, not stretched to fill its cell, so it wants a single size. Never use
+ * this to position anything.
+ */
+function cellPx(geo: FieldGeometry, projection: Projection): number {
+  return geo.meanSquareM * projection.scale;
+}
+
+/** Screen position of a square's centre. */
+function squareCentrePx(
+  geo: FieldGeometry,
+  projection: Projection,
+  fr: FileRank,
+): { x: number; y: number } {
+  return projection.toScreen(squareCentre(geo, fr));
 }
 
 function drawSquares(
@@ -253,58 +293,70 @@ function drawSquares(
   here: BoardPoint | null,
 ): void {
   const { geo } = view;
-  const size = geo.squareM * projection.scale;
+  const size = cellPx(geo, projection);
   const underFoot = here ? squareUnderFoot(geo, here) : null;
 
   for (let file = 0; file < 8; file++) {
     for (let rank = 0; rank < 8; rank++) {
-      const rect = squareRect(geo, projection, { file, rank });
       const light = isLightSquare(file, rank);
+      traceSquare(ctx, geo, projection, { file, rank });
       ctx.fillStyle = light ? LIGHT_SQUARE : DARK_SQUARE;
-      ctx.fillRect(rect.x, rect.y, rect.size, rect.size);
+      ctx.fill();
 
       // In reach: the squares you could actually lift from or place on right
       // now. This is the rule made visible, so it has to be unmissable.
       if (here && distanceFromBoardPointToSquareM(geo, here, { file, rank }) <= view.reachM) {
         ctx.fillStyle = IN_REACH_TINT;
-        ctx.fillRect(rect.x, rect.y, rect.size, rect.size);
+        ctx.fill();
       }
 
       if (underFoot && underFoot.file === file && underFoot.rank === rank) {
         ctx.strokeStyle = UNDER_FOOT;
         ctx.lineWidth = Math.max(2, size * 0.06);
-        ctx.strokeRect(
-          rect.x + ctx.lineWidth / 2,
-          rect.y + ctx.lineWidth / 2,
-          rect.size - ctx.lineWidth,
-          rect.size - ctx.lineWidth,
-        );
+        ctx.stroke();
       }
 
-      drawLabels(ctx, view, rect, { file, rank }, light);
+      drawLabels(ctx, view, squareCentrePx(geo, projection, { file, rank }), size, {
+        file,
+        rank,
+      }, light);
     }
   }
 
-  const a1 = squareRect(geo, projection, { file: 0, rank: 0 });
-  const h8 = squareRect(geo, projection, { file: 7, rank: 7 });
+  // The outline of the playing surface, traced round the four outer corners
+  // rather than assembled from a width and a height — on a skewed board those
+  // two numbers do not describe the edge.
+  const outline = [
+    { file: -0.5, rank: -0.5 },
+    { file: 7.5, rank: -0.5 },
+    { file: 7.5, rank: 7.5 },
+    { file: -0.5, rank: 7.5 },
+  ].map((bi) => projection.toScreen(boardPointOfIndex(geo, bi)));
+  ctx.beginPath();
+  ctx.moveTo(outline[0].x, outline[0].y);
+  for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i].x, outline[i].y);
+  ctx.closePath();
   ctx.strokeStyle = BOARD_EDGE;
   ctx.lineWidth = 2;
-  ctx.strokeRect(
-    Math.min(a1.x, h8.x),
-    Math.min(a1.y, h8.y),
-    8 * size,
-    8 * size,
-  );
+  ctx.stroke();
 }
 
 /**
  * File letters along the near edge, rank numbers up the left — from the
  * player's own point of view, which is what "own side at the bottom" means.
  */
+/**
+ * Placed by offsetting from the cell's centre in *screen* space rather than
+ * from the corners of a rectangle, because a cell no longer has corners at
+ * predictable screen positions. On a square board this lands where it always
+ * did; on a skewed one it stays inside the cell, which corner arithmetic on a
+ * parallelogram would not guarantee.
+ */
 function drawLabels(
   ctx: CanvasRenderingContext2D,
   view: BoardView,
-  rect: { x: number; y: number; size: number },
+  centre: { x: number; y: number },
+  size: number,
   fr: FileRank,
   light: boolean,
 ): void {
@@ -315,18 +367,18 @@ function drawLabels(
   if (!showFile && !showRank) return;
 
   ctx.fillStyle = light ? LABEL_ON_LIGHT : LABEL_ON_DARK;
-  ctx.font = `600 ${Math.max(9, rect.size * 0.22)}px system-ui, sans-serif`;
-  const inset = rect.size * 0.08;
+  ctx.font = `600 ${Math.max(9, size * 0.22)}px system-ui, sans-serif`;
+  const inset = size * 0.34;
 
   if (showFile) {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(toSquare(fr.file, fr.rank)[0], rect.x + rect.size - inset, rect.y + rect.size - inset);
+    ctx.fillText(toSquare(fr.file, fr.rank)[0], centre.x + inset, centre.y + inset);
   }
   if (showRank) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(String(fr.rank + 1), rect.x + inset, rect.y + inset);
+    ctx.fillText(String(fr.rank + 1), centre.x - inset, centre.y - inset);
   }
 }
 
@@ -348,19 +400,14 @@ function drawCarry(
   const carry = view.carry;
   if (!carry) return;
 
-  const size = view.geo.squareM * projection.scale;
+  const size = cellPx(view.geo, projection);
   const origin = fromSquare(carry.from);
-  const rect = squareRect(view.geo, projection, origin);
 
+  traceSquare(ctx, view.geo, projection, origin);
   ctx.strokeStyle = LIFTED_FROM;
   ctx.lineWidth = Math.max(2, size * 0.08);
   ctx.setLineDash([size * 0.15, size * 0.1]);
-  ctx.strokeRect(
-    rect.x + ctx.lineWidth / 2,
-    rect.y + ctx.lineWidth / 2,
-    rect.size - ctx.lineWidth,
-    rect.size - ctx.lineWidth,
-  );
+  ctx.stroke();
   ctx.setLineDash([]);
 
   // Only your own carry gets destination dots. Seeing the opponent's options
@@ -369,10 +416,7 @@ function drawCarry(
 
   for (const square of carry.destinations) {
     const fr = fromSquare(square);
-    const centre = projection.toScreen({
-      u: fr.file * view.geo.squareM,
-      v: fr.rank * view.geo.squareM,
-    });
+    const centre = squareCentrePx(view.geo, projection, fr);
     const reachable =
       here !== null && distanceFromBoardPointToSquareM(view.geo, here, fr) <= view.reachM;
 
@@ -426,7 +470,7 @@ function drawPieces(
   view: BoardView,
   projection: Projection,
 ): void {
-  const size = view.geo.squareM * projection.scale;
+  const size = cellPx(view.geo, projection);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `${size * 0.72}px ${GLYPH_FONT}`;
@@ -435,7 +479,7 @@ function drawPieces(
   for (const [square, piece] of Object.entries(view.pieces)) {
     if (!piece) continue;
     const fr = fromSquare(square);
-    const centre = projection.toScreen({ u: fr.file * view.geo.squareM, v: fr.rank * view.geo.squareM });
+    const centre = squareCentrePx(view.geo, projection, fr);
     const glyph = PIECE_GLYPHS[piece.type];
     // Same solid glyph for both colours; fill and stroke carry the difference.
     ctx.fillStyle = piece.color === 'w' ? '#ffffff' : '#16181d';
@@ -558,8 +602,11 @@ function drawNorth(
 
 /** The square the player is standing on, or null when they are off the board. */
 export function squareUnderFoot(geo: FieldGeometry, here: BoardPoint): FileRank | null {
-  const file = Math.round(here.u / geo.squareM);
-  const rank = Math.round(here.v / geo.squareM);
+  // Through the affine inverse, not a division: on a skewed board `u` and `v`
+  // are metres in a rigid frame and do not divide into square counts.
+  const bi = boardIndexOf(geo, here);
+  const file = Math.round(bi.file);
+  const rank = Math.round(bi.rank);
   if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
   return { file, rank };
 }

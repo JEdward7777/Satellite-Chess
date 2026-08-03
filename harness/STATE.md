@@ -4,10 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phase 6 is closed**. Phases 0, 3, 4, 5 and 6 are done.
+**Active stage**: none — **phase 6 is closed**. Phases 0, 3, 4, 5 and 6 are done,
+and `1.2` was rebuilt on four-corner calibration (decision 0028).
 **Next action**: phase 2, `2.3.4`, the game index — which decision 0025 made
 load-bearing rather than bookkeeping.
-**Last session**: `harness/sessions/2026-08-03-02.md`
+**Last session**: `harness/sessions/2026-08-03-03.md`
 
 ## In one paragraph
 
@@ -66,7 +67,18 @@ written: both clocks on screen, ticking locally for zero messages, red under a
 minute, and a buzz and a beep for a phone that is in a pocket.
 `scripts/check-clock.mjs` proves the screen half in Chromium.
 
-**`5.3.4` closed the phase, and settled O-04 with it (decision 0025).** Either
+**The board is no longer forced to be square (decision 0028).** The owner
+challenged two-tap calibration — four corners, not a diagonal — and the challenge
+held up under measurement: over 400 simulated calibrations at 3 m per tap, two
+taps misidentify **22.3%** of squares against four taps' **11.9%**, because two
+taps use half the available measurements. Calibration now walks the perimeter —
+a1, h1, h8, a8 — and fits a **least-squares affine** map, so a board can be a
+rectangle or a parallelogram laid into a real pitch. Verified for real by
+`scripts/check-calibrate.mjs` on a 12 x 6 m board, walked through the UI and then
+stood on square by square. Every field, game and link made before it still reads
+as the square board it was calibrated as.
+
+**`5.3.4` closed phase 5, and settled O-04 with it (decision 0025).** Either
 player may pause; the game freezes indefinitely, keeps the position, puts a
 carried piece back, and either player may resume by the back-rank handshake. The
 game records **who** stopped it, and after **30 days** the *other* player may
@@ -117,6 +129,21 @@ Nothing is half-finished.
 ## Things a new thread should know before touching anything
 
 - **A move is a lift, a walk, and a place** (decision 0001).
+- **A board is four tapped corners, fitted affine** (decision 0028), and it may
+  be a rectangle or a parallelogram. The two things not to undo: the fit is
+  **least-squares, not an interpolation through the taps** — an interpolation
+  turns GPS error into the permanent shape of the board — and board space is
+  **two types, not one**. `BoardPoint` is metric (metres, rigid frame, safe to
+  measure with); `BoardIndex` is which-square (affine inverse, never metric). On
+  a 12 x 4 board one step along a file and one along a rank differ by 3x, so a
+  `Math.hypot` over indices is meaningless. Collapsing them back into one type
+  would silently restore the squares-are-square assumption everywhere.
+- **Two-corner fields still exist and must keep working.** Every field saved
+  before 2026-08-03, every game in flight, and every `/f/<blob>` link already
+  printed reads as the square board it was calibrated as. `deriveGeometry`
+  branches on whether `h1`/`a8` are present; the link format still writes the
+  short two-corner layout whenever it is enough, so a square board's QR did not
+  grow.
 - **Reach absorbs GPS error; squares scale with reach** (decision 0023). Poor
   accuracy means a bigger circle, never a refusal — but the circle must stay
   smaller than the square it selects, so worse GPS means *bigger squares and a
@@ -353,6 +380,7 @@ node scripts/check-deeplink.mjs                                # deep links, off
 node scripts/check-invite.mjs                                  # create, code, QR, share
 node scripts/check-join.mjs                                    # joining, with no field
 node scripts/check-clock.mjs                                   # clocks, low time, tenths
+node scripts/check-calibrate.mjs                               # four taps, a 12x6 board
 node scripts/check-scan.mjs                                    # camera, advice, camera released
 node scripts/check-field.mjs                                   # sharing a field, and keeping one
 node scripts/check-qr.mjs                                      # the encoder, 351 cases

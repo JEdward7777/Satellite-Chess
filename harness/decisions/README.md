@@ -37,7 +37,7 @@ The conditions under which this should be reopened.
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-two-phase-carry.md) | A move is a lift, a walk, and a place | accepted |
-| [0002](0002-calibration-taps-are-square-centres.md) | Calibration taps are the centres of a1 and h8 | accepted |
+| [0002](0002-calibration-taps-are-square-centres.md) | Calibration taps are the centres of corner squares | square-centre rule kept; two-tap half superseded by 0028 |
 | [0003](0003-reach-to-nearest-point-of-square.md) | Reach is measured to a square's nearest point | accepted |
 | [0004](0004-handicap-is-reach-not-clock.md) | Handicap mismatched fitness with reach, not the clock | accepted |
 | [0005](0005-back-rank-resume-handshake.md) | Resume by resetting body position to the back ranks | accepted |
@@ -63,3 +63,4 @@ The conditions under which this should be reopened.
 | [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted |
 | [0026](0026-no-qr-decoder-ships-the-camera-app-is-the-fallback.md) | Ship no QR decoder; the phone's own camera app is the iOS fallback | accepted |
 | [0027](0027-a-joiner-keeps-the-field-they-played-on.md) | A joiner keeps the field they played on, unasked | accepted |
+| [0028](0028-four-corners-fitted-as-an-affine-board.md) | Four corners, fitted as an affine board | accepted (amends 0002) |

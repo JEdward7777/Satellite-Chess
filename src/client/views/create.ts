@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, type TimeControl } from '../../shared/clock.js';
-import { type FieldSpec, deriveGeometry } from '../../shared/field.js';
+import { type FieldSpec, deriveGeometry, describeSquares } from '../../shared/field.js';
 import { DEFAULT_REACH, type ReachBonuses } from '../../shared/reach.js';
 import type { Color } from '../../shared/squares.js';
 
@@ -309,7 +309,7 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
 
 function fieldSummary(field: FieldSpec): string {
   const geo = deriveGeometry(field);
-  return `${geo.squareM.toFixed(1)} m squares · ${(geo.squareM * 8).toFixed(0)} m a side`;
+  return describeSquares(geo);
 }
 
 function colourNote(choice: ColourChoice): string {
