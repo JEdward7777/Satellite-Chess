@@ -6,8 +6,9 @@ files hold the history.*
 **Tree state**: clean, pushed to `main`
 **Active stage**: none — **phase 6 is closed**. Phases 0, 3, 4, 5 and 6 are done,
 and `1.2` was rebuilt on four-corner calibration (decision 0028).
-**Next action**: phase 2, `2.3.4`, the game index — which decision 0025 made
-load-bearing rather than bookkeeping.
+**Next action**: phase 2, and **not at `2.3.4`** — that stage is a child of the
+UserDO, which is still a 29-line stub. Build phase 2 bottom-up, ending at OAuth:
+`2.5.2`'s dev seam, then `2.3.1`/`2.3.2`, then the index. See below.
 **Last session**: `harness/sessions/2026-08-03-03.md`
 
 ## In one paragraph
@@ -116,15 +117,42 @@ wasted trip is not discovered afterwards.
 
 Nothing is half-finished.
 
-1. **Phase 2, `2.3.4`, the game index** — now more load-bearing than it was.
-   Since decision 0025 a game can sit suspended for a month, and until the index
-   exists **its join code is the only handle on it**. `2.3.4.1` and `2.3.4.2` are
-   new stages: list suspended games with the claim countdown, and offer to clear
-   out old ones rather than ever deleting them on a timer.
-2. `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
-   **Not a gate** (decision 0023) — it sizes the squares, it does not decide
-   whether the game works. Do not hold anything for it.
-3. `1.9.3.5` — fold the findings back into square size and the reach constants.
+**`2.3.4` is not the next stage, despite five sessions of this file saying so.**
+It is a child of `2.3`, the UserDO, and `src/worker/user-do.ts` is still the
+stub that returns `notImplemented`. The UserDO is addressed by `getByName(sub)`
+— the Google `sub` claim — so a game index cannot be built before something
+decides who owns it. `2.1` and `2.2` come first, logically.
+
+But `2.1` needs the operator (below), so **build phase 2 bottom-up and leave the
+live Google round-trip until last**, so the operator dependency blocks one stage
+rather than the whole phase:
+
+1. **`2.5.2` — the dev and simulator test seam.** Planned already, dev-only,
+   never reachable in a deployed build. Doing it *first* rather than last is the
+   whole trick: it is what lets `2.3` be written and tested with no Google
+   round-trip, and every browser driver keeps working while identity exists.
+2. **`2.3.1`, `2.3.2` — the UserDO proper.** Schema and addressing. Note the
+   asymmetry that needs a comment in the schema: indexed player → fields, never
+   field → players (decision 0017).
+3. **`2.3.4`, the game index** — now reachable. Since decision 0025 a game can
+   sit suspended for a month and **its join code is the only handle on it**,
+   which is what makes this load-bearing rather than bookkeeping. `2.3.4.1`
+   lists suspended games with the claim countdown; `2.3.4.2` offers to clear out
+   old ones and must never be able to remove one that is still claimable.
+4. **`2.3.3.2`** — move saved fields off local storage and onto the UserDO. This
+   is where `2.3.7.4`'s shared copies land too: one migration, not two.
+5. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
+   the part that cannot be finished in a container.
+
+Blocked on the operator, in the same category as each other:
+
+- `2.1` — a Google Cloud OAuth client, the `client_secret` into a Worker secret,
+  and redirect URIs registered for a deployed origin. `1.9.1` (`wrangler login`,
+  first deploy) has never happened, so there is no deployed origin to register.
+- `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+  **Not a gate** (decision 0023) — it sizes the squares, it does not decide
+  whether the game works. Do not hold anything for it.
+- `1.9.3.5` — fold the findings back into square size and the reach constants.
 
 ## Things a new thread should know before touching anything
 
@@ -167,7 +195,13 @@ Nothing is half-finished.
   without banking time and re-arming the flag — so this file recommended writing
   them for five sessions after they were written, tested and playing games. Before
   recommending the next phase, grep for its identifiers rather than trusting the
-  previous session's "Next" list.
+  previous session's "Next" list. **This has now happened twice**: `2.3.7`, the
+  whole of field-link sharing, was built by `6.4` and sat `todo` for three
+  sessions, because phase 6 needed a field to travel with an invitation and that
+  *is* `2.3.7` entire. Twice is a pattern, so the rule is now stronger than
+  "grep before recommending": **when a phase borrows work from a later one, mark
+  the later one in the same commit.** The borrowing is not the problem — writing
+  the stage where it was needed was right both times. Not marking it is.
 - **Whoever stopped a game cannot also win it by default** (decision 0025), and
   this is the one part of the claim rule that must not be simplified. The obvious
   implementation — "you may claim if your opponent is not connected" — inverts it
@@ -398,6 +432,28 @@ other, then walk both to their back ranks.
 on the board to teleport, sliders for accuracy and jitter, and a switch between
 two simulated players. `globalThis.satchess` exposes the same thing to a console
 or a browser test.
+
+## Wrangler cannot reach Cloudflare from the container — deploys are the operator's
+
+Measured 2026-08-04, so no future session has to discover it by burning a stage on
+it. The session's egress proxy answers **403 to CONNECT** for both
+`api.cloudflare.com:443` and `dash.cloudflare.com:443` — an organisation egress
+policy denial, recorded in the proxy's own `recentRelayFailures`. `wrangler whoami`
+says "not authenticated", and it cannot become authenticated: `wrangler login` runs
+an OAuth callback to *the container's* localhost, which the operator's browser
+cannot reach, and the API path is blocked anyway. `CLOUDFLARE_API_TOKEN` would not
+help, for the same 403.
+
+**What still works, and it is nearly everything**: `wrangler dev --port 8799 --local`
+serves on 127.0.0.1 with no Cloudflare contact at all — verified again on 2026-08-04,
+HTTP 200 at `/` and at `/j/ABC123`. That is what all eight browser drivers run
+against, so the DO, the routing and the whole game remain fully testable here.
+
+**What does not**: `wrangler login`, `wrangler deploy`, `wrangler secret put`,
+KV namespace creation — anything touching the Cloudflare API. So `1.9.1`, `1.9.3.4`,
+`2.4` and the deployed-origin half of `2.1` are the operator's, from a local clone,
+and they are the only things that are. Do not plan a session around getting a
+deploy out of this container, and do not retry the 403 or route around it.
 
 ## If pushing ever 403s again: install the GitHub App
 
