@@ -22,4 +22,22 @@ export type EnvWithSecrets = Env & {
    * See `src/worker/survey.ts` and stage 1.9.3.
    */
   SURVEY_SECRET?: string;
+
+  /**
+   * Enables the dev identity seam (`POST /api/dev/session`), which mints a
+   * session for any named `sub` without a Google round-trip.
+   *
+   * **Never set this on a deployed Worker.** It is half of an authentication
+   * bypass; the other half is a loopback hostname, which is why setting it by
+   * mistake is not on its own a breach. See `src/worker/identity.ts` and stage
+   * 2.5.2 for both locks and why there are two.
+   *
+   * Unlike `SURVEY_SECRET` this is never a deployed secret, so it is not set
+   * with `wrangler secret put`. `npm run dev` passes it on the command line
+   * (`wrangler dev --var DEV_AUTH_SECRET:…`) — deliberately not via `.dev.vars`,
+   * which `wrangler types` also reads, and which would therefore let an
+   * untracked local file decide whether the committed `worker-env.d.ts` is up
+   * to date.
+   */
+  DEV_AUTH_SECRET?: string;
 };

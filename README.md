@@ -55,12 +55,41 @@ npm install
 npm test           # vitest — the pure model
 npm run typecheck
 npm run plan       # the stage tree with statuses
-npm run check      # all three
-npm run dev        # wrangler dev (not usable until phase 3)
+npm run check      # all of the above, client build included
+npm run dev        # wrangler dev, with the dev identity seam switched on
 ```
 
 The game cannot be played by hand in a terminal, so there is a GPS simulator
 (`?sim=1`) that fakes `watchPosition` and lets you drag players around a field.
+
+### Signing in locally
+
+Sign-in is mandatory to play (decision 0014) and the Google half needs a deployed
+origin, so local development uses a **dev identity seam** instead: one request
+mints a session for any account you name.
+
+`npm run dev` switches it on by passing `--var DEV_AUTH_SECRET:local-dev-secret`.
+Running `wrangler dev` directly, the seam stays off unless you pass the same flag.
+
+```bash
+curl -c jar.txt -X POST -H "x-dev-auth-secret: local-dev-secret" \
+     -H "content-type: application/json" -d '{"sub":"alice"}' \
+     http://127.0.0.1:8787/api/dev/session
+curl -b jar.txt http://127.0.0.1:8787/api/me      # {"sub":"alice","via":"dev"}
+```
+
+It is a test seam, not a product fallback, and it is behind two locks: the
+variable must be set **and** the request must arrive on a loopback hostname. A
+deployed Worker fails the second no matter what anyone sets, which is the point
+— see `src/worker/identity.ts` and decision 0029.
+
+**That value is committed and is not confidential**, deliberately. It is passed
+on the `wrangler dev` command line rather than kept in `.dev.vars`, because
+`wrangler types` reads `.dev.vars` and would bake a per-developer local file into
+the committed `worker-env.d.ts` — making `npm run check` pass or fail depending
+on who ran it. Nothing is lost by publishing it: what keeps the seam off a
+deployed build is that `wrangler deploy` never carries this flag, and the only
+thing the value itself guards is a loopback dev server full of invented accounts.
 
 **If you are an AI assistant working on this, read
 [`harness/AGENTS.md`](harness/AGENTS.md) first.** Development state, the stage plan,

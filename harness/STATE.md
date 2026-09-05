@@ -4,12 +4,11 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phase 6 is closed**. Phases 0, 3, 4, 5 and 6 are done,
-and `1.2` was rebuilt on four-corner calibration (decision 0028).
-**Next action**: phase 2, and **not at `2.3.4`** — that stage is a child of the
-UserDO, which is still a 29-line stub. Build phase 2 bottom-up, ending at OAuth:
-`2.5.2`'s dev seam, then `2.3.1`/`2.3.2`, then the index. See below.
-**Last session**: `harness/sessions/2026-08-03-03.md`
+**Active stage**: none — **phase 2 has started**. `2.5.2`, the dev identity seam,
+is done (decision 0029), which unblocks the UserDO.
+**Next action**: `2.3.1`/`2.3.2` — the UserDO proper. A `sub` now exists to
+address it by, with no Google round-trip needed.
+**Last session**: `harness/sessions/2026-09-05-01.md`
 
 ## In one paragraph
 
@@ -121,17 +120,23 @@ Nothing is half-finished.
 It is a child of `2.3`, the UserDO, and `src/worker/user-do.ts` is still the
 stub that returns `notImplemented`. The UserDO is addressed by `getByName(sub)`
 — the Google `sub` claim — so a game index cannot be built before something
-decides who owns it. `2.1` and `2.2` come first, logically.
+decides who owns it. That "something" is now the dev seam rather than Google
+(decision 0029), which is what took this off the operator's critical path.
 
 But `2.1` needs the operator (below), so **build phase 2 bottom-up and leave the
 live Google round-trip until last**, so the operator dependency blocks one stage
 rather than the whole phase:
 
-1. **`2.5.2` — the dev and simulator test seam.** Planned already, dev-only,
-   never reachable in a deployed build. Doing it *first* rather than last is the
-   whole trick: it is what lets `2.3` be written and tested with no Google
-   round-trip, and every browser driver keeps working while identity exists.
-2. **`2.3.1`, `2.3.2` — the UserDO proper.** Schema and addressing. Note the
+1. ~~**`2.5.2` — the dev and simulator test seam.**~~ **Done** (decision 0029).
+   `identityOf` in `src/worker/identity.ts` is the boundary every authenticated
+   route asks; `POST /api/dev/session` mints a session for any named `sub` behind
+   two locks, and `GET /api/me` reads it back. **A `sub` now exists without
+   Google**, which is the thing everything below was waiting for. `npm run dev`
+   switches it on; nothing to set up. Do **not** move that variable into
+   `.dev.vars` — `wrangler types` reads that file, and `npm run check` then
+   passes or fails depending on whether the developer has one.
+2. **`2.3.1`, `2.3.2` — the UserDO proper.** ← **start here.** Schema and
+   addressing. Note the
    asymmetry that needs a comment in the schema: indexed player → fields, never
    field → players (decision 0017).
 3. **`2.3.4`, the game index** — now reachable. Since decision 0025 a game can

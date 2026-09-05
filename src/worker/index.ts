@@ -20,6 +20,7 @@ import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
+import { devAuthRoutes, identityOf } from './identity.js';
 import { apiError, json } from './http.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
@@ -82,6 +83,25 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   // 404s entirely unless SURVEY_SECRET is configured.
   const survey = await surveyRoutes(request, env, url);
   if (survey) return survey;
+
+  // The dev identity seam (stage 2.5.2). Returns null unless the path is its
+  // own, and 404s entirely unless both of its locks are open — a set
+  // DEV_AUTH_SECRET *and* a loopback hostname.
+  const devAuth = await devAuthRoutes(request, env, url);
+  if (devAuth) return devAuth;
+
+  // Who the session says you are. The client's sign-in gate (stage 2.5.1) reads
+  // this, and it is how a driver proves the seam actually took.
+  if (path === '/api/me') {
+    if (request.method !== 'GET') {
+      return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+    }
+    const identity = await identityOf(request, env, url);
+    if (identity === null) {
+      return apiError('unauthenticated', 'Not signed in.', 401);
+    }
+    return json(identity);
+  }
 
   if (path === '/api/game' && request.method === 'POST') {
     return createGame(request, env);

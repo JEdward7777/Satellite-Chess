@@ -5,14 +5,14 @@
   "type": "module",
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
-    "dev": "npm run build:client && wrangler dev",
+    "dev": "npm run build:client && wrangler dev --var DEV_AUTH_SECRET:local-dev-secret",
     "deploy": "npm run build:client && wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.tools.json",
     "plan": "node scripts/plan.mjs",
     "plan:check": "node scripts/plan.mjs --check",
     "plan:next": "node scripts/plan.mjs --next",
-    "check": "npm run types:check && npm run typecheck && npm test && npm run plan:check",
+    "check": "npm run build:client && npm run types:check && npm run typecheck && npm test && npm run plan:check",
     "types": "wrangler types --include-runtime=false src/worker/worker-env.d.ts",
     "types:check": "wrangler types --include-runtime=false --check src/worker/worker-env.d.ts"
   },

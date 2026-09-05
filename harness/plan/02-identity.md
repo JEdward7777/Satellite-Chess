@@ -137,8 +137,38 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
 - `2.4` todo: KV namespace creation, secret setup, and documenting both
 - `2.5` todo: Auth gate on the client
   - `2.5.1` todo: Unauthenticated launch goes to a sign-in screen and nowhere else
-  - `2.5.2` todo: A local-dev and simulator test seam, so the game stays testable
+  - `2.5.2` done: A local-dev and simulator test seam, so the game stays testable
     without a live Google round-trip on every run. Dev-only, never reachable in a
     deployed build — this is a test seam, not a product fallback.
+    Built first rather than last (decision 0029), which is what makes `2.3`
+    reachable while `2.1` waits on the operator. `src/worker/identity.ts` holds
+    the identity boundary — `identityOf`, which every authenticated route asks and
+    which `2.1` extends rather than replaces — plus the seam itself and both of
+    its locks. `GET /api/me` is the observable surface. 34 tests across
+    `test/identity-token.test.ts` (the token, in node) and
+    `test/worker/identity.test.ts` (the routes and the locks, in workerd), and
+    exercised end to end against a real `wrangler dev`.
+    - `2.5.2.1` done: The identity boundary, so `2.1` slots in beside the seam
+      rather than replacing it
+      `identityOf(request, env, url)` returns `{ sub, via }` or null. Null is a
+      normal state, not an error — whether that becomes a 401 or a sign-in screen
+      is the caller's business.
+    - `2.5.2.2` done: Two independent locks — a set `DEV_AUTH_SECRET` *and* a
+      loopback hostname — because a single lock made of "nobody sets this" is a
+      lock made of everybody remembering
+      The hostname check guards **reading** a token as well as minting one; a
+      token minted locally must not survive a deployed build that happens to
+      share the secret. That case has its own test, because it is the one a
+      naive implementation misses.
+    - `2.5.2.3` done: Switched on by `npm run dev`, and documented, because the
+      mechanism is not guessable
+      A shell environment variable does not reach a Worker, and the symptom is a
+      404 — exactly what the seam looks like when switched off on purpose. The
+      obvious fix, `.dev.vars`, is worse than it looks: `wrangler types` reads it
+      too, so a gitignored per-developer file ends up deciding whether the
+      committed `worker-env.d.ts` is up to date, and `npm run check` starts
+      passing or failing according to who ran it. So the variable is passed on
+      the `wrangler dev` command line instead (`--var`), where `wrangler types`
+      cannot see it and `wrangler deploy` cannot carry it.
   - `2.5.3` todo: Honest failure messages when sign-in cannot complete, naming the
     likely cause (no signal, Safari handoff from a home-screen PWA)

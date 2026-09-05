@@ -15,25 +15,10 @@
 import type { EnvWithSecrets } from './secrets.js';
 import type { Trace } from './survey-do.js';
 import { apiError, json } from './http.js';
+import { timingSafeEqual } from './crypto.js';
 
 /** The object is a singleton; there is only ever one survey log. */
 const SURVEY_NAME = 'survey';
-
-/**
- * Compare in time that does not depend on how much of the secret matched.
- *
- * The window here is small — an attacker would have to find the endpoint, and
- * the payoff is a debug log — but a string `===` on a credential is the kind of
- * thing that gets copied into somewhere it matters.
- */
-function secretMatches(given: string | null, expected: string): boolean {
-  if (given === null || given.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) {
-    diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return diff === 0;
-}
 
 /**
  * Authorise, or explain why not.
@@ -51,7 +36,7 @@ function authorise(request: Request, url: URL, env: EnvWithSecrets): Response | 
   // Header for machines, query string for a phone following a link.
   const given =
     request.headers.get('x-survey-secret') ?? url.searchParams.get('secret') ?? null;
-  if (!secretMatches(given, expected)) {
+  if (!timingSafeEqual(given, expected)) {
     return apiError('unauthorised', 'Bad or missing survey secret.', 401);
   }
   return null;
