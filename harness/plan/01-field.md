@@ -131,7 +131,15 @@ validated on real ground before a line of game-server code is written.
   - Deliberately early. The riskiest assumption in the project is that consumer
     GPS can tell 8 m squares apart on grass; that has to be tested on a phone on
     real ground before anything is built on top of it.
-  - `1.9.1` todo: `wrangler login`, confirm the account, first `wrangler deploy`
+  - `1.9.1` done: `wrangler login`, confirm the account, first `wrangler deploy`
+    2026-09-06, from the operator's local clone (the container's egress proxy
+    403s the Cloudflare API — see `STATE.md`). Live at
+    `https://satellite-chess.hootowl7777-cloud.workers.dev`; account
+    `hootowl7777+cloud@gmail.com`. `SURVEY_SECRET` set the same day, and the
+    survey pipeline verified end to end against the deployed Worker — auth gate
+    (401 with the secret set, 404 without), `POST /api/survey/trace`, the
+    listing, the read-back, `scripts/analyse-survey.mjs`, and `DELETE`. The
+    test trace was deleted; the log is empty and ready for the walk.
   - `1.9.2` todo: Verify the PWA installs and the wake lock holds on a real phone
   - `1.9.3` active: Walk a real field and record what actually happened — square
     size that felt right, accuracy observed, whether the reach circle read as

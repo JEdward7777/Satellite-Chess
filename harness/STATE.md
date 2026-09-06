@@ -8,7 +8,10 @@ files hold the history.*
 is done (decision 0029), which unblocks the UserDO.
 **Next action**: `2.3.1`/`2.3.2` — the UserDO proper. A `sub` now exists to
 address it by, with no Google round-trip needed.
-**Last session**: `harness/sessions/2026-09-05-01.md`
+**Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local
+clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`. The field
+survey is deployed and waiting on a walk (`1.9.3.4`).
+**Last session**: `harness/sessions/2026-09-06-01.md`
 
 ## In one paragraph
 
@@ -87,21 +90,27 @@ overtakeable by an opponent who turns up on day 40 with an apology. Games are no
 longer deleted on any timer, and the three-way messaging was checked in two
 browsers against a real `wrangler dev`.
 
-## The field survey is ready and waiting on a walk
+## The field survey is deployed and waiting on a walk
 
 The riskiest assumption in the project — that consumer GPS can resolve 8 m
-squares on grass — now has an instrument pointed at it (decision 0022). The
-operator's part:
+squares on grass — now has an instrument pointed at it (decision 0022), and as
+of 2026-09-06 **it is live**. `1.9.1` is done: the operator checked the repo out
+locally and deployed, because the container's egress proxy 403s the Cloudflare
+API (see below). The Worker is at
+`https://satellite-chess.hootowl7777-cloud.workers.dev`, `SURVEY_SECRET` is set,
+and the whole pipeline — auth gate, `POST /api/survey/trace`, listing,
+read-back, `scripts/analyse-survey.mjs`, `DELETE` — was exercised against the
+deployed Worker with a synthetic trace that was then deleted. The survey log is
+empty and ready.
 
-```bash
-npx wrangler login
-npx wrangler secret put SURVEY_SECRET     # any long random string
-npm run deploy
-```
+The survey view now holds a screen wake-lock (commit 5808120), because its holds
+ask the surveyor to stand still for up to three minutes without touching the
+phone.
 
-Then on a phone, outdoors, with **about 30 m of open ground**:
-`https://<worker>.workers.dev/?survey=<secret>` and follow the ten steps. Twelve
-to fifteen minutes. Read it back with:
+**All that is left is the walk itself** (`1.9.3.4`): on a phone, outdoors, with
+**about 30 m of open ground**, open
+`https://satellite-chess.hootowl7777-cloud.workers.dev/?survey=<SURVEY_SECRET>`
+and follow the ten steps — twelve to fifteen minutes. Read it back with:
 
 ```bash
 curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/traces"
@@ -110,7 +119,8 @@ curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/trace/$ID" \
 ```
 
 The analyser was validated against synthetic traces before any real walk, so a
-wasted trip is not discovered afterwards.
+wasted trip is not discovered afterwards. `1.9.2` (PWA install, wake lock on a
+real phone) is worth ticking off on the same trip.
 
 ## What to do next, concretely
 
@@ -152,9 +162,15 @@ rather than the whole phase:
 Blocked on the operator, in the same category as each other:
 
 - `2.1` — a Google Cloud OAuth client, the `client_secret` into a Worker secret,
-  and redirect URIs registered for a deployed origin. `1.9.1` (`wrangler login`,
-  first deploy) has never happened, so there is no deployed origin to register.
-- `1.9.3.4` — the walk. Needs Cloudflare access and ~30 m of open ground.
+  and redirect URIs registered for the deployed origin. The origin now exists —
+  `https://satellite-chess.hootowl7777-cloud.workers.dev` — so this is
+  unblocked on the infrastructure side; what remains is the operator creating
+  the OAuth client in Google Cloud Console and the code in `src/worker/auth.ts`.
+- `2.4` — KV namespace creation. Not needed by the survey (that DO is
+  self-contained); needed by phase 2 auth, and does need `wrangler` against the
+  Cloudflare API, so it is the operator's from the local clone.
+- `1.9.3.4` — the walk. Deployed and ready; needs a phone and ~30 m of open
+  ground.
   **Not a gate** (decision 0023) — it sizes the squares, it does not decide
   whether the game works. Do not hold anything for it.
 - `1.9.3.5` — fold the findings back into square size and the reach constants.
