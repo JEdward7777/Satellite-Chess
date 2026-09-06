@@ -19,6 +19,7 @@
 
 import { distanceM } from '../../shared/geo.js';
 import { type GpsFix, type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
+import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
 /** One instruction in the protocol. */
 interface Step {
@@ -174,6 +175,14 @@ export function mountSurvey(root: HTMLElement, deps: SurveyDeps): () => void {
   const id = `${new Date(startedAt).toISOString().replace(/[:.]/g, '-')}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+
+  // A hold asks the surveyor to stand still for up to three minutes without
+  // touching the phone — exactly the condition a screen timeout waits for. A
+  // sleeping screen also suspends the countdown and, on iOS, `watchPosition`,
+  // so the gap lands in the middle of the measurement everything else is
+  // calibrated against. The game view holds the lock for the same reason.
+  const screenLock = createScreenLock(browserScreenLockOptions());
+  void screenLock.acquire();
 
   const step = () => PROTOCOL[stepIndex];
 
@@ -335,6 +344,7 @@ export function mountSurvey(root: HTMLElement, deps: SurveyDeps): () => void {
   return () => {
     unsubscribe();
     clearInterval(ticker);
+    void screenLock.release();
     root.innerHTML = '';
   };
 }
