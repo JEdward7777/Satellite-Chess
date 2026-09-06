@@ -51,10 +51,14 @@ describe('the worker is wired up', () => {
     expect((await stub.fetch('https://game/ws?playerId=someone-1234')).status).toBe(426);
   });
 
-  it('still has UserDO as a stub, pending phase 2', async () => {
-    const stub = env.USER.getByName('google-sub-123');
-    const res = await stub.fetch('https://do/');
-    expect(res.status).toBe(501);
-    expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+  it('addresses a user object by sub, deterministically', async () => {
+    // Decision 0014: the `sub` *is* the address, for the same reason a join code
+    // is a game's — no user table, so nothing to go stale. UserDO stopped being
+    // a 501 stub at stage 2.3.1; its behaviour lives in `user-do.test.ts`.
+    const a = env.USER.idFromName('google-sub-123');
+    const b = env.USER.idFromName('google-sub-123');
+    const other = env.USER.idFromName('google-sub-124');
+    expect(a.toString()).toBe(b.toString());
+    expect(a.toString()).not.toBe(other.toString());
   });
 });

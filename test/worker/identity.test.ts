@@ -104,7 +104,9 @@ describe('minting a session', () => {
 
     const identity = await me(cookie);
     expect(identity.status).toBe(200);
-    expect(await identity.json()).toEqual({ sub: 'alice', via: 'dev' });
+    // `account` rides along since stage 2.3.1 — see `user-do.test.ts`. Asserted
+    // loosely here because this file is about the seam, not the account.
+    expect(await identity.json()).toMatchObject({ sub: 'alice', via: 'dev' });
   });
 
   it('marks the cookie HttpOnly and SameSite=Lax', async () => {

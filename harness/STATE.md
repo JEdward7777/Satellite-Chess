@@ -4,14 +4,15 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`
-**Active stage**: none — **phase 2 has started**. `2.5.2`, the dev identity seam,
-is done (decision 0029), which unblocks the UserDO.
-**Next action**: `2.3.1`/`2.3.2` — the UserDO proper. A `sub` now exists to
-address it by, with no Google round-trip needed.
+**Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
+seam, decision 0029) and now `2.3.1`/`2.3.2` (the UserDO proper) are done.
+**Next action**: `2.3.3.2` — move saved fields off local storage and onto the
+UserDO's `fields` table. The table, the object and the addressing exist; the
+store that writes to them does not.
 **Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local
 clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`. The field
 survey is deployed and waiting on a walk (`1.9.3.4`).
-**Last session**: `harness/sessions/2026-09-06-01.md`
+**Last session**: `harness/sessions/2026-09-06-02.md`
 
 ## In one paragraph
 
@@ -26,9 +27,15 @@ invite (a code shown large as `ABC 123`, a QR encoder written here rather than
 fetched from a CDN — decision 0024 — and the OS share sheet), and `6.2.1`,
 `6.2.2`, `6.2.5` and `6.3` now make following one *arrive*: a phone that has
 never calibrated a field can scan a link, take a seat, and play on the creator's
-ground, because the field travels back with the seat. **548 tests pass, and
+ground, because the field travels back with the seat. **611 tests pass, and
 `carry.test.ts` no longer flakes — O-09 and O-11 are both closed, and all three
 were races between a test and the Durable Object's own handlers.**
+
+**Phase 2 now has an account to hang things on.** `2.3.1` and `2.3.2` are done:
+`UserDO` is a real object addressed by `getByName(sub)`, holding `account`,
+`fields` and `game_index` tables, and `GET /api/me` brings an account into
+existence on first contact. Both feature tables are still empty on purpose —
+`2.3.3.2` fills `fields`, `2.3.4` fills `game_index`.
 
 **The game is playable, and a whole game has been played through it.** Two
 browsers against a real `wrangler dev`: calibrate a field, create a game, join by
@@ -126,15 +133,8 @@ real phone) is worth ticking off on the same trip.
 
 The only half-finished thing is `2.1` groundwork ahead of its code — the OAuth
 client and both credentials exist, `src/worker/auth.ts` does not. See the
-2026-09-06 session file for the redirect-URI and test-user checks that come with
-it.
-
-**`2.3.4` is not the next stage, despite five sessions of this file saying so.**
-It is a child of `2.3`, the UserDO, and `src/worker/user-do.ts` is still the
-stub that returns `notImplemented`. The UserDO is addressed by `getByName(sub)`
-— the Google `sub` claim — so a game index cannot be built before something
-decides who owns it. That "something" is now the dev seam rather than Google
-(decision 0029), which is what took this off the operator's critical path.
+2026-09-06-01 session file for the redirect-URI and test-user checks that come
+with it.
 
 **Build phase 2 bottom-up and leave the live Google round-trip until last.** It
 is no longer operator-blocked — the console work is done — but it is still the
@@ -148,17 +148,27 @@ riskiest to verify in a container, so it stays last:
    switches it on; nothing to set up. Do **not** move that variable into
    `.dev.vars` — `wrangler types` reads that file, and `npm run check` then
    passes or fails depending on whether the developer has one.
-2. **`2.3.1`, `2.3.2` — the UserDO proper.** ← **start here.** Schema and
-   addressing. Note the
-   asymmetry that needs a comment in the schema: indexed player → fields, never
-   field → players (decision 0017).
-3. **`2.3.4`, the game index** — now reachable. Since decision 0025 a game can
-   sit suspended for a month and **its join code is the only handle on it**,
-   which is what makes this load-bearing rather than bookkeeping. `2.3.4.1`
-   lists suspended games with the claim countdown; `2.3.4.2` offers to clear out
-   old ones and must never be able to remove one that is still claimable.
-4. **`2.3.3.2`** — move saved fields off local storage and onto the UserDO. This
-   is where `2.3.7.4`'s shared copies land too: one migration, not two.
+2. ~~**`2.3.1`, `2.3.2` — the UserDO proper.**~~ **Done** 2026-09-06.
+   `src/worker/user-schema.ts` holds the DDL (`account`, `fields`, `game_index`),
+   `src/worker/user-do.ts` is the object, and `userFor` in `index.ts` is the one
+   place a stub is derived from a `sub`. `GET /api/me` creates the account on
+   first contact, because `getByName` addressing leaves no sign-up step to hang
+   creation on. **Both tables are deliberately empty** — 3 and 4 below fill them.
+3. **`2.3.3.2` — saved fields onto the UserDO.** ← **start here.** A migration,
+   not a feature: `client/fields.ts` and `client/store.ts` already do save, list,
+   rename, re-calibrate and delete against local storage. `2.3.7.4`'s shared
+   copies land in the same migration — one, not two. Local storage does not stop
+   being the offline cache when this lands (decision 0013): a phone in a field
+   with no signal still has to open the board it calibrated. The `fields` table
+   carries a materialised `lineage_key` for `offerFor`'s de-duplication, because
+   `fieldKey()` falls back to the field's own id and so cannot be indexed as an
+   expression.
+4. **`2.3.4`, the game index.** Since decision 0025 a game can sit suspended for
+   a month and **its join code is the only handle on it**, which is what makes
+   this load-bearing rather than bookkeeping. `2.3.4.1` lists suspended games
+   with the claim countdown; `2.3.4.2` offers to clear out old ones and must
+   never be able to remove one that is still claimable. `suspended_by` is already
+   a column for exactly that reason.
 5. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
    the part that cannot be finished in a container.
 
@@ -206,6 +216,21 @@ Blocked on the operator, in the same category as each other:
   19–32 km an hour to a phone on a bench. Three mechanisms each worth a factor of
   ten. Do not simplify it back.
 - **Sign-in is mandatory** (decision 0014). No anonymous play.
+- **The `sub` is the account's address, and `userFor` is the only place that is
+  spelled out.** `env.USER.getByName(sub)`, exactly as a join code addresses a
+  game — so there is no user table and nothing to go stale. A second call site
+  that lower-cased the `sub`, or hashed an email, or used a player id, would
+  silently address a *different and empty* object; the symptom is a player whose
+  saved fields have vanished, not an error anybody sees. `UserDO.touch` throws if
+  it is ever asked to hold a second `sub`, because the quiet version of that
+  failure is one player reading another's fields.
+- **There is deliberately no field → players edge anywhere** (decision 0017), and
+  the `fields` schema is where that gets undone if anyone is careless. It reads
+  as a missing index, and the obvious tidy-up — one shared table with an
+  `owner_sub` column — restores the reverse lookup for free. A shared field is a
+  place people repeatedly and predictably stand, so that edge is a list of where
+  somebody can be found on a Sunday morning. `user-do.test.ts` asserts the
+  forbidden columns are absent.
 - **Location privacy is load-bearing.** Decisions 0017, 0018, 0019 before anything
   social.
 - **Nothing timing-related may live in memory.** The DO hibernates.
@@ -430,6 +455,16 @@ Blocked on the operator, in the same category as each other:
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.
 
 ## Running it
+
+**A fresh container may have no Node at all.** One did on 2026-09-06, and a
+missing `npm` reads at first glance like a broken checkout rather than a bare
+box. Install it and carry on — the repo itself is fine:
+
+```bash
+echo <sudo-password> | sudo -S bash -c \
+  'curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs'
+npm install
+```
 
 ```bash
 npm run build:client && npx wrangler dev --port 8799 --local   # the whole thing

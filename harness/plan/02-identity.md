@@ -45,10 +45,24 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
   - `2.2.5` todo: Sign out, and a clear account screen
 
 - `2.3` todo: UserDO (`src/worker/user-do.ts`)
-  - `2.3.1` todo: Addressed by `getByName(sub)`; `fields` and `game_index` tables
-  - `2.3.2` todo: A Durable Object rather than KV, because saving a field and
+  - `2.3.1` done: Addressed by `getByName(sub)`; `fields` and `game_index` tables
+    `src/worker/user-schema.ts` holds the DDL — `account`, `fields`, `game_index`
+    — applied idempotently on every construction, as `schema.ts` does for GameDO.
+    `src/worker/user-do.ts` is the object: `touch(sub)` creates the account on
+    first contact, because `getByName` addressing means there is no sign-up step
+    to hang creation on. `userFor` in `index.ts` is the one place a stub is
+    derived, and `GET /api/me` touches it, so a launch costs one request rather
+    than two. The `fields` schema carries the decision 0017 asymmetry and the
+    comment explaining why it is not a missing index.
+  - `2.3.2` done: A Durable Object rather than KV, because saving a field and
     immediately loading it on the same phone is exactly the read-after-write
     pattern KV's propagation window breaks
+    The reasoning is written down at the head of `user-do.ts` rather than left as
+    a shape to be "simplified" into a KV namespace later, and it names what KV is
+    still right for (sessions in 2.2.1, "fields near me" in 2.3.6 — neither is
+    read immediately after being written by the same person). Asserted rather
+    than merely asserted-in-prose: `test/worker/user-do.test.ts` reads a write
+    back inside the real runtime, which is the test that would flake on KV.
   - `2.3.3` todo: Saved fields — save, list, rename, re-calibrate with a version
     bump. Written on calibration confirm with no extra prompt (decision 0013's
     surviving rule: never leave a hard-won field living only in memory).

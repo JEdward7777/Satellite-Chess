@@ -92,6 +92,12 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
 
   // Who the session says you are. The client's sign-in gate (stage 2.5.1) reads
   // this, and it is how a driver proves the seam actually took.
+  //
+  // It is also where an account comes into existence (stage 2.3.1). There is no
+  // sign-up step to hang creation on — `getByName(sub)` means the first request
+  // from a new player addresses a real object immediately — so the launch check
+  // doubles as the account touch. One request rather than two on every app
+  // start, which is worth having against a 100k/day budget.
   if (path === '/api/me') {
     if (request.method !== 'GET') {
       return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
@@ -100,7 +106,8 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     if (identity === null) {
       return apiError('unauthenticated', 'Not signed in.', 401);
     }
-    return json(identity);
+    const account = await userFor(env, identity.sub).touch(identity.sub);
+    return json({ ...identity, account });
   }
 
   if (path === '/api/game' && request.method === 'POST') {
@@ -133,6 +140,20 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   }
 
   return apiError('not_found', 'No such endpoint.', 404);
+}
+
+/**
+ * The Durable Object holding one player's account (stage 2.3.1).
+ *
+ * One line, and it exists so that there is exactly one of it. The `sub` *is* the
+ * address (decision 0014), so every authenticated route that needs an account
+ * must derive the stub the same way — a second call site that hashed an email,
+ * or a user id, or a lower-cased `sub`, would silently address a different and
+ * empty object, and the symptom is a player whose saved fields have vanished
+ * rather than an error anybody sees.
+ */
+function userFor(env: Env, sub: string): DurableObjectStub<UserDO> {
+  return env.USER.getByName(sub);
 }
 
 /**
