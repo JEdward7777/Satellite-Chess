@@ -22,8 +22,14 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
     verification mandatory (cache the JWKS in KV). Say so at the call site.
   - `2.1.4` todo: Identity key is the Google `sub` claim, never the email. Email
     changes; `sub` does not. `UserDO` is addressed by `getByName(sub)`.
-  - `2.1.5` todo: Redirect URI registration for local dev and for the deployed
+  - `2.1.5` active: Redirect URI registration for local dev and for the deployed
     origin, both documented in the README
+    Console side done 2026-09-06: OAuth client created, `GOOGLE_CLIENT_SECRET`
+    set as a Worker secret, `GOOGLE_CLIENT_ID` in `wrangler.jsonc`. Paths are
+    fixed by decision 0030 — `/auth/google/login` and `/auth/google/callback`,
+    `redirect_uri` derived from the request origin. Registered callback URLs:
+    the deployed origin and `http://localhost:8787`. Remaining: the README
+    paragraph, and confirming the console list once `auth.ts` exists.
 
 - `2.2` todo: Sessions that survive a walk to the park
   - Login-first has one sharp edge: a player who cannot reach Google cannot play.

@@ -124,7 +124,10 @@ real phone) is worth ticking off on the same trip.
 
 ## What to do next, concretely
 
-Nothing is half-finished.
+The only half-finished thing is `2.1` groundwork ahead of its code — the OAuth
+client and both credentials exist, `src/worker/auth.ts` does not. See the
+2026-09-06 session file for the redirect-URI and test-user checks that come with
+it.
 
 **`2.3.4` is not the next stage, despite five sessions of this file saying so.**
 It is a child of `2.3`, the UserDO, and `src/worker/user-do.ts` is still the
@@ -133,9 +136,9 @@ stub that returns `notImplemented`. The UserDO is addressed by `getByName(sub)`
 decides who owns it. That "something" is now the dev seam rather than Google
 (decision 0029), which is what took this off the operator's critical path.
 
-But `2.1` needs the operator (below), so **build phase 2 bottom-up and leave the
-live Google round-trip until last**, so the operator dependency blocks one stage
-rather than the whole phase:
+**Build phase 2 bottom-up and leave the live Google round-trip until last.** It
+is no longer operator-blocked — the console work is done — but it is still the
+riskiest to verify in a container, so it stays last:
 
 1. ~~**`2.5.2` — the dev and simulator test seam.**~~ **Done** (decision 0029).
    `identityOf` in `src/worker/identity.ts` is the boundary every authenticated
@@ -161,11 +164,13 @@ rather than the whole phase:
 
 Blocked on the operator, in the same category as each other:
 
-- `2.1` — a Google Cloud OAuth client, the `client_secret` into a Worker secret,
-  and redirect URIs registered for the deployed origin. The origin now exists —
-  `https://satellite-chess.hootowl7777-cloud.workers.dev` — so this is
-  unblocked on the infrastructure side; what remains is the operator creating
-  the OAuth client in Google Cloud Console and the code in `src/worker/auth.ts`.
+- `2.1` — **no longer operator-blocked.** As of 2026-09-06 the Google OAuth
+  client exists, `GOOGLE_CLIENT_SECRET` is a Worker secret, and
+  `GOOGLE_CLIENT_ID` is in `wrangler.jsonc`. What remains is `src/worker/auth.ts`
+  plus two checks the code session must not assume: the OAuth client's
+  registered redirect URIs match whatever callback path `auth.ts` uses, and
+  every player's Google address is on the Testing-status consent screen's
+  test-user list. See `harness/sessions/2026-09-06-01.md`.
 - `2.4` — KV namespace creation. Not needed by the survey (that DO is
   self-contained); needed by phase 2 auth, and does need `wrangler` against the
   Cloudflare API, so it is the operator's from the local clone.

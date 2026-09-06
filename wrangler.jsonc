@@ -14,6 +14,14 @@
       { "name": "SURVEY", "class_name": "SurveyDO" }
     ]
   },
+  // The Google OAuth client ID is not a secret — it travels in the redirect URL
+  // on every sign-in. It lives here in plain `vars` so it is the same for every
+  // developer; the matching `GOOGLE_CLIENT_SECRET` is a Worker secret set with
+  // `wrangler secret put` and never committed. Consumed by `src/worker/auth.ts`
+  // (stage 2.1, not yet written).
+  "vars": {
+    "GOOGLE_CLIENT_ID": "908007056119-hvrj0p5sa9k3rtcsbecqs7ehmf9rc82j.apps.googleusercontent.com"
+  },
   // The free plan requires the SQLite storage backend. `new_classes` (the legacy
   // key-value backend) fails to deploy with error 10097.
   "migrations": [

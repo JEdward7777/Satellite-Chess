@@ -24,6 +24,19 @@ export type EnvWithSecrets = Env & {
   SURVEY_SECRET?: string;
 
   /**
+   * The Google OAuth client secret, exchanged for tokens server-side in the
+   * Authorization Code flow (stage 2.1, `src/worker/auth.ts` — not yet written).
+   *
+   * Set on the deployed Worker on 2026-09-06 with `wrangler secret put`, ahead
+   * of the code that reads it. The matching non-secret client ID is
+   * `GOOGLE_CLIENT_ID` in `wrangler.jsonc`. Redirect paths are fixed by
+   * decision 0030 (`/auth/google/login`, `/auth/google/callback`). Local dev
+   * still needs a home for this value that does not go through `.dev.vars` — an
+   * open question for 2.1.
+   */
+  GOOGLE_CLIENT_SECRET?: string;
+
+  /**
    * Enables the dev identity seam (`POST /api/dev/session`), which mints a
    * session for any named `sub` without a Google round-trip.
    *

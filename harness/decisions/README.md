@@ -64,3 +64,5 @@ The conditions under which this should be reopened.
 | [0026](0026-no-qr-decoder-ships-the-camera-app-is-the-fallback.md) | Ship no QR decoder; the phone's own camera app is the iOS fallback | accepted |
 | [0027](0027-a-joiner-keeps-the-field-they-played-on.md) | A joiner keeps the field they played on, unasked | accepted |
 | [0028](0028-four-corners-fitted-as-an-affine-board.md) | Four corners, fitted as an affine board | accepted (amends 0002) |
+| [0029](0029-a-dev-identity-seam-behind-two-locks.md) | A dev identity seam behind two locks | accepted |
+| [0030](0030-oauth-redirect-paths.md) | Fix the OAuth redirect path before the code that uses it | accepted |
