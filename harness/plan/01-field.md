@@ -153,7 +153,18 @@ validated on real ground before a line of game-server code is written.
       on accuracy honesty, scatter, refusal rate by square size, and calibration
       repeatability. Validated against synthetic traces before any real walk, so
       a wasted field trip is not discovered afterwards.
-    - `1.9.3.4` todo: **Walk it.** Needs the operator, a phone and ~30 m of open
-      ground. Deploy, set the secret, open the link, follow the protocol.
+    - `1.9.3.4` done: **Walked it** 2026-09-06 (session `2026-09-06-03`). Trace
+      `2026-09-06T23-10-47-510Z-ioop0u`, Android Chrome, 2008 fixes / 29 min,
+      all ten steps. Verdict: consumer GPS resolved the ground far better than
+      the simulator assumed — 0.2 m static scatter, claimed accuracy pessimistic
+      but 100% honest, 8 m squares refuse 0% of moves. One real finding: 5.8 m
+      calibration repeatability over 4 minutes (bias wander, not scatter), which
+      is the change `1.9.3.5` was waiting for.
     - `1.9.3.5` todo: Fold the findings back — square-size default, reach
       constants, and whether the displayed square needs its own smoothing.
+      Concrete inputs now in `harness/sessions/2026-09-06-03.md`: make
+      calibration average several fixes per corner (the 5.8 m repeatability
+      finding), re-express the reach ceiling / handicap share as multiples of
+      square size (closes O-02), consider relaxing the distance accumulator's
+      anti-drift constants (0.1 km/h phantom, not the predicted 19–32), then
+      `DELETE` trace `2026-09-06T23-10-47-510Z-ioop0u` from the SurveyDO.

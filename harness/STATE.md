@@ -3,19 +3,21 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: clean, and `main` matches `origin/main` at `8da0356`. The bundle
-handover worked — the container could not push, so 2026-09-06-02's two commits
-went to the operator as a bundle and they pushed them. Verified here by fetch,
-same hashes, zero ahead and zero behind.
+**Tree state**: clean, pushed to `main`. `2026-09-06-02` (the UserDO, from a
+container) reached the remote via a bundle the operator pushed; `2026-09-06-03`
+(the survey walk, from the operator's machine) rebased on top of it and pushed
+directly.
 **Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
 seam, decision 0029) and now `2.3.1`/`2.3.2` (the UserDO proper) are done.
 **Next action**: `2.3.3.2` — move saved fields off local storage and onto the
 UserDO's `fields` table. The table, the object and the addressing exist; the
 store that writes to them does not.
 **Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local
-clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`. The field
-survey is deployed and waiting on a walk (`1.9.3.4`).
-**Last session**: `harness/sessions/2026-09-06-02.md`
+clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`. **The field
+survey is walked** (`1.9.3.4` done, 2026-09-06) — findings now feed `1.9.3.5`.
+**Last session**: `harness/sessions/2026-09-06-03.md` (the field survey walk).
+`2026-09-06-02` ran in parallel and did the UserDO — the header above is its
+state; the survey is a separate, non-gating track.
 
 ## In one paragraph
 
@@ -100,37 +102,39 @@ overtakeable by an opponent who turns up on day 40 with an apology. Games are no
 longer deleted on any timer, and the three-way messaging was checked in two
 browsers against a real `wrangler dev`.
 
-## The field survey is deployed and waiting on a walk
+## The field survey is walked — the news is good
 
 The riskiest assumption in the project — that consumer GPS can resolve 8 m
-squares on grass — now has an instrument pointed at it (decision 0022), and as
-of 2026-09-06 **it is live**. `1.9.1` is done: the operator checked the repo out
-locally and deployed, because the container's egress proxy 403s the Cloudflare
-API (see below). The Worker is at
-`https://satellite-chess.hootowl7777-cloud.workers.dev`, `SURVEY_SECRET` is set,
-and the whole pipeline — auth gate, `POST /api/survey/trace`, listing,
-read-back, `scripts/analyse-survey.mjs`, `DELETE` — was exercised against the
-deployed Worker with a synthetic trace that was then deleted. The survey log is
-empty and ready.
+squares on grass — now has real data against it (decision 0022). The operator
+walked the ten-step protocol on 2026-09-06 (`1.9.3.4` done, session
+`2026-09-06-03`): Android Chrome, 2008 fixes over 29 minutes, all steps.
 
-The survey view now holds a screen wake-lock (commit 5808120), because its holds
-ask the surveyor to stand still for up to three minutes without touching the
-phone.
+**The verdict, from `scripts/analyse-survey.mjs`:**
 
-**All that is left is the walk itself** (`1.9.3.4`): on a phone, outdoors, with
-**about 30 m of open ground**, open
-`https://satellite-chess.hootowl7777-cloud.workers.dev/?survey=<SURVEY_SECRET>`
-and follow the ten steps — twelve to fifteen minutes. Read it back with:
+- Static scatter while standing still: **0.2 m median**, 0.6 m worst — against a
+  4 m half-square. The square does not flicker.
+- Claimed accuracy (±3.7 m) was pessimistic but **100% honest** — every fix
+  landed inside its own circle. The reach rule is sound, and currently generous.
+- **8 m squares refuse 0% of moves** and mis-highlight 0%, down to 6 m squares.
+- **The one finding worth acting on: 5.8 m calibration repeatability.** Two reads
+  of the same point four minutes apart differed by 5.8 m — bias wander over
+  minutes, an order of magnitude worse than the instantaneous scatter. A board
+  calibrated from one fix per corner inherits ~this offset for life.
+- Phantom distance while stationary: 0.1 km/h, far below the simulator's
+  predicted 19–32. The distance accumulator's anti-drift constants have slack.
 
-```bash
-curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/traces"
-curl -s -H "x-survey-secret: $SECRET" "$URL/api/survey/trace/$ID" \
-  | node scripts/analyse-survey.mjs -
-```
+**`1.9.3.5` is where these land** (see `harness/sessions/2026-09-06-03.md` for
+the full output and the specifics): calibration should average several fixes per
+corner, the reach ceiling / handicap share should become multiples of square
+size (closing O-02), the anti-drift constants can relax, and the default square
+size gets decided (8 m is safe). The live trace
+`2026-09-06T23-10-47-510Z-ioop0u` is kept undeleted for that work and should be
+`DELETE`d once the numbers are in.
 
-The analyser was validated against synthetic traces before any real walk, so a
-wasted trip is not discovered afterwards. `1.9.2` (PWA install, wake lock on a
-real phone) is worth ticking off on the same trip.
+`SURVEY_SECRET` was lost between sessions and overwritten this session — it is
+now `field-walk-2026-a7k3m9qx`, in wrangler (write-only) and the assistant
+memory dir. `1.9.2` (PWA install, wake lock on a real phone) is still todo — the
+operator was on a phone but did not run that check.
 
 ## What to do next, concretely
 
@@ -187,11 +191,12 @@ Blocked on the operator, in the same category as each other:
 - `2.4` — KV namespace creation. Not needed by the survey (that DO is
   self-contained); needed by phase 2 auth, and does need `wrangler` against the
   Cloudflare API, so it is the operator's from the local clone.
-- `1.9.3.4` — the walk. Deployed and ready; needs a phone and ~30 m of open
-  ground.
-  **Not a gate** (decision 0023) — it sizes the squares, it does not decide
-  whether the game works. Do not hold anything for it.
+- `1.9.3.4` — **done 2026-09-06.** The walk happened; findings above.
 - `1.9.3.5` — fold the findings back into square size and the reach constants.
+  **Not operator-blocked and not a gate** (decision 0023) — pure code now, with
+  the data in hand (`harness/sessions/2026-09-06-03.md`).
+- `1.9.2` — PWA install + wake lock on a real phone. Still todo; needs any phone,
+  not a field.
 
 ## Things a new thread should know before touching anything
 
@@ -514,10 +519,14 @@ HTTP 200 at `/` and at `/j/ABC123`. That is what all eight browser drivers run
 against, so the DO, the routing and the whole game remain fully testable here.
 
 **What does not**: `wrangler login`, `wrangler deploy`, `wrangler secret put`,
-KV namespace creation — anything touching the Cloudflare API. So `1.9.1`, `1.9.3.4`,
-`2.4` and the deployed-origin half of `2.1` are the operator's, from a local clone,
-and they are the only things that are. Do not plan a session around getting a
-deploy out of this container, and do not retry the 403 or route around it.
+KV namespace creation — anything touching the Cloudflare API. So `1.9.1`,
+`1.9.3.4`, `2.4` and the deployed-origin half of `2.1` were the operator's, from
+a local clone, and they are the only things that are. `1.9.1` and `1.9.3.4` are
+now done; `2.4` and the `2.1` verification remain. Do not plan a session around
+getting a deploy out of this container, and do not retry the 403 or route around
+it. (Sessions run from the operator's own machine — e.g. `2026-09-06-03`, the
+survey walk — do have Cloudflare API access and `wrangler whoami` works there;
+that is where `1.9.3.4`'s secret rotation and read-back happened.)
 
 ## A plain container may have no git credentials at all — bundle and move on
 
