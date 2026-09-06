@@ -3,7 +3,10 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: clean, pushed to `main`
+**Tree state**: committed to local `main`, **not pushed** — this container has no
+git write credentials (see the bundle section below). Commit `f19cab6` was handed
+to the operator as a bundle; the next thread should confirm it landed before
+building on it.
 **Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
 seam, decision 0029) and now `2.3.1`/`2.3.2` (the UserDO proper) are done.
 **Next action**: `2.3.3.2` — move saved fields off local storage and onto the
@@ -515,6 +518,37 @@ KV namespace creation — anything touching the Cloudflare API. So `1.9.1`, `1.9
 `2.4` and the deployed-origin half of `2.1` are the operator's, from a local clone,
 and they are the only things that are. Do not plan a session around getting a
 deploy out of this container, and do not retry the 403 or route around it.
+
+## A plain container may have no git credentials at all — bundle and move on
+
+Distinct from the 403 below, and diagnosed on 2026-09-06 so the next thread does
+not read one as the other. Here `git fetch` worked fine (the remote is public)
+and `git push` failed with **`could not read Username for 'https://github.com'`**
+— not a 403, not a permissions problem, simply no credential to offer. There was
+no `gh`, no `credential.helper`, no `GH_TOKEN`, and no `~/.git-credentials`.
+Installing the GitHub App fixes the *other* failure and would not have touched
+this one.
+
+Git identity was also unset, which stops `git commit` outright. Previous
+container sessions committed as `Claude <noreply@anthropic.com>` (43 of the 47
+commits), so match that:
+
+```bash
+git config user.name "Claude" && git config user.email "noreply@anthropic.com"
+```
+
+Then take AGENTS.md section 8's documented exit rather than burning the session
+on credentials — commit locally and hand the operator a bundle:
+
+```bash
+git bundle create <file>.bundle origin/main..main   # incremental, ~17 KB
+git bundle verify <file>.bundle
+# operator, in their local clone:  git pull <file>.bundle main
+```
+
+Do **not** amend or rebase to tidy up afterwards. It only changes hashes and
+invalidates a bundle already handed over — the same warning as the signing note
+below.
 
 ## If pushing ever 403s again: install the GitHub App
 
