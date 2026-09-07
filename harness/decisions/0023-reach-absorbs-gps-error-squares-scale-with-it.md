@@ -1,7 +1,12 @@
 # 0023 — Reach absorbs GPS error, and squares scale with reach
 
 - **Date:** 2026-08-01
-- **Status:** accepted
+- **Status:** accepted; second half superseded by
+  [0031](0031-reach-is-the-independent-variable-measured-in-squares.md)
+- **Superseded by:** [0031](0031-reach-is-the-independent-variable-measured-in-squares.md)
+  — point 2 below ("square size scales with reach") is reversed: the field is
+  fixed by the venue, so reach is the variable and square size is the input.
+  Point 1, and the whole "circle grows rather than refusing" argument, stand.
 - **Stage:** 1.9.3, 9.2
 - **Constrains:** [0003](0003-reach-to-nearest-point-of-square.md),
   [0022](0022-survey-is-a-secret-gated-debug-facility.md)

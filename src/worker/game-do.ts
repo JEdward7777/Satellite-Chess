@@ -31,7 +31,13 @@ import {
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
 import { type FieldSnapshot, geometryFromSnapshot } from '../shared/field.js';
-import { DEFAULT_REACH, checkCarry, checkReachTo, inStartZone } from '../shared/reach.js';
+import {
+  DEFAULT_REACH,
+  type ReachConfig,
+  checkCarry,
+  checkReachTo,
+  inStartZone,
+} from '../shared/reach.js';
 import {
   DISCONNECT_GRACE_MS,
   type GameSnapshot,
@@ -66,7 +72,9 @@ export interface CreateGameOptions {
   field: FieldSnapshot;
   initialMs: number;
   incrementMs: number;
-  reachBonusM?: Partial<Record<Color, number>>;
+  reachBonusSquares?: Partial<Record<Color, number>>;
+  /** The reach rule for this game. Omitted means {@link DEFAULT_REACH}. */
+  reach?: ReachConfig;
 }
 
 // The index signature is what `sql.exec<T>()` requires: it returns
@@ -83,8 +91,9 @@ interface GameRow {
   increment_ms: number;
   active_color: Color;
   last_clock_start_at: number | null;
-  white_reach_bonus_m: number;
-  black_reach_bonus_m: number;
+  white_reach_bonus_sq: number;
+  black_reach_bonus_sq: number;
+  reach_json: string | null;
   draw_offer_from: Color | null;
   suspended_at: number | null;
   suspended_by: Color | null;
@@ -222,9 +231,9 @@ export class GameDO extends DurableObject<Env> {
          white_player_id, black_player_id,
          white_ms_remaining, black_ms_remaining, increment_ms,
          active_color, last_clock_start_at,
-         white_reach_bonus_m, black_reach_bonus_m,
+         white_reach_bonus_sq, black_reach_bonus_sq, reach_json,
          rev, created_at, updated_at
-       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, 1, ?, ?)`,
+       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
       options.joinCode,
       STARTING_FEN,
       JSON.stringify(options.field),
@@ -233,8 +242,9 @@ export class GameDO extends DurableObject<Env> {
       clock.whiteMs,
       clock.blackMs,
       clock.incrementMs,
-      options.reachBonusM?.w ?? 0,
-      options.reachBonusM?.b ?? 0,
+      options.reachBonusSquares?.w ?? 0,
+      options.reachBonusSquares?.b ?? 0,
+      options.reach ? JSON.stringify(options.reach) : null,
       now,
       now,
     );
@@ -743,7 +753,7 @@ export class GameDO extends DurableObject<Env> {
       pos,
       pos.acc,
       from as Square,
-      DEFAULT_REACH,
+      this.reachOf(game),
       this.reachBonus(game, who.color),
     );
     if (!verdict.ok) {
@@ -864,7 +874,7 @@ export class GameDO extends DurableObject<Env> {
       { pos, accuracyM: pos.acc, at: now },
       carry.from_sq as Square,
       to as Square,
-      DEFAULT_REACH,
+      this.reachOf(game),
       this.reachBonus(game, who.color),
     );
     if (!verdict.ok) {
@@ -1220,7 +1230,7 @@ export class GameDO extends DurableObject<Env> {
   ): { ok: boolean; nearestM: number; reachM: number } {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, pos.acc, color, DEFAULT_REACH, this.reachBonus(game, color));
+      return inStartZone(geo, pos, pos.acc, color, this.reachOf(game), this.reachBonus(game, color));
     } catch {
       return { ok: false, nearestM: Infinity, reachM: 0 };
     }
@@ -1399,8 +1409,26 @@ export class GameDO extends DurableObject<Env> {
     return JSON.parse(game.field_snapshot_json) as FieldSnapshot;
   }
 
+  /** The handicap, in squares. */
   private reachBonus(game: GameRow, color: Color): number {
-    return color === 'w' ? game.white_reach_bonus_m : game.black_reach_bonus_m;
+    return color === 'w' ? game.white_reach_bonus_sq : game.black_reach_bonus_sq;
+  }
+
+  /**
+   * The reach rule this game is played by.
+   *
+   * Snapshotted at creation, so re-tuning `DEFAULT_REACH` cannot change the
+   * rules of a game already under way — the same guarantee the field snapshot
+   * gives. A null column is a game created before the rule was stored, which
+   * was played by the default and still is.
+   */
+  private reachOf(game: GameRow): ReachConfig {
+    if (!game.reach_json) return DEFAULT_REACH;
+    try {
+      return { ...DEFAULT_REACH, ...(JSON.parse(game.reach_json) as Partial<ReachConfig>) };
+    } catch {
+      return DEFAULT_REACH;
+    }
   }
 
   private isInOwnStartZone(
@@ -1410,7 +1438,8 @@ export class GameDO extends DurableObject<Env> {
   ): boolean {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, pos.acc, color, DEFAULT_REACH, this.reachBonus(game, color)).ok;
+      return inStartZone(geo, pos, pos.acc, color, this.reachOf(game), this.reachBonus(game, color))
+        .ok;
     } catch {
       // A malformed snapshot must not take the object down.
       return false;
@@ -1453,7 +1482,7 @@ export class GameDO extends DurableObject<Env> {
       status: game.status,
       fen: game.fen,
       field: this.fieldOf(game),
-      reach: DEFAULT_REACH,
+      reach: this.reachOf(game),
       clock,
       serverNow: now,
       you,
@@ -1532,7 +1561,7 @@ export class GameDO extends DurableObject<Env> {
     return {
       color,
       connected: row?.connected === 1,
-      reachBonusM: this.reachBonus(game, color),
+      reachBonusSquares: this.reachBonus(game, color),
       travelM: row?.travel_m ?? 0,
       inStartZone: row?.in_start_zone === 1,
       lastSeenAt: row?.last_seen_at ?? null,

@@ -189,7 +189,7 @@ const other = (color: Color): Color => (color === 'w' ? 'b' : 'w');
 /** Can this player reach that square from that fix, by the same rule the DO uses? */
 function canReach(game: GameSnapshot, pos: PosFix, square: Square): boolean {
   try {
-    const bonus = game.players[game.you]?.reachBonusM ?? 0;
+    const bonus = game.players[game.you]?.reachBonusSquares ?? 0;
     return checkReachTo(deriveGeometry(game.field), pos, pos.acc, square, game.reach, bonus).ok;
   } catch {
     // A degenerate field throws rather than guessing. Declining to predict is

@@ -12,7 +12,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -34,9 +34,14 @@ const STATEMENTS = [
      increment_ms        INTEGER NOT NULL,
      active_color        TEXT    NOT NULL,
      last_clock_start_at INTEGER,
-     -- Handicap, in metres of extra reach (decision 0004).
-     white_reach_bonus_m REAL    NOT NULL DEFAULT 0,
-     black_reach_bonus_m REAL    NOT NULL DEFAULT 0,
+     -- Handicap, in squares of extra reach (decisions 0004, 0031).
+     white_reach_bonus_sq REAL   NOT NULL DEFAULT 0,
+     black_reach_bonus_sq REAL   NOT NULL DEFAULT 0,
+     -- The reach rule, chosen at creation and fixed for the life of the game.
+     -- Snapshotted for the same reason the field is: a game must not change
+     -- shape under the players. NULL means "whatever the code defaults to",
+     -- which is how games created before schema 2 read.
+     reach_json          TEXT,
      draw_offer_from     TEXT,
      -- Who stopped the game, and when. Decision 0025: after CLAIM_AFTER_MS the
      -- *other* player may claim the win, so the player responsible has to be
@@ -128,8 +133,50 @@ const STATEMENTS = [
    )`,
 ];
 
+/**
+ * Columns added or renamed after a version of this code was already deployed.
+ *
+ * `CREATE TABLE IF NOT EXISTS` leaves an existing table exactly as it was, so a
+ * DO that predates a column never gets it from {@link STATEMENTS} alone. These
+ * run after the DDL, are driven by what `table_info` actually reports, and are
+ * therefore no-ops on a freshly created object.
+ */
+function upgradeGameTable(sql: SqlStorage): void {
+  const columns = new Set(
+    [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('game')`)].map(
+      (row) => row.name,
+    ),
+  );
+  // Nothing to upgrade until the table exists at all.
+  if (columns.size === 0) return;
+
+  // Schema 2: the handicap became squares rather than metres (decision 0031).
+  // The stored numbers are metres and cannot be converted here — the square
+  // size lives in the field snapshot, and a bonus of "2" meant 2 m before and
+  // means 2 squares now. Renaming without converting would silently multiply
+  // every live handicap by the square size, so the value is reset to 0 instead:
+  // a handicap is a courtesy agreed out loud, and losing it mid-game is far
+  // better than inflating it eightfold.
+  for (const [oldName, newName] of [
+    ['white_reach_bonus_m', 'white_reach_bonus_sq'],
+    ['black_reach_bonus_m', 'black_reach_bonus_sq'],
+  ]) {
+    if (columns.has(oldName!) && !columns.has(newName!)) {
+      sql.exec(`ALTER TABLE game RENAME COLUMN ${oldName} TO ${newName}`);
+      sql.exec(`UPDATE game SET ${newName} = 0`);
+    }
+  }
+
+  // Schema 2: the reach rule is snapshotted per game. NULL reads as "the code's
+  // default", which is what a pre-schema-2 game was played by anyway.
+  if (!columns.has('reach_json')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN reach_json TEXT`);
+  }
+}
+
 export function applySchema(sql: SqlStorage): void {
   for (const statement of STATEMENTS) sql.exec(statement);
+  upgradeGameTable(sql);
   sql.exec(
     `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`,

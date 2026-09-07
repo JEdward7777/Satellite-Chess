@@ -9,7 +9,7 @@ import {
   carryPrompt,
   carryReadout,
   metres,
-  myReachBonusM,
+  myReachBonusSquares,
   promotesOn,
   suspendedPrompt,
 } from '../src/client/views/game.js';
@@ -186,7 +186,7 @@ describe('metres', () => {
   });
 });
 
-describe('myReachBonusM', () => {
+describe('myReachBonusSquares', () => {
   /**
    * Decision 0004's handicap, as the screen sees it.
    *
@@ -202,25 +202,25 @@ describe('myReachBonusM', () => {
     ({
       you: 'b',
       players: {
-        w: { color: 'w', reachBonusM: 0 },
-        b: { color: 'b', reachBonusM: 2 },
+        w: { color: 'w', reachBonusSquares: 0 },
+        b: { color: 'b', reachBonusSquares: 2 },
       },
       ...over,
-    }) as unknown as Parameters<typeof myReachBonusM>[0];
+    }) as unknown as Parameters<typeof myReachBonusSquares>[0];
 
   it('reads the bonus for the colour this phone is playing', () => {
-    expect(myReachBonusM(snapshot())).toBe(2);
-    expect(myReachBonusM(snapshot({ you: 'w' }))).toBe(0);
+    expect(myReachBonusSquares(snapshot())).toBe(2);
+    expect(myReachBonusSquares(snapshot({ you: 'w' }))).toBe(0);
   });
 
   it('is zero before the first snapshot', () => {
-    expect(myReachBonusM(null)).toBe(0);
+    expect(myReachBonusSquares(null)).toBe(0);
   });
 
   it('is zero when the seat is still empty', () => {
     // Reachable while waiting for an opponent: the joiner's `PlayerView` is
     // null until they connect, and the screen still has to draw a circle.
-    expect(myReachBonusM(snapshot({ players: { w: null, b: null } }))).toBe(0);
+    expect(myReachBonusSquares(snapshot({ players: { w: null, b: null } }))).toBe(0);
   });
 });
 

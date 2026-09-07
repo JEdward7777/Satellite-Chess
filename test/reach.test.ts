@@ -33,26 +33,54 @@ function nearSquare(sq: string, du: number, dv: number) {
 }
 
 describe('effectiveReachM', () => {
-  it('adds accuracy to the base reach', () => {
-    expect(effectiveReachM(0)).toBe(DEFAULT_REACH.minM > 5 ? DEFAULT_REACH.minM : 5);
-    expect(effectiveReachM(3)).toBe(8);
+  it('scales with the square, not with the metre', () => {
+    // Decision 0031: reach is a fraction of a square, so the same config on a
+    // bigger board gives proportionally more metres.
+    expect(effectiveReachM(0, SQUARE_M)).toBeCloseTo(DEFAULT_REACH.baseSquares * SQUARE_M, 6);
+    expect(effectiveReachM(0, SQUARE_M * 2)).toBeCloseTo(effectiveReachM(0, SQUARE_M) * 2, 6);
+  });
+
+  it('charges nothing for an ordinary fix', () => {
+    // The 2026-09-06 walk: the device never reported better than 3.0 m while
+    // its actual error was 0.21 m. Adding that raw is what pushed reach past a
+    // whole square, so accuracy at or below `goodAccuracyM` now costs nothing.
+    const base = DEFAULT_REACH.baseSquares * SQUARE_M;
+    expect(effectiveReachM(3, SQUARE_M)).toBeCloseTo(base, 6);
+    expect(effectiveReachM(DEFAULT_REACH.goodAccuracyM, SQUARE_M)).toBeCloseTo(base, 6);
+  });
+
+  it('grows the circle once accuracy is genuinely poor', () => {
+    // Decision 0023's surviving half: degrade by widening, not by refusing.
+    const base = DEFAULT_REACH.baseSquares * SQUARE_M;
+    expect(effectiveReachM(DEFAULT_REACH.goodAccuracyM + 5, SQUARE_M)).toBeCloseTo(base + 5, 6);
   });
 
   it('clamps to the floor and the ceiling', () => {
-    // Base 5 already exceeds the floor of 4, so the floor only binds if base is
-    // configured lower.
-    expect(effectiveReachM(0, { ...DEFAULT_REACH, baseM: 1 })).toBe(4);
-    expect(effectiveReachM(100)).toBe(DEFAULT_REACH.maxM);
+    expect(effectiveReachM(0, SQUARE_M, { ...DEFAULT_REACH, baseSquares: 0.01 })).toBeCloseTo(
+      DEFAULT_REACH.minSquares * SQUARE_M,
+      6,
+    );
+    expect(effectiveReachM(100, SQUARE_M)).toBeCloseTo(DEFAULT_REACH.maxSquares * SQUARE_M, 6);
   });
 
-  it('lets a handicap raise the ceiling as well as the reach', () => {
-    expect(effectiveReachM(0, DEFAULT_REACH, 4)).toBe(9);
-    // A large accuracy still clamps, but to the raised ceiling.
-    expect(effectiveReachM(100, DEFAULT_REACH, 4)).toBe(DEFAULT_REACH.maxM + 4);
+  it('does not let a handicap raise the ceiling — O-02', () => {
+    // The bonus buys reach up to the ceiling and no further. Before decision
+    // 0031 it raised the ceiling too, so a large handicap plus a poor fix could
+    // span a move that ought to require walking.
+    const ceiling = DEFAULT_REACH.maxSquares * SQUARE_M;
+    expect(effectiveReachM(0, SQUARE_M, DEFAULT_REACH, 0.5)).toBeCloseTo(
+      (DEFAULT_REACH.baseSquares + 0.5) * SQUARE_M,
+      6,
+    );
+    expect(effectiveReachM(100, SQUARE_M, DEFAULT_REACH, 0.5)).toBeCloseTo(ceiling, 6);
+    expect(effectiveReachM(100, SQUARE_M, DEFAULT_REACH, 0)).toBeCloseTo(ceiling, 6);
   });
 
-  it('is symmetric by default', () => {
-    expect(effectiveReachM(5, DEFAULT_REACH, 0)).toBe(effectiveReachM(5, DEFAULT_REACH, 0));
+  it('keeps the default game off the degenerate side of one square', () => {
+    // The whole point of the change: at the accuracy this phone actually
+    // reports, reach must stay well inside a square or you play chess standing
+    // still. Under the old rule this was 8.4 m on an 8 m board.
+    expect(effectiveReachM(3.37, SQUARE_M)).toBeLessThan(SQUARE_M / 2);
   });
 });
 
@@ -100,13 +128,18 @@ describe('checkReachTo', () => {
   it('accepts the square you are standing on', () => {
     const v = checkReachTo(geo, squareCentreLatLng(geo, fromSquare('e2')), 1, 'e2');
     expect(v.ok).toBe(true);
-    expect(v.reachM).toBe(6);
+    expect(v.reachM).toBeCloseTo(DEFAULT_REACH.baseSquares * SQUARE_M, 6);
     expect(v.squares[0].distanceM).toBeCloseTo(0, 6);
   });
 
-  it('accepts a neighbouring square you can stretch to', () => {
-    // e2 centre to e3's near edge is half a square: 4 m, inside a 6 m reach.
-    expect(checkReachTo(geo, squareCentreLatLng(geo, fromSquare('e2')), 1, 'e3').ok).toBe(true);
+  it('makes you step towards a neighbouring square rather than stretch to it', () => {
+    // Decision 0031, and the point of the whole change: at the default 0.4
+    // squares (3.2 m here) the half-square gap from e2's centre to e3's near
+    // edge (4 m) is *outside* reach, so a move needs a real step. Under the old
+    // metre-based rule this was accepted from a standing start.
+    expect(checkReachTo(geo, squareCentreLatLng(geo, fromSquare('e2')), 1, 'e3').ok).toBe(false);
+    // One metre of that step is enough.
+    expect(checkReachTo(geo, nearSquare('e2', 0, 1), 1, 'e3').ok).toBe(true);
   });
 
   it('rejects a square across the board and says how far off you are', () => {
@@ -182,9 +215,10 @@ describe('checkCarry — lift here, walk, place there', () => {
   });
 
   it('accepts a short move made without really walking', () => {
-    // Standing on e3 you can reach both e2 and e4, so the carry is ~0 m.
-    const spot = { pos: nearSquare('e3', 0, 0), accuracyM: 2, at: 0 };
-    const v = checkCarry(geo, spot, { ...spot, at: 1_500 }, 'e2', 'e4');
+    // Standing on the e3/e4 boundary both squares are underfoot, so the carry
+    // is ~0 m. A zero-length carry must not be read as implausible.
+    const spot = { pos: nearSquare('e3', 0, SQUARE_M / 2), accuracyM: 2, at: 0 };
+    const v = checkCarry(geo, spot, { ...spot, at: 1_500 }, 'e3', 'e4');
     expect(v.ok).toBe(true);
     expect(v.carriedM).toBeCloseTo(0, 6);
   });
@@ -197,7 +231,9 @@ describe('checkCarry — lift here, walk, place there', () => {
       'a1',
       'a8',
     );
-    expect(v.reachM).toBe(14);
+    // The 9 m fix, not the 1 m one: base plus what 9 m claims in excess of a
+    // good fix.
+    expect(v.reachM).toBeCloseTo(DEFAULT_REACH.baseSquares * SQUARE_M + (9 - DEFAULT_REACH.goodAccuracyM), 6);
   });
 
   it('refuses to accept a move at all when accuracy is hopeless', () => {
@@ -229,7 +265,7 @@ describe('inStartZone', () => {
     const z = inStartZone(geo, squareCentreLatLng(geo, fromSquare('d4')), 1, 'w');
     // d4 centre to rank 1's near edge: three squares less one half-square.
     expect(z.nearestM).toBeCloseTo(3 * SQUARE_M - SQUARE_M / 2, 4);
-    expect(z.reachM).toBe(6);
+    expect(z.reachM).toBeCloseTo(DEFAULT_REACH.baseSquares * SQUARE_M, 6);
   });
 });
 

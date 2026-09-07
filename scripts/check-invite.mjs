@@ -159,9 +159,23 @@ try {
     'says how big the chosen field is',
   );
 
-  // The stepper only exists once somebody is being handicapped, because "+0 m
-  // to nobody" is a control with nothing behind it.
-  check(!(await page.isVisible('[data-stepper]')), 'hides the metres until a handicap is chosen');
+  // The stepper only exists once somebody is being handicapped, because "+0
+  // squares to nobody" is a control with nothing behind it.
+  check(!(await page.isVisible('[data-stepper]')), 'hides the steps until a handicap is chosen');
+
+  // Reach is the game's main dial (decision 0031), in fractional squares, and it
+  // is always offered — unlike the handicap, every game has one.
+  check(await page.isVisible('[data-reach-stepper]'), 'offers a reach dial');
+  check(
+    (await page.textContent('[data-reach-squares]'))?.trim() === '0.4 squares',
+    'starts on the default reach',
+    (await page.textContent('[data-reach-squares]'))?.trim() ?? '',
+  );
+  check(
+    (await page.textContent('[data-reach-note]'))?.includes('3.2 m on this field'),
+    'says what that is in metres on the chosen field',
+    (await page.textContent('[data-reach-note]'))?.trim() ?? '',
+  );
 
   console.log('\n2. Choosing something other than the defaults');
   await page.selectOption('[data-field]', 'park');
@@ -176,7 +190,10 @@ try {
   // step 6 — which is the only end-to-end evidence that the handicap survived
   // the trip to the Durable Object and back.
   await page.click('[data-handicap="me"]');
-  await page.click('[data-metres="1"]'); // 1 m -> 2 m
+  // 0.1 -> 0.25 squares, in three notches of 0.05. Fractional on purpose.
+  await page.click('[data-handicap-step="0.05"]');
+  await page.click('[data-handicap-step="0.05"]');
+  await page.click('[data-handicap-step="0.05"]');
 
   check(
     (await page.getAttribute('[data-colour="b"]', 'aria-pressed')) === 'true',
@@ -186,7 +203,11 @@ try {
     (await page.textContent('[data-colour-note]'))?.includes('a8–h8'),
     'says which end of the field Black walks to',
   );
-  check((await page.textContent('[data-handicap-m]'))?.trim() === '+2 m', 'steps the metres');
+  check(
+    (await page.textContent('[data-handicap-squares]'))?.trim() === '+0.25 squares',
+    'steps the handicap in fractional squares',
+    (await page.textContent('[data-handicap-squares]'))?.trim() ?? '',
+  );
   await page.screenshot({ path: `${OUT}/1-create.png`, fullPage: true });
 
   console.log('\n3. The invite screen');
@@ -253,13 +274,20 @@ try {
   await page.click('[data-open]');
   await page.waitForSelector('[data-board]', { timeout: 15_000 });
   // Reach is base (5 m) + reported accuracy (5 m in the simulator) + the 2 m
-  // handicap. Without the bonus this reads 10.0 m, so the number *is* the test.
+  // handicap. The simulator reports 5 m accuracy, which is exactly
+  // `goodAccuracyM`, so accuracy contributes nothing and reach is purely
+  // `(base 0.4 + bonus 0.25) * 8 m` = 5.2 m. Without the bonus it reads 3.2 m,
+  // so the number *is* the test.
   await page.waitForFunction(
     () => /\d/.test(document.querySelector('[data-reach]')?.textContent ?? ''),
     { timeout: 15_000 },
   );
   const reach = await page.textContent('[data-reach]');
-  check(reach?.startsWith('12.0 m'), 'the 2 m handicap survived the round trip', reach ?? '');
+  check(
+    reach?.startsWith('5.2 m'),
+    'the 0.25-square handicap survived the round trip',
+    reach ?? '',
+  );
 
   check(await page.isVisible('[data-join-code]'), 'the board still shows the code');
   await page.screenshot({ path: `${OUT}/4-board.png`, fullPage: true });

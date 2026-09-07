@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS } from '../src/shared/clock.js';
 import { makeFieldSpec } from '../src/shared/field.js';
+import { DEFAULT_REACH } from '../src/shared/reach.js';
 import {
   type CreateDraft,
   DEFAULT_TIME_CONTROL_INDEX,
-  MAX_HANDICAP_M,
+  MAX_HANDICAP_SQUARES,
   clampHandicap,
   createGameBody,
   createRefusal,
@@ -85,41 +86,42 @@ describe('resolveColour', () => {
 });
 
 describe('reachBonuses', () => {
-  // Decision 0004: the handicap is metres of reach, never seconds, and it is
-  // chosen as "me" or "my opponent" because that is what a person setting up a
-  // game in a park actually says.
-  it('gives the metres to whichever colour the creator turned out to be', () => {
-    const d = draft({ handicapTo: 'me', handicapM: 2 });
-    expect(reachBonuses(d, 'w')).toEqual({ w: 2, b: 0 });
-    expect(reachBonuses(d, 'b')).toEqual({ w: 0, b: 2 });
+  // Decision 0004: the handicap is reach, never seconds, and it is chosen as
+  // "me" or "my opponent" because that is what a person setting up a game in a
+  // park actually says. Decision 0031 makes the unit squares rather than metres.
+  it('gives the squares to whichever colour the creator turned out to be', () => {
+    const d = draft({ handicapTo: 'me', handicapSquares: 0.2 });
+    expect(reachBonuses(d, 'w')).toEqual({ w: 0.2, b: 0 });
+    expect(reachBonuses(d, 'b')).toEqual({ w: 0, b: 0.2 });
   });
 
   it('gives them to the other colour when the handicap is the opponent’s', () => {
-    const d = draft({ handicapTo: 'opponent', handicapM: 3 });
-    expect(reachBonuses(d, 'w')).toEqual({ w: 0, b: 3 });
-    expect(reachBonuses(d, 'b')).toEqual({ w: 3, b: 0 });
+    const d = draft({ handicapTo: 'opponent', handicapSquares: 0.3 });
+    expect(reachBonuses(d, 'w')).toEqual({ w: 0, b: 0.3 });
+    expect(reachBonuses(d, 'b')).toEqual({ w: 0.3, b: 0 });
   });
 
-  it('ignores the metres when nobody is handicapped', () => {
-    expect(reachBonuses(draft({ handicapTo: 'none', handicapM: 4 }), 'w')).toEqual({
+  it('ignores the handicap when nobody is handicapped', () => {
+    expect(reachBonuses(draft({ handicapTo: 'none', handicapSquares: 0.4 }), 'w')).toEqual({
       w: 0,
       b: 0,
     });
   });
 
   it('never emits more than the control offers', () => {
-    // O-02 is about the reach ceiling rising with the bonus. This is not the fix
-    // for it, but it is the bound that keeps today's games inside whatever cap
-    // that observation eventually settles on.
-    expect(reachBonuses(draft({ handicapTo: 'me', handicapM: 99 }), 'w').w).toBe(MAX_HANDICAP_M);
-    expect(reachBonuses(draft({ handicapTo: 'me', handicapM: -5 }), 'w').w).toBe(0);
+    expect(reachBonuses(draft({ handicapTo: 'me', handicapSquares: 99 }), 'w').w).toBe(
+      MAX_HANDICAP_SQUARES,
+    );
+    expect(reachBonuses(draft({ handicapTo: 'me', handicapSquares: -5 }), 'w').w).toBe(0);
   });
 });
 
 describe('clampHandicap', () => {
   it('holds the range and rejects nonsense', () => {
     expect(clampHandicap(0)).toBe(0);
-    expect(clampHandicap(MAX_HANDICAP_M + 1)).toBe(MAX_HANDICAP_M);
+    expect(clampHandicap(MAX_HANDICAP_SQUARES + 1)).toBe(MAX_HANDICAP_SQUARES);
+    // Fractional squares survive the round trip, to the dial's step.
+    expect(clampHandicap(0.25)).toBeCloseTo(0.25, 6);
     expect(clampHandicap(-1)).toBe(0);
     expect(clampHandicap(Number.NaN)).toBe(0);
   });
@@ -127,7 +129,7 @@ describe('clampHandicap', () => {
 
 describe('createGameBody', () => {
   it('sends what the worker validates', () => {
-    const d = draft({ timeControl: 0, handicapTo: 'opponent', handicapM: 2 });
+    const d = draft({ timeControl: 0, handicapTo: 'opponent', handicapSquares: 0.2 });
     const body = createGameBody(d, PARK, 'player-1234', 'w');
     expect(body).toEqual({
       playerId: 'player-1234',
@@ -135,8 +137,9 @@ describe('createGameBody', () => {
       color: 'w',
       initialMs: TIME_CONTROLS[0].initialMs,
       incrementMs: TIME_CONTROLS[0].incrementMs,
-      whiteReachBonusM: 0,
-      blackReachBonusM: 2,
+      reachSquares: DEFAULT_REACH.baseSquares,
+      whiteReachBonusSquares: 0,
+      blackReachBonusSquares: 0.2,
     });
   });
 

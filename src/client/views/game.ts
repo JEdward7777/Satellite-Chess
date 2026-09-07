@@ -124,9 +124,9 @@ export interface CarryGuidance {
  * cannot play a move that would in fact be allowed, which is worse, because
  * they believe it and walk further than they had to.
  */
-export function myReachBonusM(game: GameSnapshot | null): number {
+export function myReachBonusSquares(game: GameSnapshot | null): number {
   if (!game) return 0;
-  return game.players[game.you]?.reachBonusM ?? 0;
+  return game.players[game.you]?.reachBonusSquares ?? 0;
 }
 
 export function carryGuidance(
@@ -333,8 +333,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const reachNow = () =>
     effectiveReachM(
       gps.fix?.accuracyM ?? 0,
+      geometry().meanSquareM,
       net.game?.reach ?? DEFAULT_REACH,
-      myReachBonusM(net.game ?? null),
+      myReachBonusSquares(net.game ?? null),
     );
 
   /** Where the player is in board space, or null before the first fix. */

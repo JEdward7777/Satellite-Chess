@@ -160,11 +160,31 @@ validated on real ground before a line of game-server code is written.
       but 100% honest, 8 m squares refuse 0% of moves. One real finding: 5.8 m
       calibration repeatability over 4 minutes (bias wander, not scatter), which
       is the change `1.9.3.5` was waiting for.
-    - `1.9.3.5` todo: Fold the findings back — square-size default, reach
-      constants, and whether the displayed square needs its own smoothing.
-      Concrete inputs now in `harness/sessions/2026-09-06-03.md`: make
-      calibration average several fixes per corner (the 5.8 m repeatability
-      finding), re-express the reach ceiling / handicap share as multiples of
-      square size (closes O-02), consider relaxing the distance accumulator's
-      anti-drift constants (0.1 km/h phantom, not the predicted 19–32), then
-      `DELETE` trace `2026-09-06T23-10-47-510Z-ioop0u` from the SurveyDO.
+    - `1.9.3.5` done: Fold the findings back — 2026-09-07, decision 0031.
+      **Reach became the independent variable, measured in fractional squares**,
+      because the field is fixed by the venue and the square is `length / 8`.
+      That reversed the second half of decision 0023. Reported accuracy now
+      contributes only its excess over a good fix: the walked device never
+      claimed better than 3.00 m while delivering 0.21 m, and adding it raw gave
+      **8.4 m of reach on 8 m squares — 1.05 squares, with no handicap** — so the
+      game was already degenerate. The ceiling stopped moving with the handicap,
+      which closed **O-02** along with a server-side clamp on both numbers.
+      `baseSquares` is now a create-screen dial.
+      Two of the inputs did *not* survive contact:
+      - **Averaging fixes per corner was dropped.** Measured against the trace it
+        does nothing — the A1/A2 gap is 5.76 m from one fix and 5.73 m averaged
+        over 10 s, because within-window scatter is already 0.02-0.15 m. The
+        5.8 m is most likely the operator restanding, not the receiver drifting.
+      - **The distance accumulator was left alone.** Relaxing the anti-drift
+        factor to 1 was tried and reverted; it costs ~9 m per 104 m walked on
+        good hardware but yields ~1525 m/hour of phantom distance on a phone
+        whose error really matches its claim. Logged as **O-12**.
+    - `1.9.3.6` todo: Decide what happens to trace
+      `2026-09-06T23-10-47-510Z-ioop0u`. `1.9.3.5` has consumed it and the
+      original plan was to delete it, but that was written before **O-12**,
+      which wants exactly this trace as the baseline to compare a second
+      handset against — and before decision 0031, whose "what would make me
+      revisit" turns on the same comparison. Deleting it is irreversible and it
+      is the only real GPS data the project has. **Recommend keeping it** until
+      a second trace exists; the operator's call.
+      To delete: `DELETE /api/survey/trace/<id>` with `SURVEY_SECRET`.

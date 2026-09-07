@@ -15,6 +15,7 @@ import { snapshotField } from '../shared/field.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import { isAppRoute } from '../shared/routes.js';
+import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
@@ -195,9 +196,13 @@ async function createGame(request: Request, env: Env): Promise<Response> {
       field,
       initialMs,
       incrementMs,
-      reachBonusM: {
-        w: asNonNegativeInt(body.whiteReachBonusM) ?? 0,
-        b: asNonNegativeInt(body.blackReachBonusM) ?? 0,
+      // Clamped with the same shared rule the create screen uses, because the
+      // client is untrusted: without this a hand-rolled request could ask for a
+      // reach the UI would never offer (O-02).
+      reach: reachFromSquares(body.reachSquares),
+      reachBonusSquares: {
+        w: clampHandicapSquares(body.whiteReachBonusSquares),
+        b: clampHandicapSquares(body.blackReachBonusSquares),
       },
     });
     if (created) {

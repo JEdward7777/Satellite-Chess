@@ -14,28 +14,6 @@ time so sign-in happens on wifi (decision 0015). Logged so that if it does bite
 during playtesting the evidence is framed, and the pre-analysed remedy
 (login-first *with* a field fallback) can be adopted without re-arguing it.
 
-### O-02 — Reach ceiling interacts with the handicap in a way that may be exploitable
-**Spotted:** 2026-07-25, stage 0.4.2
-**Why it matters:** A reach bonus raises the clamp ceiling as well as the base
-reach, so a large handicap plus a poor GPS fix could let a player span a move that
-ought to require walking. `effectiveReachM(100, DEFAULT_REACH, 10)` gives 25 m,
-which on 8 m squares reaches three squares away from a standing start.
-**Not doing yet because:** No field data on what handicap sizes people actually
-want. Capping the bonus is the obvious fix but the right cap is a measurement, not
-a guess. Revisit with stage 9.2.2 when `DEFAULT_REACH` is tuned from real games.
-**Updated 2026-08-01 (decision 0023):** the root is the same as the flat `maxM`
-ceiling — both are absolute metre values in a rule that should scale with square
-size. Expect one fix for both: express the ceiling, and the bonus's share of it,
-as a multiple of square size once `1.9.3.5` supplies a real one.
-**Updated 2026-08-01 (stage 6.1.1):** there is now a UI that can set a handicap,
-so the exploit is reachable rather than theoretical. `MAX_HANDICAP_M = 4` in
-`client/views/create.ts` bounds what the control can produce — a *bound*, not the
-fix, chosen so no game created today carries a handicap the eventual cap would
-have to invalidate. `effectiveReachM(25, DEFAULT_REACH, 4)` is 19 m, which on 8 m
-squares still reaches two squares from standing. The server enforces nothing:
-`asNonNegativeInt` accepts any value a hand-rolled `POST /api/game` sends. Cap it
-server-side when the real number is known.
-
 ### O-03 — Distance-travelled is client-reported and therefore trivially inflatable
 **Spotted:** 2026-07-25, stage 0.6
 **Why it matters:** Now that accounts are mandatory and the permanent record is a
@@ -131,3 +109,23 @@ note was worried about: a well-formed code that names no game is now the client'
 business either way — it asks the server and says "no game with that code" — so
 the Worker's 404 was never the mechanism a player relied on. Revisit only if
 something starts depending on `/j/<junk>` being distinguishable offline.
+
+### O-12 — The distance floor is scaled by claimed accuracy, not observed scatter
+**Spotted:** 2026-09-07, stage 1.9.3.5
+**Why it matters:** `DistanceAccumulator` refuses to credit a hop shorter than
+`ANCHOR_ACCURACY_FACTOR * reportedAccuracy`, which assumes a phone's true error
+is about what it claims. The field walk says that assumption can be off by 16x —
+3.4 m claimed, 0.21 m delivered — so on a good handset the floor is ~6.7 m and
+throws away real walking. Replayed over the trace, the accumulator credits 84.0 m
+of a 104 m walk at the current factor of 2, and 92.8 m at 1, with zero phantom
+distance either way. Distance is the currency of the whole game (decision 0019),
+so a systematic ~9% under-count on good hardware is not cosmetic.
+**Not doing yet because:** the fix is not the constant. Relaxing the factor to 1
+was tried on 2026-09-07 and reverted: the existing tests model a phone whose true
+error really is as large as it claims, and at factor 1 that phone clocks up
+~1525 m per hour sitting on a bench. Over-counting is worse than under-counting
+here, and one good device on one day does not license removing the floor that
+exists for bad ones. The real fix is to scale the floor by *observed* scatter —
+the accumulator already keeps a smoothing window it could measure from — which is
+a design change needing traces from more than one handset. Pairs with **O-03**,
+which wants a server-side lower bound on the same number.

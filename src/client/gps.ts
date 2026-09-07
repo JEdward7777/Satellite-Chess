@@ -39,25 +39,21 @@ export interface GpsFix {
 export type GpsQuality = 'good' | 'fair' | 'poor' | 'unusable';
 
 /**
- * Roughly one square on a typical field. At this accuracy the square under your
- * feet is the square the phone thinks you are on, which is the only property a
- * player actually cares about.
- */
-export const GOOD_ACCURACY_M = 8;
-
-/**
  * A coarse verdict, because a number in metres means nothing to most players
  * and the interesting boundaries are not where you would guess.
  *
- * The `fair`/`poor` boundary is the reach ceiling: past it, extra error stops
- * buying you a more forgiving circle (`effectiveReachM` clamps), so the game
- * gets harder rather than looser. The `poor`/`unusable` boundary is the same
- * threshold the move validator refuses at, so the badge and the rules agree.
+ * All three boundaries now come from the reach config rather than from a
+ * constant here, because since decision 0031 reach is measured in squares and
+ * there is no fixed metre ceiling to point at. `good` is the band where
+ * accuracy costs you nothing at all (`goodAccuracyM`); `unusable` is the same
+ * threshold the move validator refuses at, so the badge and the rules agree;
+ * `fair` is the first half of the span between them, where the circle is
+ * growing but has not yet given up much.
  */
 export function qualityOf(accuracyM: number, cfg: ReachConfig = DEFAULT_REACH): GpsQuality {
   if (accuracyTooPoor(accuracyM, cfg)) return 'unusable';
-  if (accuracyM <= GOOD_ACCURACY_M) return 'good';
-  if (accuracyM <= cfg.maxM) return 'fair';
+  if (accuracyM <= cfg.goodAccuracyM) return 'good';
+  if (accuracyM <= (cfg.goodAccuracyM + cfg.maxAccuracyM) / 2) return 'fair';
   return 'poor';
 }
 
@@ -231,6 +227,26 @@ export const MIN_ANCHOR_STEP_M = 4;
  * genuine 672 m walk than 2 does, because legs shorter than the floor vanish
  * entirely. The residual at 5 m error is an over-count of about 3%, which is the
  * honest cost of not being able to tell a slow walk from a bad fix.
+ *
+ * **Considered for relaxation on 2026-09-07 and deliberately left at 2.** The
+ * field walk (trace `2026-09-06T23-10-47-510Z-ioop0u`) showed this floor costing
+ * real distance for no benefit *on that device*: replaying the accumulator over
+ * the trace credits 84.0 m of a 104 m walk at factor 2 and 92.8 m at factor 1,
+ * with **zero** phantom distance from either during three minutes and one minute
+ * of standing still.
+ *
+ * It stays at 2 anyway, because that phone claimed 3.4 m and delivered 0.21 m —
+ * sixteen times better than it admitted — and the table above is what happens
+ * when a phone is as bad as it says it is. At factor 1 the honest-error case
+ * clocks up ~1525 m per hour on a bench, and distance is the currency of the
+ * whole game (decision 0019), so over-counting is far worse than losing 9% of a
+ * walk. One good device on one day does not license removing the floor that
+ * exists for bad ones.
+ *
+ * The real fix is to scale the floor by *observed* scatter rather than *claimed*
+ * accuracy — the accumulator already keeps a smoothing window it could measure
+ * from. That is a design change rather than a constant, and it needs traces from
+ * more than one handset. See **O-12**.
  */
 export const ANCHOR_ACCURACY_FACTOR = 2;
 

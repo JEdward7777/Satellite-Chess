@@ -166,3 +166,33 @@ time:** a test that writes to a Durable Object's storage is racing that object's
 own handlers unless it waits for them. `close()`, like `next()`, is not a
 synchronisation point. Three of the four flakes this suite has produced have been
 this shape.
+
+## O-02 — Reach ceiling interacts with the handicap in a way that may be exploitable
+
+**Resolved:** 2026-09-07, stage 1.9.3.5, decision
+[0031](../decisions/0031-reach-is-the-independent-variable-measured-in-squares.md).
+
+The observation was right that the root was a unit error, and right that the fix
+needed a real measurement first. Both arrived together.
+
+`effectiveReachM` clamped to `maxM + bonusM`, so a handicap raised the ceiling as
+well as the reach and a large bonus plus a poor fix could span a move that ought
+to have required walking. The ceiling is now `maxSquares`, an absolute bound in
+squares that a bonus does not move: a handicap buys reach up to the ceiling and
+no further. `test/reach.test.ts` asserts exactly that, by name.
+
+The field walk supplied the square size the 2026-08-01 update was waiting for,
+and in doing so found something worse than the observation described. The
+exploit was not hypothetical and did not need a handicap at all. Reach was
+`baseM 5 + reportedAccuracy`; the walked device never reported better than 3.00 m
+and its median was 3.37 m, so **ordinary play already had 8.4 m of reach on 8 m
+squares — 1.05 squares, with no handicap set**. The `MAX_HANDICAP_M = 4` bound
+from stage 6.1.1 was holding the door shut on a wall that was already down.
+
+Two changes close it. The ceiling no longer moves, and reported accuracy now
+contributes only what it claims *in excess of* a good fix, because the trace
+showed the device overstating its error roughly sixteenfold. The server also
+clamps both numbers with the shared `clampReachSquares` / `clampHandicapSquares`,
+which is the server-side cap the 2026-08-01 update asked for — a hand-rolled
+`POST /api/game` can no longer ask for a reach the UI would refuse to offer.
+

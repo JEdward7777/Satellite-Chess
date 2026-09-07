@@ -147,7 +147,7 @@ describe('the opponent position a snapshot carries', () => {
   const player = (over: Record<string, unknown> = {}) => ({
     color: 'b',
     connected: true,
-    reachBonusM: 0,
+    reachBonusSquares: 0,
     travelM: 0,
     inStartZone: false,
     lastSeenAt: 1,

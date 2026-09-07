@@ -48,8 +48,8 @@ function snapshot(over: Partial<GameSnapshot> = {}): GameSnapshot {
     serverNow: 1_000,
     you: 'w',
     players: {
-      w: { color: 'w', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
-      b: { color: 'b', connected: true, reachBonusM: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
+      w: { color: 'w', connected: true, reachBonusSquares: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
+      b: { color: 'b', connected: true, reachBonusSquares: 0, travelM: 0, inStartZone: false, lastSeenAt: 1, pos: null },
     },
     lastMove: null,
     moveCount: 0,
@@ -259,13 +259,14 @@ describe('predict', () => {
   });
 
   it('honours a reach handicap, because the server will', () => {
-    // Standing two squares away — out of reach at 5 m base, in reach with 12 m
-    // of bonus. The server would accept it, so the prediction must too.
-    const far = { t: 'lift', from: 'e2', pos: standingOn(4, 3) } as const;
+    // Standing 8 m from e2's near edge — out of reach at the default 0.4
+    // squares, in reach with 0.7 squares of bonus. The server would accept it,
+    // so the prediction must too.
+    const far = { t: 'lift', from: 'e2', pos: standingOn(4, 2.5) } as const;
     expect(predict(snapshot(), far, 2_000)).toBeNull();
 
     const handicapped = snapshot();
-    handicapped.players.w!.reachBonusM = 12;
+    handicapped.players.w!.reachBonusSquares = 0.7;
     expect(predict(handicapped, far, 2_000)).not.toBeNull();
   });
 });

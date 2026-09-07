@@ -54,15 +54,16 @@ class FakeGeolocation implements GeolocationLike {
 }
 
 describe('qualityOf', () => {
-  it('calls a fix good while the square under your feet is unambiguous', () => {
+  it('calls a fix good while accuracy costs it nothing', () => {
     expect(qualityOf(3)).toBe('good');
-    expect(qualityOf(8)).toBe('good');
-    expect(qualityOf(8.1)).toBe('fair');
+    expect(qualityOf(DEFAULT_REACH.goodAccuracyM)).toBe('good');
+    expect(qualityOf(DEFAULT_REACH.goodAccuracyM + 0.1)).toBe('fair');
   });
 
-  it('turns poor where extra error stops buying extra reach', () => {
-    expect(qualityOf(DEFAULT_REACH.maxM)).toBe('fair');
-    expect(qualityOf(DEFAULT_REACH.maxM + 0.1)).toBe('poor');
+  it('turns poor halfway to the threshold that refuses moves', () => {
+    const midpoint = (DEFAULT_REACH.goodAccuracyM + DEFAULT_REACH.maxAccuracyM) / 2;
+    expect(qualityOf(midpoint)).toBe('fair');
+    expect(qualityOf(midpoint + 0.1)).toBe('poor');
   });
 
   it('agrees with the move validator about what is unplayable', () => {

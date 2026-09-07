@@ -86,8 +86,8 @@ export interface RelayedPos {
 export interface PlayerView {
   color: Color;
   connected: boolean;
-  /** Handicap: extra metres of reach. */
-  reachBonusM: number;
+  /** Handicap: extra reach, in squares (decision 0031). */
+  reachBonusSquares: number;
   /** Client-reported metres walked. A stat, so client-trusted by design. */
   travelM: number;
   /** In their own start zone, per the server's own check. */
@@ -146,6 +146,11 @@ export interface GameSnapshot {
   status: GameStatus;
   fen: string;
   field: FieldSnapshot;
+  /**
+   * The reach rule this game is played by, chosen at creation and fixed for the
+   * life of the game. In squares (decision 0031); metres are derived from the
+   * snapshotted field, so a game cannot change shape under the players.
+   */
   reach: ReachConfig;
   clock: ClockState;
   /** Server time at which this snapshot was built, for clock offset correction. */

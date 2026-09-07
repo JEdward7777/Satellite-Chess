@@ -3,21 +3,27 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: clean, pushed to `main`. `2026-09-06-02` (the UserDO, from a
-container) reached the remote via a bundle the operator pushed; `2026-09-06-03`
-(the survey walk, from the operator's machine) rebased on top of it and pushed
-directly.
+**Tree state**: clean, pushed to `main`.
 **Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
-seam, decision 0029) and now `2.3.1`/`2.3.2` (the UserDO proper) are done.
+seam, decision 0029) and `2.3.1`/`2.3.2` (the UserDO proper) are done.
 **Next action**: `2.3.3.2` — move saved fields off local storage and onto the
 UserDO's `fields` table. The table, the object and the addressing exist; the
 store that writes to them does not.
 **Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local
-clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`. **The field
-survey is walked** (`1.9.3.4` done, 2026-09-06) — findings now feed `1.9.3.5`.
-**Last session**: `harness/sessions/2026-09-06-03.md` (the field survey walk).
-`2026-09-06-02` ran in parallel and did the UserDO — the header above is its
-state; the survey is a separate, non-gating track.
+clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
+**The field walk is done and its findings are folded in** (`1.9.3.4`,
+`1.9.3.5`). The headline: **reach is now the independent variable, measured in
+fractional squares** (decision 0031, reversing half of 0023). The field is fixed
+by the venue and the square is `length / 8`, so reach is the only end that can
+move — and it is a create-screen dial now. The walk also found the game was
+*already* degenerate: reach was `5 m + reported accuracy`, the phone never
+claimed better than 3.00 m, so ordinary play had 1.05 squares of reach and you
+could lift a piece from a square you were not on. Fixed, and **O-02 closed** with
+it.
+**Last session**: `harness/sessions/2026-09-07-01.md` (reach in squares).
+**Careful**: `check-invite.mjs` and friends were updated for the renamed
+controls but **no browser has run them** — playwright is not installed in the
+container. Run them on a machine that can before trusting the create screen.
 
 ## In one paragraph
 

@@ -224,12 +224,15 @@ function report(trace) {
       }
     } else if (refused8 < 0.1) {
       say(`  ~ ${(refused8 * 100).toFixed(1)}% of legitimate moves would be refused on 8 m squares.`);
-      say('    Playable but irritating. Either raise the default square size, or raise');
-      say('    DEFAULT_REACH.baseM — the second is cheaper and does not need a bigger field.');
+      say('    Playable but irritating. Raise DEFAULT_REACH.baseSquares: the square size');
+      say('    is set by the ground people have, not by us (decision 0031), so reach is');
+      say('    the only end of this that can actually move.');
     } else {
       say(`  ✗ ${(refused8 * 100).toFixed(1)}% of legitimate moves refused on 8 m squares. Not playable as tuned.`);
-      say('    Look at the table above for the square size where the refusal rate falls');
-      say('    below 2%, and consider raising DEFAULT_REACH.baseM as well.');
+      say('    Raise DEFAULT_REACH.baseSquares — reach is the independent variable');
+      say('    (decision 0031). The square-size table above says how much reach that');
+      say('    costs as a fraction of a square, which is the number that decides whether');
+      say('    the game degenerates into chess played standing still.');
     }
   }
 

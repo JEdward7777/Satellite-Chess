@@ -62,7 +62,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   const paint = () => {
     const fix = state.fix;
     const accuracyM = fix?.accuracyM ?? 0;
-    const reachM = effectiveReachM(accuracyM);
+    const reachM = effectiveReachM(accuracyM, geo.meanSquareM);
 
     projection = drawBoard(canvas, {
       geo,

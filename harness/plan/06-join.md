@@ -27,11 +27,13 @@
   - `6.1.1` done: Create screen — pick field, time control, colour, handicap
     - Handicap is asked as "me" or "my opponent" rather than by colour, because
       the creator may not have picked one yet and that is what people say out
-      loud. `MAX_HANDICAP_M` bounds the control at 4 m; that is a bound, not the
-      fix for O-02.
+      loud. `MAX_HANDICAP_SQUARES` bounds the control at 0.5 squares; since
+      decision 0031 that is a bound on what is sensible rather than on what is
+      safe, because the reach ceiling no longer moves with the handicap —
+      which is what actually closed O-02.
     - The screen also exposed a real bug: the client computed reach with **no
       handicap at all**, so a handicapped player's circle was smaller than the
-      one the server judges by. Fixed in `game.ts` (`myReachBonusM`), which
+      one the server judges by. Fixed in `game.ts` (`myReachBonusSquares`), which
       reads it from the snapshot — the joining phone never saw the create
       screen, and decision 0004 turns on both players seeing the same circle.
   - `6.1.2` done: Show the six-character code large and grouped (`ABC 123`), and

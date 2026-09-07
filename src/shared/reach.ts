@@ -10,43 +10,120 @@ import { type FieldGeometry, clamp, distanceToSquareM } from './field.js';
 import { type Color, type Square, fromSquare, startZoneSquares } from './squares.js';
 
 export interface ReachConfig {
-  /** Reach at perfect accuracy, before the GPS-error allowance. */
-  baseM: number;
-  /** Floor on effective reach — below this the game is unplayable. */
-  minM: number;
-  /** Ceiling on effective reach, so a bad fix can't let you play the whole board. */
-  maxM: number;
+  /**
+   * Reach at a good fix, in squares. The parameter players actually choose.
+   *
+   * Squares, not metres, because the playable window is bounded by the square
+   * at both ends (decision 0031). Too large and you play ordinary chess from
+   * one spot; too small and you fight the lock while the clock runs. A field is
+   * whatever ground people have, so the square is an input and this is the
+   * variable.
+   */
+  baseSquares: number;
+  /** Floor on effective reach, in squares — below this the game is unplayable. */
+  minSquares: number;
+  /**
+   * Ceiling on effective reach, in squares. Absolute: a handicap does not raise
+   * it (O-02). Without a ceiling, "grow the circle when the fix is poor" has no
+   * endpoint and the field stops mattering.
+   */
+  maxSquares: number;
+  /**
+   * Reported accuracy at or below this costs nothing.
+   *
+   * Metres, because it is a number the device reports about itself rather than
+   * a distance on the board. The 2026-09-06 walk found reported accuracy is
+   * ~16x pessimistic — median 3.37 m claimed against 0.21 m actual, and never
+   * better than 3.00 m — so treating an ordinary fix as free is closer to the
+   * truth than adding it raw, which spent the whole reach budget on noise.
+   */
+  goodAccuracyM: number;
   /** Above this reported accuracy we refuse to accept moves at all. */
   maxAccuracyM: number;
 }
 
 export const DEFAULT_REACH: ReachConfig = {
-  baseM: 5,
-  minM: 4,
-  maxM: 15,
+  baseSquares: 0.4,
+  minSquares: 0.25,
+  maxSquares: 1.5,
+  goodAccuracyM: 5,
   maxAccuracyM: 25,
 };
 
 /**
- * Per-player reach bonus, in metres.
+ * The range the reach dial offers, and the most a handicap may add — in squares.
+ *
+ * These live here rather than on the create screen because the client is
+ * untrusted: `POST /api/game` re-applies exactly these bounds, so a hand-rolled
+ * request cannot create a game with a reach the UI would refuse to offer. That
+ * is the server half of **O-02**.
+ */
+export const MIN_REACH_SQUARES = 0.25;
+export const MAX_REACH_SQUARES = 1.5;
+export const MAX_HANDICAP_SQUARES = 0.5;
+/** One notch of either dial. Fractional squares, deliberately. */
+export const REACH_STEP_SQUARES = 0.05;
+
+/** Round to the dial's step, so a float never shows up as 0.30000000000000004. */
+function toStep(squares: number): number {
+  // Via a fixed number of decimals: 0.3 / 0.05 * 0.05 is 0.30000000000000004 in
+  // binary floating point, and that number would be shown to a player.
+  return Number((Math.round(squares / REACH_STEP_SQUARES) * REACH_STEP_SQUARES).toFixed(2));
+}
+
+/** Clamp the reach dial onto the offered range, in squares. */
+export function clampReachSquares(squares: unknown): number {
+  if (typeof squares !== 'number' || !Number.isFinite(squares)) return DEFAULT_REACH.baseSquares;
+  return toStep(Math.min(MAX_REACH_SQUARES, Math.max(MIN_REACH_SQUARES, squares)));
+}
+
+/** Clamp a handicap onto the offered range, in squares. */
+export function clampHandicapSquares(squares: unknown): number {
+  if (typeof squares !== 'number' || !Number.isFinite(squares)) return 0;
+  return toStep(Math.min(MAX_HANDICAP_SQUARES, Math.max(0, squares)));
+}
+
+/** The reach rule for a game, from whatever the creator asked for. */
+export function reachFromSquares(squares: unknown): ReachConfig {
+  return { ...DEFAULT_REACH, baseSquares: clampReachSquares(squares) };
+}
+
+/**
+ * Per-player reach bonus, in **squares**.
  *
  * This answers one of the open questions: reach is the right place to put a
  * handicap for mismatched fitness, because it is continuous, it is visible on
  * both screens as a bigger circle, and it does not distort the clock. A player
  * who cannot sprint gets to stretch further instead of getting free time.
+ *
+ * Squares rather than metres (decision 0031): a metre handicap against a
+ * square-based reach is the unit mismatch O-02 was about.
  */
 export type ReachBonuses = Record<Color, number>;
 
 export const NO_BONUSES: ReachBonuses = { w: 0, b: 0 };
 
-/** Accuracy is added to reach, so a vaguer fix means a more forgiving circle. */
+/**
+ * Effective reach in metres, for one fix on one board.
+ *
+ * `squareM` is `FieldGeometry.meanSquareM` — the side of a square of the same
+ * area as one real cell. It is the scale everything here is expressed against.
+ *
+ * Accuracy contributes only what it claims *in excess of* a good fix, so an
+ * ordinary fix buys no slack and a genuinely bad one still grows the circle
+ * rather than refusing the move (decision 0023's surviving half).
+ */
 export function effectiveReachM(
   accuracyM: number,
+  squareM: number,
   cfg: ReachConfig = DEFAULT_REACH,
-  bonusM = 0,
+  bonusSquares = 0,
 ): number {
-  const raw = cfg.baseM + Math.max(0, accuracyM) + Math.max(0, bonusM);
-  return clamp(raw, cfg.minM, cfg.maxM + Math.max(0, bonusM));
+  const s = Math.max(0, squareM);
+  const bonus = Math.max(0, bonusSquares);
+  const excessM = Math.max(0, (Number.isFinite(accuracyM) ? accuracyM : 0) - cfg.goodAccuracyM);
+  const raw = (cfg.baseSquares + bonus) * s + excessM;
+  return clamp(raw, cfg.minSquares * s, cfg.maxSquares * s);
 }
 
 export function accuracyTooPoor(accuracyM: number, cfg: ReachConfig = DEFAULT_REACH): boolean {
@@ -136,9 +213,9 @@ export function checkReachTo(
   accuracyM: number,
   square: Square,
   cfg: ReachConfig = DEFAULT_REACH,
-  bonusM = 0,
+  bonusSquares = 0,
 ): ReachVerdict {
-  const reachM = effectiveReachM(accuracyM, cfg, bonusM);
+  const reachM = effectiveReachM(accuracyM, geo.meanSquareM, cfg, bonusSquares);
   const bad = accuracyVerdict(accuracyM, cfg, reachM);
   if (bad) return bad;
 
@@ -186,13 +263,18 @@ export function checkCarry(
   from: Square,
   to: Square,
   cfg: ReachConfig = DEFAULT_REACH,
-  bonusM = 0,
+  bonusSquares = 0,
 ): CarryVerdict {
-  const reachM = effectiveReachM(Math.max(lift.accuracyM, place.accuracyM), cfg, bonusM);
+  const reachM = effectiveReachM(
+    Math.max(lift.accuracyM, place.accuracyM),
+    geo.meanSquareM,
+    cfg,
+    bonusSquares,
+  );
   const carriedM = distanceM(lift.pos, place.pos);
   const carriedMs = Math.max(0, place.at - lift.at);
 
-  const liftVerdict = checkReachTo(geo, lift.pos, lift.accuracyM, from, cfg, bonusM);
+  const liftVerdict = checkReachTo(geo, lift.pos, lift.accuracyM, from, cfg, bonusSquares);
   if (!liftVerdict.ok) {
     return {
       ...liftVerdict,
@@ -202,7 +284,7 @@ export function checkCarry(
     };
   }
 
-  const placeVerdict = checkReachTo(geo, place.pos, place.accuracyM, to, cfg, bonusM);
+  const placeVerdict = checkReachTo(geo, place.pos, place.accuracyM, to, cfg, bonusSquares);
   if (!placeVerdict.ok) {
     return { ...placeVerdict, carriedM, carriedMs };
   }
@@ -244,9 +326,9 @@ export function inStartZone(
   accuracyM: number,
   color: Color,
   cfg: ReachConfig = DEFAULT_REACH,
-  bonusM = 0,
+  bonusSquares = 0,
 ): { ok: boolean; nearestM: number; reachM: number } {
-  const reachM = effectiveReachM(accuracyM, cfg, bonusM);
+  const reachM = effectiveReachM(accuracyM, geo.meanSquareM, cfg, bonusSquares);
   let nearestM = Infinity;
   for (const sq of startZoneSquares(color)) {
     const d = distanceToSquareM(geo, pos, fromSquare(sq));

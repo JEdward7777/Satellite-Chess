@@ -14,7 +14,18 @@
 
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, type TimeControl } from '../../shared/clock.js';
 import { type FieldSpec, deriveGeometry, describeSquares } from '../../shared/field.js';
-import { DEFAULT_REACH, type ReachBonuses } from '../../shared/reach.js';
+import {
+  DEFAULT_REACH,
+  MAX_HANDICAP_SQUARES,
+  MAX_REACH_SQUARES,
+  MIN_REACH_SQUARES,
+  REACH_STEP_SQUARES,
+  type ReachBonuses,
+  type ReachConfig,
+  clampHandicapSquares,
+  clampReachSquares,
+  reachFromSquares,
+} from '../../shared/reach.js';
 import type { Color } from '../../shared/squares.js';
 
 // ---------------------------------------------------------------------------
@@ -28,8 +39,8 @@ export type ColourChoice = Color | 'random';
  * Who the handicap is for, in the only terms the person setting it up has.
  *
  * Deliberately not "White" and "Black": the creator may not have chosen a colour
- * yet, and "give my opponent two metres" is a thing you say out loud in a park
- * whereas "set blackReachBonusM" is not.
+ * yet, and "give my opponent half a square" is a thing you say out loud in a
+ * park whereas "set blackReachBonusSquares" is not.
  */
 export type HandicapTo = 'none' | 'me' | 'opponent';
 
@@ -40,20 +51,21 @@ export interface CreateDraft {
   timeControl: number;
   colour: ColourChoice;
   handicapTo: HandicapTo;
-  handicapM: number;
+  /** Handicap, in squares. */
+  handicapSquares: number;
+  /** Reach at a good fix, in squares — the game's main dial (decision 0031). */
+  reachSquares: number;
 }
 
 /**
- * The most reach a handicap can add from this screen.
+ * The most reach a handicap can add from this screen, in squares.
  *
- * This is a bound on the control, not the fix for **O-02** — that observation is
- * about the reach *ceiling* rising with the bonus, and it says the right cap is a
- * measurement rather than a guess. Four metres is chosen so the worst case the UI
- * can produce stays close to what decision 0004 describes ("one or two metres
- * changes what you can stretch to"), and so that no game created today has a
- * handicap the eventual cap would have to invalidate.
+ * O-02 is now fixed at the source — `maxSquares` bounds the total, so a bonus
+ * can no longer raise the ceiling (decision 0031). This stays as a bound on what
+ * is *sensible* to offer rather than on what is safe: half a square is enough to
+ * matter, per decision 0004, without turning the handicap into a different game.
  */
-export const MAX_HANDICAP_M = 4;
+export { MAX_HANDICAP_SQUARES, MAX_REACH_SQUARES, MIN_REACH_SQUARES, REACH_STEP_SQUARES };
 
 /** Where the shared default sits in the list, so the two cannot drift apart. */
 export const DEFAULT_TIME_CONTROL_INDEX = TIME_CONTROLS.indexOf(DEFAULT_TIME_CONTROL);
@@ -66,7 +78,8 @@ export function emptyDraft(fields: FieldSpec[]): CreateDraft {
     timeControl: DEFAULT_TIME_CONTROL_INDEX,
     colour: 'w',
     handicapTo: 'none',
-    handicapM: 1,
+    handicapSquares: 0.1,
+    reachSquares: DEFAULT_REACH.baseSquares,
   };
 }
 
@@ -78,10 +91,15 @@ export function draftTimeControl(draft: CreateDraft): TimeControl {
   return TIME_CONTROLS[draft.timeControl] ?? TIME_CONTROLS[DEFAULT_TIME_CONTROL_INDEX];
 }
 
-/** Clamp a metres value onto the range the control offers. */
-export function clampHandicap(metres: number): number {
-  if (!Number.isFinite(metres)) return 0;
-  return Math.min(MAX_HANDICAP_M, Math.max(0, Math.round(metres)));
+/** Clamp a handicap onto the range the control offers, in squares. */
+export const clampHandicap = clampHandicapSquares;
+
+/** Clamp the reach dial onto the range the control offers, in squares. */
+export const clampReach = clampReachSquares;
+
+/** The reach rule this draft describes, ready to send and to draw circles with. */
+export function draftReach(draft: CreateDraft): ReachConfig {
+  return reachFromSquares(draft.reachSquares);
 }
 
 /**
@@ -102,10 +120,10 @@ export function resolveColour(choice: ColourChoice, coin: () => number = Math.ra
  */
 export function reachBonuses(draft: CreateDraft, myColour: Color): ReachBonuses {
   if (draft.handicapTo === 'none') return { w: 0, b: 0 };
-  const metres = clampHandicap(draft.handicapM);
+  const squares = clampHandicap(draft.handicapSquares);
   const opponent: Color = myColour === 'w' ? 'b' : 'w';
   const recipient = draft.handicapTo === 'me' ? myColour : opponent;
-  return { w: recipient === 'w' ? metres : 0, b: recipient === 'b' ? metres : 0 };
+  return { w: recipient === 'w' ? squares : 0, b: recipient === 'b' ? squares : 0 };
 }
 
 /** The body of `POST /api/game`. The server re-validates every field of it. */
@@ -123,8 +141,9 @@ export function createGameBody(
     color: myColour,
     initialMs: time.initialMs,
     incrementMs: time.incrementMs,
-    whiteReachBonusM: bonuses.w,
-    blackReachBonusM: bonuses.b,
+    reachSquares: clampReach(draft.reachSquares),
+    whiteReachBonusSquares: bonuses.w,
+    blackReachBonusSquares: bonuses.b,
   };
 }
 
@@ -201,9 +220,18 @@ export function mountCreate(root: HTMLElement, deps: CreateDeps): () => void {
         update({ handicapTo: button.dataset.handicap as HandicapTo });
       });
     }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-metres]')) {
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-handicap-step]')) {
       button.addEventListener('click', () => {
-        update({ handicapM: clampHandicap(draft.handicapM + Number(button.dataset.metres)) });
+        update({
+          handicapSquares: clampHandicap(
+            draft.handicapSquares + Number(button.dataset.handicapStep),
+          ),
+        });
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-reach-step]')) {
+      button.addEventListener('click', () => {
+        update({ reachSquares: clampReach(draft.reachSquares + Number(button.dataset.reachStep)) });
       });
     }
     root.querySelector<HTMLButtonElement>('[data-cancel]')?.addEventListener('click', deps.onCancel);
@@ -274,6 +302,18 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
     </div>
     <p class="dim" data-colour-note>${escapeHtml(colourNote(draft.colour))}</p>
 
+    <h2>Reach</h2>
+    <div class="stepper" data-reach-stepper>
+      <button data-reach-step="-${REACH_STEP_SQUARES}" class="secondary" ${
+        clampReach(draft.reachSquares) <= MIN_REACH_SQUARES ? 'disabled' : ''
+      } aria-label="Less reach">−</button>
+      <strong data-reach-squares>${formatSquares(clampReach(draft.reachSquares))} squares</strong>
+      <button data-reach-step="${REACH_STEP_SQUARES}" class="secondary" ${
+        clampReach(draft.reachSquares) >= MAX_REACH_SQUARES ? 'disabled' : ''
+      } aria-label="More reach">+</button>
+    </div>
+    <p class="dim" data-reach-note>${escapeHtml(reachNote(draft, draftField(draft, fields)))}</p>
+
     <h2>Extra reach</h2>
     <div class="choices" data-handicaps>
       ${(['none', 'me', 'opponent'] as HandicapTo[])
@@ -289,13 +329,15 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
       draft.handicapTo === 'none'
         ? `<p class="dim">Both players reach the same distance.</p>`
         : `<div class="stepper" data-stepper>
-             <button data-metres="-1" class="secondary" ${
-               draft.handicapM <= 0 ? 'disabled' : ''
-             } aria-label="Less reach">−</button>
-             <strong data-handicap-m>+${clampHandicap(draft.handicapM)} m</strong>
-             <button data-metres="1" class="secondary" ${
-               draft.handicapM >= MAX_HANDICAP_M ? 'disabled' : ''
-             } aria-label="More reach">+</button>
+             <button data-handicap-step="-${REACH_STEP_SQUARES}" class="secondary" ${
+               clampHandicap(draft.handicapSquares) <= 0 ? 'disabled' : ''
+             } aria-label="Less handicap">−</button>
+             <strong data-handicap-squares>+${formatSquares(
+               clampHandicap(draft.handicapSquares),
+             )} squares</strong>
+             <button data-handicap-step="${REACH_STEP_SQUARES}" class="secondary" ${
+               clampHandicap(draft.handicapSquares) >= MAX_HANDICAP_SQUARES ? 'disabled' : ''
+             } aria-label="More handicap">+</button>
            </div>
            <p class="dim" data-handicap-note>${escapeHtml(handicapNote(draft))}</p>`
     }
@@ -321,11 +363,37 @@ function colourNote(choice: ColourChoice): string {
     : 'You start on the a8–h8 rank and move second.';
 }
 
+/** Two decimals at most, and no trailing zeroes: 0.4, 0.45, 1.5. */
+function formatSquares(squares: number): string {
+  return String(Number(squares.toFixed(2)));
+}
+
+/**
+ * What the reach dial means on the ground.
+ *
+ * Squares are the unit the rule is written in (decision 0031), but metres are
+ * what a player can picture, so say both. The metres depend on the field, which
+ * is why this needs one.
+ */
+function reachNote(draft: CreateDraft, field: FieldSpec | undefined): string {
+  const squares = clampReach(draft.reachSquares);
+  const metres = field ? deriveGeometry(field).meanSquareM * squares : null;
+  const onThisField = metres === null ? '' : ` — about ${metres.toFixed(1)} m on this field`;
+  const character =
+    squares <= 0.5
+      ? 'You must stand on or beside a square to touch it, so every move is a walk.'
+      : squares <= 1
+        ? 'You can reach a little past the neighbouring square. Shorter walks, looser game.'
+        : 'You can play several squares from where you stand — much less walking.';
+  return `Reach ${formatSquares(squares)} squares${onThisField}. ${character}`;
+}
+
 function handicapNote(draft: CreateDraft): string {
-  const metres = clampHandicap(draft.handicapM);
+  const squares = clampHandicap(draft.handicapSquares);
   const who = draft.handicapTo === 'me' ? 'You' : 'Your opponent';
   return (
-    `${who} may stretch ${metres} m further than the usual ${DEFAULT_REACH.baseM} m. ` +
+    `${who} may stretch ${formatSquares(squares)} squares further than the ` +
+    `${formatSquares(clampReach(draft.reachSquares))} both players get. ` +
     'Both players see the circle, so it is a stated fact rather than a hidden setting.'
   );
 }

@@ -363,7 +363,7 @@ describe('placing a piece', () => {
     await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
     white.clear();
     await walked(stub);
-    white.send({ t: 'place', to: 'e4', pos: at('e3') });
+    white.send({ t: 'place', to: 'e4', pos: at('e4') });
     const moved = await white.next(
       (m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null,
     );
