@@ -3,10 +3,10 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history.*
 
-**Tree state**: committed to local `main`, **not pushed** — this container has no
-git write credentials (see the bundle section below). Commit `f19cab6` was handed
-to the operator as a bundle; the next thread should confirm it landed before
-building on it.
+**Tree state**: clean, and `main` matches `origin/main` at `8da0356`. The bundle
+handover worked — the container could not push, so 2026-09-06-02's two commits
+went to the operator as a bundle and they pushed them. Verified here by fetch,
+same hashes, zero ahead and zero behind.
 **Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
 seam, decision 0029) and now `2.3.1`/`2.3.2` (the UserDO proper) are done.
 **Next action**: `2.3.3.2` — move saved fields off local storage and onto the
@@ -549,6 +549,13 @@ git bundle verify <file>.bundle
 Do **not** amend or rebase to tidy up afterwards. It only changes hashes and
 invalidates a bundle already handed over — the same warning as the signing note
 below.
+
+**This worked, on 2026-09-06.** The operator pulled the bundle and pushed; a
+`git fetch` from the container then showed the same hashes with zero ahead and
+zero behind. So the route is proven rather than theoretical, and it costs about
+two minutes. Confirm with `git rev-list --left-right --count main...FETCH_HEAD`
+rather than assuming — the commits keep their hashes through a bundle, so a
+successful handover is exactly a fast-forward and is easy to check.
 
 ## If pushing ever 403s again: install the GitHub App
 
