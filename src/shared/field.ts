@@ -83,7 +83,15 @@ export interface FieldLineage {
 }
 
 export interface FieldOrigin extends FieldLineage {
-  /** How the copy arrived. Local only — never on the wire. */
+  /**
+   * How the copy arrived.
+   *
+   * Never in a **field link** — a link carries the lineage key and version and
+   * nothing else, so a recipient cannot tell how the sender came by it. It does
+   * reach the player's own account (stage 2.3.3.2), where it words their own
+   * home screen; that is a note to themselves about ground, and still says
+   * nothing about anybody (decision 0017).
+   */
   via: 'link' | 'game';
 }
 

@@ -4,205 +4,126 @@
 files hold the history.*
 
 **Tree state**: clean, pushed to `main`.
-**Active stage**: none — **phase 2 is under way**. `2.5.2` (the dev identity
-seam, decision 0029) and `2.3.1`/`2.3.2` (the UserDO proper) are done.
-**Next action**: `2.3.3.2` — move saved fields off local storage and onto the
-UserDO's `fields` table. The table, the object and the addressing exist; the
-store that writes to them does not.
-**Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local
-clone, at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
-**The field walk is done and its findings are folded in** (`1.9.3.4`,
-`1.9.3.5`). The headline: **reach is now the independent variable, measured in
-fractional squares** (decision 0031, reversing half of 0023). The field is fixed
-by the venue and the square is `length / 8`, so reach is the only end that can
-move — and it is a create-screen dial now. The walk also found the game was
-*already* degenerate: reach was `5 m + reported accuracy`, the phone never
-claimed better than 3.00 m, so ordinary play had 1.05 squares of reach and you
-could lift a piece from a square you were not on. Fixed, and **O-02 closed** with
-it.
-**Last session**: `harness/sessions/2026-09-07-01.md` (reach in squares).
-**Careful**: `check-invite.mjs` and friends were updated for the renamed
-controls but **no browser has run them** — playwright is not installed in the
-container. Run them on a machine that can before trusting the create screen.
+**Active stage**: none — **phase 2 is under way**. `2.3.3` is now done end to end:
+`2.5.2` (the dev identity seam), `2.3.1`/`2.3.2` (the UserDO) and `2.3.3.2`
+(saved fields on the account) all landed in consecutive sessions.
+**Next action**: `2.3.4` — the game index, which fills the UserDO's second table.
+Since decision 0025 a game may sit suspended for a month and **its join code is
+the only handle on it**, so this is load-bearing rather than bookkeeping.
+**Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local clone,
+at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
+**Last session**: `harness/sessions/2026-09-07-02.md` (fields onto the account).
+**Careful**: three browser drivers are written but **have never been run** —
+`check-invite.mjs` (updated for the renamed reach controls last session) and
+`check-fields.mjs` (new this session), plus the other `check-*.mjs` scripts were
+not audited for reach-sensitive positions. Playwright is not installed in the
+container. Run them on a machine that can.
 
 ## In one paragraph
 
-Phases 0 and 1 are done bar the walk, phase 3 is essentially complete, and
-**phase 4 is finished, server and client** — lift, carry, place, resign, draw,
-terminal detection, clock handover, the promotion picker, and optimistic local
-application. **You can now see your opponent walking**: `3.4` closed, so the
-relay is drawn as a dot that glides between fixes instead of jumping.
-**Scan-to-play works end to end.** `6.0` closed O-06 (the shell loads from
-`/j/CODE` and `/f/<blob>`, online and with the network cut), `6.1` built the
-invite (a code shown large as `ABC 123`, a QR encoder written here rather than
-fetched from a CDN — decision 0024 — and the OS share sheet), and `6.2.1`,
-`6.2.2`, `6.2.5` and `6.3` now make following one *arrive*: a phone that has
-never calibrated a field can scan a link, take a seat, and play on the creator's
-ground, because the field travels back with the seat. **611 tests pass, and
-`carry.test.ts` no longer flakes — O-09 and O-11 are both closed, and all three
-were races between a test and the Durable Object's own handlers.**
+Phases 0 and 1 are done bar `1.9.2` (PWA install on a phone) and `1.9.3.6` (what
+to become of the survey trace — keeping it is recommended). Phase 3 is
+essentially complete, **phase 4 is finished server and client**, **phase 5 is
+closed**, and **phase 6 is closed**: lift, carry, place, resign, draw, terminal
+detection, clock handover, the promotion picker, optimistic local application,
+both clocks on screen, pause and the thirty-day claim, invites by QR and share
+sheet, joining by code or link, and fields that travel in a URL. A whole game has
+been played through it in two browsers against a real `wrangler dev` — nine
+moves to an underpromotion. **658 tests pass.**
 
-**Phase 2 now has an account to hang things on.** `2.3.1` and `2.3.2` are done:
-`UserDO` is a real object addressed by `getByName(sub)`, holding `account`,
-`fields` and `game_index` tables, and `GET /api/me` brings an account into
-existence on first contact. Both feature tables are still empty on purpose —
-`2.3.3.2` fills `fields`, `2.3.4` fills `game_index`.
+**Phase 2 now has an account with things in it.** `UserDO` is addressed by
+`getByName(sub)`; `GET /api/me` brings an account into existence on first
+contact; and as of this session **saved fields live on it**. `POST /api/fields/sync`
+is the whole API for them — one round trip pushes what changed, names what was
+deleted, and returns the account's list — and the phone remains the primary store
+(decision 0013), with a journal of what the account has acknowledged deciding
+when a field may be deleted locally (decision 0032). A field now follows the
+account to a second phone, and a copy taken from a shared link or from a joined
+game reaches the account with no further code. `game_index` is still empty on
+purpose; `2.3.4` fills it.
 
-**The game is playable, and a whole game has been played through it.** Two
-browsers against a real `wrangler dev`: calibrate a field, create a game, join by
-code, both walk to their back ranks, then nine moves to a pawn on the seventh —
-`1.h4 g5 2.hxg5 a6 3.g6 a5 4.gxh7 a4 5.hxg8=N`, underpromoting to a knight
-through the picker.
+**Reach is the independent variable, measured in fractional squares** (decision
+0031, reversing half of 0023). The field is fixed by the venue and the square is
+`length / 8`, so reach is the only end that can move — and it is a create-screen
+dial. The field walk found the game was *already* degenerate: reach was
+`5 m + reported accuracy`, the phone never claimed better than 3.00 m, so
+ordinary play had 1.05 squares of reach and you could lift a piece from a square
+you were not standing on. Fixed, and **O-02 closed** with it.
 
-What is missing is reach, not plumbing. Phase 6 is now what decision 0015
-describes in both directions — you can hand someone a link and they can follow
-it — and `6.2` is closed: **the camera works where the browser allows it, and
-where it does not we ship nothing** (decision 0026). Android Chrome gets a real
-viewfinder through `BarcodeDetector`; an iPhone gets one sentence pointing at the
-Camera app, which reads a QR and offers the link in fewer taps than our own
-scanner would need. The bundle that fallback would have cost was measured, not
-guessed: jsQR is 45 KB gzipped against the whole app's 27 KB.
-
-**`6.4` closed the phase: a field is now a thing you can send.** `/f/<blob>`
-carries the whole field — twelve bytes of geometry, provenance, and a name — so
-opening one is arithmetic rather than a request, and it works on a phone with no
-signal and on a sign at the park. It arrives as a copy the recipient owns
-outright, which needed a screen it did not have: tapping a field now opens one
-that can share, rename, re-calibrate and **delete** it. Copies de-duplicate by
-lineage, so a re-calibration arrives as an improvement to the field you have
-rather than as a second entry beside it. **And the joiner keeps the field they
-played on** — decision 0027, the question `6.3` deliberately left open, answered
-yes and without asking. `scripts/check-field.mjs` is the seventh driver and the
-only one where both ends of a share are real: the QR is decoded out of a
-screenshot of the sender's screen and the URL that comes back is the one the
-receiver's browser is then pointed at.
-
-**The clock is done, and most of it was done before this session started.**
-`5.1`–`5.3` went in during phase 4, because a move cannot be applied without
-banking time, handing over and re-arming the flag — the code was written and
-tested and nobody marked the stages, so this file recommended "phase 5, the DO
-half is not written" for five sessions at a DO half that was written. Audited
-against the source on 2026-08-02; `harness/plan/05-clock.md` names the evidence
-per stage. What was genuinely missing was the client half, `5.4`, which is now
-written: both clocks on screen, ticking locally for zero messages, red under a
-minute, and a buzz and a beep for a phone that is in a pocket.
-`scripts/check-clock.mjs` proves the screen half in Chromium.
-
-**The board is no longer forced to be square (decision 0028).** The owner
-challenged two-tap calibration — four corners, not a diagonal — and the challenge
-held up under measurement: over 400 simulated calibrations at 3 m per tap, two
-taps misidentify **22.3%** of squares against four taps' **11.9%**, because two
-taps use half the available measurements. Calibration now walks the perimeter —
-a1, h1, h8, a8 — and fits a **least-squares affine** map, so a board can be a
-rectangle or a parallelogram laid into a real pitch. Verified for real by
-`scripts/check-calibrate.mjs` on a 12 x 6 m board, walked through the UI and then
-stood on square by square. Every field, game and link made before it still reads
-as the square board it was calibrated as.
-
-**`5.3.4` closed phase 5, and settled O-04 with it (decision 0025).** Either
-player may pause; the game freezes indefinitely, keeps the position, puts a
-carried piece back, and either player may resume by the back-rank handshake. The
-game records **who** stopped it, and after **30 days** the *other* player may
-claim the win by a button — never automatic, never expiring, and still
-overtakeable by an opponent who turns up on day 40 with an apology. Games are no
-longer deleted on any timer, and the three-way messaging was checked in two
-browsers against a real `wrangler dev`.
+**The board is not forced to be square** (decision 0028): calibration walks the
+perimeter — a1, h1, h8, a8 — and fits a least-squares affine map, so a board can
+be a rectangle or a parallelogram laid into a real pitch. Every field, game and
+link made before it still reads as the square board it was calibrated as.
 
 ## The field survey is walked — the news is good
 
 The riskiest assumption in the project — that consumer GPS can resolve 8 m
-squares on grass — now has real data against it (decision 0022). The operator
-walked the ten-step protocol on 2026-09-06 (`1.9.3.4` done, session
-`2026-09-06-03`): Android Chrome, 2008 fixes over 29 minutes, all steps.
-
-**The verdict, from `scripts/analyse-survey.mjs`:**
+squares on grass — has real data against it. The operator walked the ten-step
+protocol on 2026-09-06: Android Chrome, 2008 fixes over 29 minutes.
 
 - Static scatter while standing still: **0.2 m median**, 0.6 m worst — against a
   4 m half-square. The square does not flicker.
-- Claimed accuracy (±3.7 m) was pessimistic but **100% honest** — every fix
-  landed inside its own circle. The reach rule is sound, and currently generous.
+- Claimed accuracy (±3.7 m) was ~16x pessimistic but **100% honest** — every fix
+  landed inside its own circle, so the reach rule is sound.
 - **8 m squares refuse 0% of moves** and mis-highlight 0%, down to 6 m squares.
-- **The one finding worth acting on: 5.8 m calibration repeatability.** Two reads
-  of the same point four minutes apart differed by 5.8 m — bias wander over
-  minutes, an order of magnitude worse than the instantaneous scatter. A board
-  calibrated from one fix per corner inherits ~this offset for life.
 - Phantom distance while stationary: 0.1 km/h, far below the simulator's
-  predicted 19–32. The distance accumulator's anti-drift constants have slack.
+  predicted 19–32.
+- The one finding not acted on is **O-12**: the distance floor scales by claimed
+  accuracy rather than by observed scatter. Relaxing the anti-drift constants was
+  tried and reverted — `test/gps.test.ts` immediately produced 1525 m of phantom
+  distance per hour, because those tests model a phone whose error really is as
+  large as it claims. Distance is the currency of the game (decision 0019), so
+  over-counting is much worse than losing 9% of a walk.
 
-**`1.9.3.5` is where these land** (see `harness/sessions/2026-09-06-03.md` for
-the full output and the specifics): calibration should average several fixes per
-corner, the reach ceiling / handicap share should become multiples of square
-size (closing O-02), the anti-drift constants can relax, and the default square
-size gets decided (8 m is safe). The live trace
-`2026-09-06T23-10-47-510Z-ioop0u` is kept undeleted for that work and should be
-`DELETE`d once the numbers are in.
-
-`SURVEY_SECRET` was lost between sessions and overwritten this session — it is
-now `field-walk-2026-a7k3m9qx`, in wrangler (write-only) and the assistant
-memory dir. `1.9.2` (PWA install, wake lock on a real phone) is still todo — the
-operator was on a phone but did not run that check.
+Full numbers in `harness/sessions/2026-09-06-03.md` and decision 0031. The live
+trace `2026-09-06T23-10-47-510Z-ioop0u` is deliberately **kept** (`1.9.3.6`):
+O-12 and 0031 both want it as the baseline for a second handset, deletion is
+irreversible, and it is the only real GPS data the project has.
+`SURVEY_SECRET` is `field-walk-2026-a7k3m9qx`.
 
 ## What to do next, concretely
 
-The only half-finished thing is `2.1` groundwork ahead of its code — the OAuth
-client and both credentials exist, `src/worker/auth.ts` does not. See the
-2026-09-06-01 session file for the redirect-URI and test-user checks that come
-with it.
+**Build phase 2 bottom-up and leave the live Google round-trip until last.** Not
+operator-blocked any more — the console work is done — but still the riskiest to
+verify in a container.
 
-**Build phase 2 bottom-up and leave the live Google round-trip until last.** It
-is no longer operator-blocked — the console work is done — but it is still the
-riskiest to verify in a container, so it stays last:
+1. **`2.3.4` — the game index.** ← **start here.** The second table on the
+   UserDO, and the pattern is now set by `2.3.3.2`: validate at the boundary,
+   one endpoint, the phone never blocked on it. `2.3.4.1` lists suspended games
+   with the claim countdown (the snapshot already carries
+   `suspension.claimableInMs`; the index needs the same numbers without opening
+   the game). `2.3.4.2` offers to clear out old ones and **must never be able to
+   remove one that is still claimable** — `suspended_by` is already a column for
+   exactly that reason.
+2. **`2.3.5` — the permanent record**, over both tables. Metres walked is the
+   headline, not games played (decision 0019).
+3. **`2.5.1` — the sign-in gate.** Worth noting that field sync is inert until
+   this and `2.1` exist: nothing in the client establishes a session today except
+   the dev seam, so `POST /api/fields/sync` 401s in an ordinary browser and the
+   phone quietly stays local-only. That is the designed behaviour, not a bug, but
+   it does mean the feature is unexercised by real users until phase 2 finishes.
+4. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
+   the part that cannot be finished in a container. `src/worker/auth.ts` does not
+   exist; the OAuth client, both credentials and the redirect paths (decision
+   0030) do. Two checks the code session must not assume: that the registered
+   redirect URIs match whatever `auth.ts` uses, and that every player's Google
+   address is on the Testing-status consent screen's test-user list. See
+   `harness/sessions/2026-09-06-01.md`.
+5. **`2.4`** — KV namespace creation. Needs `wrangler` against the Cloudflare
+   API, so it is the operator's from the local clone.
 
-1. ~~**`2.5.2` — the dev and simulator test seam.**~~ **Done** (decision 0029).
-   `identityOf` in `src/worker/identity.ts` is the boundary every authenticated
-   route asks; `POST /api/dev/session` mints a session for any named `sub` behind
-   two locks, and `GET /api/me` reads it back. **A `sub` now exists without
-   Google**, which is the thing everything below was waiting for. `npm run dev`
-   switches it on; nothing to set up. Do **not** move that variable into
-   `.dev.vars` — `wrangler types` reads that file, and `npm run check` then
-   passes or fails depending on whether the developer has one.
-2. ~~**`2.3.1`, `2.3.2` — the UserDO proper.**~~ **Done** 2026-09-06.
-   `src/worker/user-schema.ts` holds the DDL (`account`, `fields`, `game_index`),
-   `src/worker/user-do.ts` is the object, and `userFor` in `index.ts` is the one
-   place a stub is derived from a `sub`. `GET /api/me` creates the account on
-   first contact, because `getByName` addressing leaves no sign-up step to hang
-   creation on. **Both tables are deliberately empty** — 3 and 4 below fill them.
-3. **`2.3.3.2` — saved fields onto the UserDO.** ← **start here.** A migration,
-   not a feature: `client/fields.ts` and `client/store.ts` already do save, list,
-   rename, re-calibrate and delete against local storage. `2.3.7.4`'s shared
-   copies land in the same migration — one, not two. Local storage does not stop
-   being the offline cache when this lands (decision 0013): a phone in a field
-   with no signal still has to open the board it calibrated. The `fields` table
-   carries a materialised `lineage_key` for `offerFor`'s de-duplication, because
-   `fieldKey()` falls back to the field's own id and so cannot be indexed as an
-   expression.
-4. **`2.3.4`, the game index.** Since decision 0025 a game can sit suspended for
-   a month and **its join code is the only handle on it**, which is what makes
-   this load-bearing rather than bookkeeping. `2.3.4.1` lists suspended games
-   with the claim countdown; `2.3.4.2` offers to clear out old ones and must
-   never be able to remove one that is still claimable. `suspended_by` is already
-   a column for exactly that reason.
-5. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
-   the part that cannot be finished in a container.
+Loose ends that are not stages:
 
-Blocked on the operator, in the same category as each other:
-
-- `2.1` — **no longer operator-blocked.** As of 2026-09-06 the Google OAuth
-  client exists, `GOOGLE_CLIENT_SECRET` is a Worker secret, and
-  `GOOGLE_CLIENT_ID` is in `wrangler.jsonc`. What remains is `src/worker/auth.ts`
-  plus two checks the code session must not assume: the OAuth client's
-  registered redirect URIs match whatever callback path `auth.ts` uses, and
-  every player's Google address is on the Testing-status consent screen's
-  test-user list. See `harness/sessions/2026-09-06-01.md`.
-- `2.4` — KV namespace creation. Not needed by the survey (that DO is
-  self-contained); needed by phase 2 auth, and does need `wrangler` against the
-  Cloudflare API, so it is the operator's from the local clone.
-- `1.9.3.4` — **done 2026-09-06.** The walk happened; findings above.
-- `1.9.3.5` — fold the findings back into square size and the reach constants.
-  **Not operator-blocked and not a gate** (decision 0023) — pure code now, with
-  the data in hand (`harness/sessions/2026-09-06-03.md`).
-- `1.9.2` — PWA install + wake lock on a real phone. Still todo; needs any phone,
-  not a field.
+- **Run the browser drivers on a machine with playwright.** `check-fields.mjs`
+  is new and unrun; `check-invite.mjs` was updated last session and unrun.
+- **`1.9.2`** — PWA install and wake lock, on the next convenient phone.
+- **This file is 600+ lines against its own "short by design" header.** The bulk
+  is "Things a new thread should know", which grows every session and is
+  therefore unbounded by construction — exactly what AGENTS.md section 4 says
+  should be a folder rather than a file. Moving it to `harness/reference/` would
+  leave a STATE.md that can actually be read at the start of a session. Not done
+  here because it is a large reorganisation in the middle of someone else's
+  stage; worth a session's opening ten minutes.
 
 ## Things a new thread should know before touching anything
 
@@ -370,6 +291,27 @@ Blocked on the operator, in the same category as each other:
   common leaves one field per game. `fieldKey()` in `shared/fieldlink.ts` is the
   one place it is computed, and it falls back to the field's own id so that a
   sender recognises their own link coming back.
+- **The field sync journal is not bookkeeping — it is the delete rule**
+  (decision 0032). `client/field-sync.ts` keeps two maps in `localStorage`:
+  `acked` (the `updatedAt` the account last confirmed for each field) and
+  `removed` (deletes not yet sent). A phone may remove a field locally **only**
+  when it appears in `acked` and is absent from the account's list; a field the
+  account has never acknowledged is one it has not caught up with, not one
+  deleted elsewhere. Delete the journal and the two cases become
+  indistinguishable, so a field deleted on one phone is pushed straight back by
+  the other, for ever. It is deliberately lossy in the safe direction: an empty
+  journal resurrects at worst and can never lose a live field.
+- **`lineage_key` is always the server's own answer, never the client's.**
+  `bindValuesFor` computes it with `fieldKey(spec)` on the way into SQLite. Taking
+  it from the request body would let a phone name any lineage it liked, and a
+  field could then pose as a newer version of somebody else's and be offered as
+  an update to it.
+- **A saved field is written to the phone first and to the account after, always**
+  (decision 0013, unchanged by 0032). Nothing in the sync path is awaited before a
+  screen is shown. `createFieldSync` returns the store every screen uses, so
+  calibrate, rename, re-calibrate, delete and "keep the field this game was on"
+  all sync without knowing synchronisation exists — and all of them work with no
+  session and no signal.
 - **h8 travels as decimetres of east and north, not as degrees.** A degree of
   longitude is a different distance at every latitude, so quantising degrees puts
   a square-size error into the link that varies with where on the planet you are.
@@ -417,6 +359,13 @@ Blocked on the operator, in the same category as each other:
   it except the creator's has never calibrated a field, which is the only way to
   tell a working join from one that merely renders. Run it after anything
   touching joining, routing, or the home screen.
+- **There is an eighth: `scripts/check-fields.mjs`**, and it is the first driver
+  that needs an **identity**. Two browser contexts are two phones belonging to one
+  person, signed in through the dev seam with `context.request` (which shares the
+  page's cookie jar — the only way a driver can establish a session before stage
+  2.1). It is the only check that can see the stage at all: a second phone is a
+  second store, and every unit test in the suite shares one. **Never run** —
+  playwright is not installed in the container.
 - **There is a seventh: `scripts/check-field.mjs`**, and it is the only one where
   **both ends of a share are real**. The QR is decoded out of a screenshot of the
   sender's screen with jsQR, and the URL that comes back out is the one the
@@ -481,7 +430,8 @@ npm install
 ```
 
 ```bash
-npm run build:client && npx wrangler dev --port 8799 --local   # the whole thing
+npm run dev                                                    # the whole thing, dev seam on
+npm run build:client && npx wrangler dev --port 8799 --local   # the same, no dev seam
 node scripts/build-client.mjs --serve                          # client only, :8788
 npm install --no-save playwright jsqr                          # then any driver
 node scripts/drive-game.mjs                                    # two phones, a game
@@ -492,6 +442,7 @@ node scripts/check-clock.mjs                                   # clocks, low tim
 node scripts/check-calibrate.mjs                               # four taps, a 12x6 board
 node scripts/check-scan.mjs                                    # camera, advice, camera released
 node scripts/check-field.mjs                                   # sharing a field, and keeping one
+node scripts/check-fields.mjs                                  # a field following the account (needs DEV_AUTH_SECRET)
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

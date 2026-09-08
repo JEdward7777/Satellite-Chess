@@ -30,6 +30,11 @@ import {
 import { GpsSimWorld, type SimGps, runSimClock } from './gps-sim.js';
 import { type JoinRejection, joinGame } from './join.js';
 import { type ScanSupport, browserScanEnv, detectScanSupport, scanAdvice } from './scan.js';
+import {
+  browserSyncTransport,
+  createFieldSync,
+  createLocalStorageJournal,
+} from './field-sync.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
@@ -112,13 +117,33 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const store = await createFieldStore();
+  // Local first, account second (decision 0013). The store the screens use
+  // writes to this phone and then, in the background and without being waited
+  // for, to the account — so a field is safe before anything has been asked of
+  // the network, and turns up on the player's other phone when there is one.
+  const fieldSync = createFieldSync({
+    store: await createFieldStore(),
+    journal: createLocalStorageJournal(),
+    transport: browserSyncTransport(),
+  });
+  const store = fieldSync.store;
 
   // Asked once, here, because the answer needs `await` and the home screen
   // repaints on every GPS fix — a check that far down would run several times a
   // second to produce the same constant. It cannot change while the page is open.
   const platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
   const scanning = await detectScanSupport(browserScanEnv());
+
+  /**
+   * Re-draw the home screen, when it is the screen being looked at.
+   *
+   * A sync can bring in a field calibrated on the player's other phone, or take
+   * away one deleted there, and the list was read once when the screen mounted.
+   * Null on every other screen, because nothing else reads the whole list and a
+   * board that redrew itself mid-game would be worse than a stale one.
+   */
+  let refreshHome: (() => void) | null = null;
+  fieldSync.onChange(() => refreshHome?.());
 
   /** Only one screen is mounted at a time, and each cleans up after itself. */
   let teardown: (() => void) | null = null;
@@ -140,8 +165,8 @@ async function boot(): Promise<void> {
     // the game. Home is not that game, and a reload here should not re-join one.
     forgetDeepLink();
     const fields = await store.list();
-    swap(() =>
-      mountHome(root, {
+    swap(() => {
+      const teardownHome = mountHome(root, {
         gps,
         fields,
         scanning,
@@ -151,8 +176,13 @@ async function boot(): Promise<void> {
         onNew: () => showCreate(fields),
         onJoin: (code) => showJoin(code),
         onScan: () => showScan(),
-      }),
-    );
+      });
+      refreshHome = () => void showHome();
+      return () => {
+        refreshHome = null;
+        teardownHome();
+      };
+    });
   };
 
   /**
@@ -434,6 +464,13 @@ async function boot(): Promise<void> {
       }),
     );
   }
+
+  // Deliberately not awaited. A field that has not arrived yet is a home screen
+  // with one fewer row on it; a home screen waiting on a request is a phone that
+  // looks broken in a park. `online` covers the ordinary case of a walk that
+  // started out of signal and ended in it.
+  fieldSync.schedule();
+  addEventListener('online', () => fieldSync.schedule());
 
   // A scanned QR, a shared link, or a reload of either: the path is the whole
   // instruction (stage 6.2.1). `parseAppRoute` is the same parser the Worker used

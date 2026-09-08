@@ -129,3 +129,20 @@ exists for bad ones. The real fix is to scale the floor by *observed* scatter �
 the accumulator already keeps a smoothing window it could measure from — which is
 a design change needing traces from more than one handset. Pairs with **O-03**,
 which wants a server-side lower bound on the same number.
+
+### O-13 — A field the server refuses is re-pushed on every sync, for ever
+**Spotted:** 2026-09-07, stage 2.3.3.2
+**Why it matters:** `syncOnce` decides what to push by comparing each field's
+`updatedAt` against the journal's `acked` entry, and a field the server rejected
+never gets an entry — so it is dirty for ever and rides along in every
+subsequent request. Deliberately so: the alternative, acking a field the account
+does not hold, would make the next sync mistake it for one deleted on another
+phone and delete it locally, which is the one outcome this whole design refuses.
+The cost is a few hundred bytes per sync on a phone holding a corrupt field, and
+`rejected` comes back on every response so nothing is silent.
+**Not doing yet because:** it needs a third state in the journal — "the account
+has seen this and will not take it" — and the only thing that can produce a
+rejected field today is a bug in our own writer or a hand-edited store. Worth
+doing if `rejected` ever turns out to be non-empty in practice; the fix is a
+`refused` map beside `acked`, holding the `updatedAt` that was turned down, so
+the field is re-offered when it changes and not before.

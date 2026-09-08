@@ -66,3 +66,5 @@ The conditions under which this should be reopened.
 | [0028](0028-four-corners-fitted-as-an-affine-board.md) | Four corners, fitted as an affine board | accepted (amends 0002) |
 | [0029](0029-a-dev-identity-seam-behind-two-locks.md) | A dev identity seam behind two locks | accepted |
 | [0030](0030-oauth-redirect-paths.md) | Fix the OAuth redirect path before the code that uses it | accepted |
+| [0031](0031-reach-is-the-independent-variable-measured-in-squares.md) | Reach is the independent variable, measured in squares | accepted (supersedes half of 0023) |
+| [0032](0032-fields-sync-by-journal-not-by-list.md) | Sync fields against a journal of what the account has acknowledged | accepted |

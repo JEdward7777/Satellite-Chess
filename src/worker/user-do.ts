@@ -33,17 +33,37 @@
  * read-cached "fields near me" listing (stage 2.3.6, where staleness is the
  * point). Neither is read immediately after being written by the same person.
  *
+ * ## The phone is still the primary store
+ *
+ * `fields` is a **replica, not the origin** (decision 0013). A field is saved on
+ * the phone the instant it is calibrated, with no account and no network, and
+ * this object is what makes it also appear on the player's second phone. That
+ * ordering is the whole reason the feature is safe to have: every failure here —
+ * no signal, no session, a 500 — costs synchronisation and never costs ground
+ * somebody walked.
+ *
+ * So {@link UserDO.syncFields} is the shape of the API rather than a REST
+ * resource per field. One round trip pushes what changed, names what was
+ * deleted, and returns the account's list, because the phone doing the calling
+ * is outdoors on one bar and every request is billed against a 100k/day budget.
+ *
  * ## What is not here yet
  *
- * The tables are real and documented in `user-schema.ts`; the behaviour that
- * fills them is still ahead. `2.3.3.2` moves saved fields off the phone's local
- * storage and onto `fields`, `2.3.4` populates `game_index`, and `2.3.5` builds
- * the permanent record over both. Metres walked is the headline figure there, not
- * games played (decision 0019).
+ * `2.3.4` populates `game_index`, and `2.3.5` builds the permanent record over
+ * both tables. Metres walked is the headline figure there, not games played
+ * (decision 0019).
  */
 
 import { DurableObject } from 'cloudflare:workers';
 
+import type { FieldSpec } from '../shared/field.js';
+import {
+  FIELD_COLUMNS,
+  type FieldRow,
+  MAX_FIELDS_PER_ACCOUNT,
+  bindValuesFor,
+  specFromRow,
+} from './user-fields.js';
 import { applyUserSchema } from './user-schema.js';
 
 /** The account, as anything outside the object sees it. */
@@ -85,6 +105,15 @@ export class UserDO extends DurableObject<Env> {
    * one that is always explicit.
    */
   async touch(sub: string, now: number = Date.now()): Promise<Account> {
+    return this.stamp(sub, now);
+  }
+
+  /**
+   * The create-or-update behind {@link touch}, so every entry point stamps the
+   * visit and re-checks the addressing invariant rather than only the one route
+   * that happens to be called first.
+   */
+  private stamp(sub: string, now: number): Account {
     const existing = this.read();
 
     if (existing === null) {
@@ -114,6 +143,101 @@ export class UserDO extends DurableObject<Env> {
   /** The account as stored, or null if this object has never been touched. */
   async account(): Promise<Account | null> {
     return this.read();
+  }
+
+  // -------------------------------------------------------------------------
+  // Saved fields (stage 2.3.3.2)
+  // -------------------------------------------------------------------------
+
+  /** Every field this account holds, most recently touched first. */
+  async listFields(): Promise<FieldSpec[]> {
+    return this.fields();
+  }
+
+  /**
+   * One round trip: apply what the phone has changed, then hand back the list.
+   *
+   * Takes the `sub` and stamps the account for the same reason `/api/me` does —
+   * with `getByName` addressing there is no sign-up step, so the first request
+   * from a new player may perfectly well be a sync, and it has to work rather
+   * than write fields into an account that does not exist.
+   *
+   * Pushes are applied before deletions so that a phone which renamed a field
+   * and then deleted it in the same offline stretch ends with it gone — the two
+   * cannot both be honoured and the later act is the one the player would
+   * remember making.
+   *
+   * The returned list is the whole truth rather than a diff, and that is what
+   * makes the client's merge simple enough to be correct: a field the phone
+   * holds, has already had acknowledged, and does not find in this list was
+   * deleted on another phone. A diff would need a cursor, and a cursor that
+   * skipped would delete somebody's fields.
+   */
+  async syncFields(
+    sub: string,
+    push: readonly FieldSpec[],
+    remove: readonly string[],
+    now: number = Date.now(),
+  ): Promise<{ account: Account; fields: FieldSpec[]; rejected: string[] }> {
+    const rejected: string[] = [];
+    let account!: Account;
+    // One transaction, so a phone that loses signal mid-request finds either all
+    // of its changes applied or none of them — and syncs again either way.
+    this.ctx.storage.transactionSync(() => {
+      account = this.stamp(sub, now);
+      for (const spec of push) {
+        if (!this.upsertField(spec)) rejected.push(spec.id);
+      }
+      for (const id of remove) {
+        this.sql.exec(`DELETE FROM fields WHERE id = ?`, id);
+      }
+    });
+    return { account, fields: this.fields(), rejected };
+  }
+
+  /**
+   * Write one field, newest wins. False when the account is full.
+   *
+   * Last-write-wins on `updated_at` rather than on arrival order, because
+   * arrival order is whichever phone reconnected first after a walk in the
+   * park, and that has nothing to do with which rename the player made second.
+   * The two phones are the same person, so there is no conflict to resolve
+   * beyond "which of my own edits is later".
+   */
+  private upsertField(spec: FieldSpec): boolean {
+    const [existing] = [
+      ...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fields WHERE id = ?`, spec.id),
+    ];
+    if (existing.n === 0 && this.fieldCount() >= MAX_FIELDS_PER_ACCOUNT) return false;
+
+    const columns = FIELD_COLUMNS.join(', ');
+    const placeholders = FIELD_COLUMNS.map(() => '?').join(', ');
+    // Everything except `id` and `created_at` is overwritten; the earliest
+    // creation stamp survives, because a copy taken on a second phone is the
+    // same field and did not come into existence twice.
+    const updates = FIELD_COLUMNS.filter((c) => c !== 'id' && c !== 'created_at')
+      .map((c) => `${c} = excluded.${c}`)
+      .join(', ');
+    this.sql.exec(
+      `INSERT INTO fields (${columns}) VALUES (${placeholders})
+         ON CONFLICT (id) DO UPDATE SET
+           ${updates},
+           created_at = MIN(fields.created_at, excluded.created_at)
+         WHERE excluded.updated_at >= fields.updated_at`,
+      ...bindValuesFor(spec),
+    );
+    return true;
+  }
+
+  private fieldCount(): number {
+    const [row] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fields`)];
+    return row.n;
+  }
+
+  private fields(): FieldSpec[] {
+    return [
+      ...this.sql.exec<FieldRow>(`SELECT * FROM fields ORDER BY updated_at DESC`),
+    ].map(specFromRow);
   }
 
   private read(): Account | null {

@@ -11,7 +11,7 @@
  * lands on one.
  */
 
-import { snapshotField } from '../shared/field.js';
+import { type FieldSpec, snapshotField } from '../shared/field.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import { isAppRoute } from '../shared/routes.js';
@@ -22,6 +22,7 @@ import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
 import { devAuthRoutes, identityOf } from './identity.js';
+import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
 import { apiError, json } from './http.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
@@ -111,6 +112,11 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return json({ ...identity, account });
   }
 
+  // Saved fields, off the phone and onto the account (stage 2.3.3.2).
+  if (path === '/api/fields/sync') {
+    return syncFields(request, env, url);
+  }
+
   if (path === '/api/game' && request.method === 'POST') {
     return createGame(request, env);
   }
@@ -155,6 +161,78 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
  */
 function userFor(env: Env, sub: string): DurableObjectStub<UserDO> {
   return env.USER.getByName(sub);
+}
+
+/**
+ * Synchronise this account's saved fields (stage 2.3.3.2).
+ *
+ * **One endpoint, not a REST resource per field**, and the reason is the phone
+ * this runs on: outdoors, on one bar, against a 100k/day request budget. A push
+ * of what changed, a list of what was deleted, and the account's whole list
+ * coming back is one request for the commonest case — nothing changed — and one
+ * request for the worst.
+ *
+ * The client is untrusted here in the ordinary way, and in one particular way
+ * worth naming: `lineage_key` is computed by the server from the field's own
+ * provenance, never taken from the body, because a chosen lineage key would let
+ * a field pose as a newer version of somebody else's and be offered as an
+ * update to it.
+ *
+ * A field that fails validation is **dropped rather than failing the batch**.
+ * One corrupt row on a phone must not be able to stop every other field from
+ * ever reaching the account; the ids come back in `rejected` so the client can
+ * say so rather than retry in silence.
+ */
+async function syncFields(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    // The phone treats this as "local only" rather than as a failure: fields
+    // live on it whether or not anyone is signed in (decision 0013).
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+
+  const body = await readJson(request);
+  if (body === null) return apiError('bad_message', 'Expected a JSON body.', 400);
+
+  const pushed = asArray(body.push);
+  const removed = asArray(body.remove);
+  if (pushed === null || removed === null) {
+    return apiError('bad_message', '`push` and `remove` must be arrays.', 400);
+  }
+  if (pushed.length > MAX_FIELDS_PER_ACCOUNT || removed.length > MAX_FIELDS_PER_ACCOUNT) {
+    return apiError(
+      'too_many_fields',
+      `A sync carries at most ${MAX_FIELDS_PER_ACCOUNT} fields.`,
+      413,
+    );
+  }
+
+  const push: FieldSpec[] = [];
+  const rejected: string[] = [];
+  for (const candidate of pushed) {
+    const spec = asFieldSpec(candidate);
+    if (spec !== null) {
+      push.push(spec);
+      continue;
+    }
+    // Best effort at naming it. An id we cannot read is one the client cannot
+    // act on either, so an empty entry would be noise.
+    const id = asId((candidate as { id?: unknown } | null)?.id);
+    if (id !== null) rejected.push(id);
+  }
+
+  const remove: string[] = [];
+  for (const candidate of removed) {
+    const id = asId(candidate);
+    if (id !== null) remove.push(id);
+  }
+
+  const result = await userFor(env, identity.sub).syncFields(identity.sub, push, remove);
+  return json({ fields: result.fields, rejected: [...rejected, ...result.rejected] });
 }
 
 /**
@@ -272,6 +350,11 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
   } catch {
     return null;
   }
+}
+
+function asArray(value: unknown): unknown[] | null {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : null;
 }
 
 function asPlayerId(value: unknown): string | null {
