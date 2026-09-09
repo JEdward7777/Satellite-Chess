@@ -10,3 +10,5 @@ otherwise have to rediscover.
 | [`platform-verified.md`](platform-verified.md) | Cloudflare behaviour actually tested, with the probe results |
 | [`budget.md`](budget.md) | The request-budget arithmetic that drives the architecture |
 | [`geometry.md`](geometry.md) | The field maths, and the reachability numbers that killed the single-instant rule |
+| [`gotchas.md`](gotchas.md) | What will bite you when you touch the code — read before changing anything unfamiliar |
+| [`container.md`](container.md) | Node, wrangler, git credentials and signing inside the build container |

@@ -100,22 +100,41 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
       including two accounts not seeing each other's ground), and by hand
       against `wrangler dev`. **`scripts/check-fields.mjs` is written but has
       never been run** — playwright is not installed in the container.
-  - `2.3.4` todo: Game index, for a cross-device resumable game list
-    Until this exists, **a paused game is reachable only by its join code**, which
-    matters more since decision 0025 — a game may now sit suspended for a month and
-    the code is the only handle on it. Say so on the pause screen if the index is
-    still missing when `5.3.4` ships to real players.
-    - `2.3.4.1` todo: The index must list suspended games, showing who stopped each
+  - `2.3.4` done: Game index, for a cross-device resumable game list
+    Until this existed, **a paused game was reachable only by its join code**,
+    which matters more since decision 0025 — a game may sit suspended for a month
+    and the code was the only handle on it.
+    Done 2026-09-08, as **decision 0033**: the index is written by `GameDO` over
+    the `USER` binding at every state change, and by nothing else. No endpoint
+    lets a client write a row, which is what makes these rows worth building
+    `2.3.5`'s permanent record on. `GET /api/games` lists them without waking a
+    single game — the columns are denormalised for exactly that — and
+    `POST /api/games/forget` is the only way one goes away.
+    **It needed `3.5.2` to be true rather than merely listed**: a seat matched on
+    a phone's UUID makes this a list you can read and not enter, because the
+    second phone is a third player. The seat key is now the `sub` whenever the
+    request carried a session.
+    Verified by `test/worker/games.test.ts` (19 tests in `workerd`: the push, the
+    two-phone seat, one account's games invisible to another, gc removing a row,
+    and every refusal), `test/game-index.test.ts` and `test/game-list.test.ts` in
+    node, and by hand against a real `wrangler dev` — two cookies for one `sub`,
+    a third account seeing nothing, and the client's own transport bundled and
+    run in node against that server.
+    - `2.3.4.1` done: The index lists suspended games, showing who stopped each
       one and how long is left before the other player may claim (decision 0025).
-      The snapshot already carries `suspension.claimableInMs`; the index needs the
-      same numbers without opening the game.
-    - `2.3.4.2` todo: Clearing out old games is an **offer, never a timer**
-      (decision 0025). A prompt — shown when the index has grown, not on a
-      schedule — suggesting finished and long-dead games to remove, with the
-      player choosing. A game the player wants to keep lasts forever. Nothing
-      server-side ever deletes a played game, so this UI is the only path by which
-      one goes away, and it must never be able to remove a game that is merely
-      suspended and still claimable.
+      `claimStateFor` in `src/shared/game-index.ts` is the shared rule, and it is
+      the same one `GameDO.suspensionFor` uses, so the countdown on the home
+      screen and the countdown inside the game cannot disagree. The list says it
+      from **both** sides: the player who paused is told their opponent's month is
+      running, which their own `claimableInMs` is zero for and which is the thing
+      they most need telling.
+    - `2.3.4.2` done: Clearing out old games is an **offer, never a timer**
+      (decision 0025). `mountTidy` is reached from a button home shows only once
+      six or more games are removable, nothing is ticked to begin with, and
+      `forgetIsRefused` — shared, so the client never offers what the server would
+      refuse — allows only `finished` and `waiting`. A suspended game is never
+      removable however long it has sat: the row is the only handle on a game that
+      can still be claimed or resigned, and those are its exits.
   - `2.3.5` todo: The permanent record — games played, results, total distance
     walked, biggest field, longest carry, and fields played on. This is the reason
     accounts are mandatory, so it is a first-class feature rather than a stats

@@ -381,8 +381,45 @@ h2 {
   color: var(--poor);
 }
 
-.fields li[role="button"] {
+.fields li[role="button"],
+.games li[role="button"] {
   cursor: pointer;
+}
+
+/*
+ * "Your games" (stage 2.3.4). The same list shape as the fields above it,
+ * because to a player they are the same gesture — a list of things on this
+ * screen that you tap to get back into.
+ */
+.games {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.games li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/*
+ * The code, set in a monospace face and spaced out. It is read aloud across a
+ * field, so the thing that matters is telling an 8 from a B at arm's length.
+ */
+.game-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+
+/* The tidy-up list is a form, so its rows are labels rather than buttons. */
+.games label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 
 /*

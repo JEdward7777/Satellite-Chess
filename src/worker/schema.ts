@@ -12,7 +12,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -27,6 +27,21 @@ const STATEMENTS = [
      field_snapshot_json TEXT    NOT NULL,
      white_player_id     TEXT,
      black_player_id     TEXT,
+     -- The account each seat accrues to, or NULL for a seat held by a phone
+     -- that is not signed in. Schema 3, stage 2.3.4.
+     --
+     -- Today, for a signed-in seat, this holds the same string as the matching
+     -- *_player_id: since stage 3.5.2 the seat key IS the Google sub when the
+     -- request carried a session. They are nevertheless two different questions,
+     -- and collapsing them would lose the one that matters here. A player id is
+     -- "who holds this seat", which every game has; this is "which account this
+     -- game accrues to", which a game played before stage 2.5.1 lands may
+     -- perfectly well not have. It is the only thing that tells the game whether
+     -- it has a UserDO to write an index row into — a seat key that is really a
+     -- phone's UUID addresses an account that does not exist, and writing to it
+     -- would invent one.
+     white_account       TEXT,
+     black_account       TEXT,
      -- The clock. Never held in memory: an object that hibernates has to
      -- reconstruct it from these three columns on every wake.
      white_ms_remaining  INTEGER NOT NULL,
@@ -171,6 +186,15 @@ function upgradeGameTable(sql: SqlStorage): void {
   // default", which is what a pre-schema-2 game was played by anyway.
   if (!columns.has('reach_json')) {
     sql.exec(`ALTER TABLE game ADD COLUMN reach_json TEXT`);
+  }
+
+  // Schema 3: which account each seat accrues to (stage 2.3.4). NULL for every
+  // game that predates it, which is the correct answer rather than a missing
+  // one — those seats were taken by a phone with no session behind it, so there
+  // is no account whose index they belong in. A game in progress when this
+  // deploys keeps working and simply never appears in anybody's list.
+  for (const column of ['white_account', 'black_account']) {
+    if (!columns.has(column)) sql.exec(`ALTER TABLE game ADD COLUMN ${column} TEXT`);
   }
 }
 

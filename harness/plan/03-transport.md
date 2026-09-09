@@ -73,13 +73,21 @@ the field. No chess yet — proving the plumbing in isolation.
       air, which is the only honest staleness signal — silence means still.
   - `3.4.4` done: Persist last known position in `presence` for reconnect
 
-- `3.5` active: HTTP routes (`src/worker/index.ts`)
+- `3.5` done: HTTP routes (`src/worker/index.ts`)
+  Closed 2026-09-08 by `3.5.2`, the last child.
   - `3.5.1` done: `POST /api/game` create, `GET /api/game/:code` peek,
     `GET /api/game/:code/ws` upgrade
-  - `3.5.2` todo: Player identity. The route takes a `playerId` and trusts it,
-    which is fine while nothing is deployed publicly and is exactly what stage
-    2.5 closes. Decision 0014 makes this the authenticated Google `sub`; the
-    original "anonymous, no login" wording is superseded.
+  - `3.5.2` done: Player identity. Decision 0014 makes this the authenticated
+    Google `sub`; the original "anonymous, no login" wording is superseded.
+    Done 2026-09-08 alongside `2.3.4`, which needs it: `seatFor` in `index.ts` is
+    the one rule — a session names the player, and the body's `playerId` is
+    honoured only when there is none — and it is applied identically at create,
+    join and the WebSocket upgrade, because a game joined as an account and
+    reconnected to as a phone answers "not a player in this game".
+    The remaining hole is the signed-out case, which is trusted exactly as before
+    and which `2.5.1` closes by requiring sign-in to play. The `sub` never
+    reaches the opponent: `PlayerView` carries a colour, a connection and a
+    position, and no identifier.
   - `3.5.3` done: Static assets for everything else, SPA fallback
 
 - `3.6` active: Garbage collection

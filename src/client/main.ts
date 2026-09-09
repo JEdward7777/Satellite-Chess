@@ -13,6 +13,7 @@ import {
   snapshotField,
 } from '../shared/field.js';
 import { decodeFieldLink } from '../shared/fieldlink.js';
+import type { ListedGame } from '../shared/game-index.js';
 import { fromLocal } from '../shared/geo.js';
 import { formatJoinCode } from '../shared/joincode.js';
 import { parseAppRoute } from '../shared/routes.js';
@@ -35,12 +36,14 @@ import {
   createFieldSync,
   createLocalStorageJournal,
 } from './field-sync.js';
+import { type GamesTransport, browserGamesTransport } from './games.js';
 import { createFieldStore, getPlayerId } from './store.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
+import { gameItemHtml, homeGames, mountTidy, shouldOfferTidy } from './views/games.js';
 import { mountInvite } from './views/invite.js';
 import { mountJoinFailed, mountJoining } from './views/join.js';
 import { mountScan } from './views/scan.js';
@@ -128,6 +131,10 @@ async function boot(): Promise<void> {
   });
   const store = fieldSync.store;
 
+  // The game index (stage 2.3.4). Nothing is cached and nothing is merged: the
+  // game owns these rows and the phone only ever reads them (decision 0033).
+  const games: GamesTransport = browserGamesTransport();
+
   // Asked once, here, because the answer needs `await` and the home screen
   // repaints on every GPS fix — a check that far down would run several times a
   // second to produce the same constant. It cannot change while the page is open.
@@ -164,11 +171,16 @@ async function boot(): Promise<void> {
     // The URL keeps whatever brought us here, so a reload from the board resumes
     // the game. Home is not that game, and a reload here should not re-join one.
     forgetDeepLink();
-    const fields = await store.list();
+    // Both awaited together: the fields come off this phone in a millisecond and
+    // the games come off the network, and waiting for them one after the other
+    // would hold the home screen behind a request that is allowed to fail.
+    const [fields, listed] = await Promise.all([store.list(), games.list()]);
+    const myGames = listed.kind === 'ok' ? listed.games : [];
     swap(() => {
       const teardownHome = mountHome(root, {
         gps,
         fields,
+        games: myGames,
         scanning,
         platform,
         onCalibrate: () => showCalibrate(),
@@ -176,6 +188,7 @@ async function boot(): Promise<void> {
         onNew: () => showCreate(fields),
         onJoin: (code) => showJoin(code),
         onScan: () => showScan(),
+        onTidy: () => showTidy(myGames),
       });
       refreshHome = () => void showHome();
       return () => {
@@ -198,6 +211,24 @@ async function boot(): Promise<void> {
         platform,
         onCode: (code) => showJoin(code),
         onCancel: () => void showHome(),
+      }),
+    );
+  }
+
+  /**
+   * The tidy-up offer (stage 2.3.4.2).
+   *
+   * Reached only from the button home shows once the list has grown, never on a
+   * schedule and never as a prompt somebody has to dismiss (decision 0025).
+   */
+  function showTidy(listed: ListedGame[]): void {
+    swap(() =>
+      mountTidy(root, {
+        games: listed,
+        onForget: (joinCodes) => games.forget(joinCodes),
+        // Straight back to a freshly fetched home rather than to the list this
+        // screen was built from, which is now wrong by exactly what it removed.
+        onDone: () => void showHome(),
       }),
     );
   }
@@ -510,6 +541,8 @@ function forgetDeepLink(): void {
 interface HomeDeps {
   gps: GpsProvider;
   fields: FieldSpec[];
+  /** This account's games, or empty when signed out or off the air. */
+  games: ListedGame[];
   /** Whether this browser can read a QR from inside a page (stage 6.2.3). */
   scanning: ScanSupport;
   platform: Platform;
@@ -518,6 +551,7 @@ interface HomeDeps {
   onNew(): void;
   onJoin(joinCode: string): void;
   onScan(): void;
+  onTidy(): void;
 }
 
 /**
@@ -542,6 +576,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         <dd data-distance>${formatDistance(state.distanceM)}</dd>
       </dl>
       ${state.error ? `<p class="notice" data-error="${state.error.code}">${state.error.message}</p>` : ''}
+      ${gamesSectionHtml(deps)}
       <h2>Your fields</h2>
       <ul class="fields" data-fields>
         ${deps.fields.map(fieldItem).join('')}
@@ -593,6 +628,14 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       deps.onJoin(typed);
     });
     root.querySelector<HTMLButtonElement>('[data-scan]')?.addEventListener('click', deps.onScan);
+    root.querySelector<HTMLButtonElement>('[data-tidy]')?.addEventListener('click', deps.onTidy);
+    // Tapping a game is the same act as typing its code, so it goes down the
+    // same path: `showJoin` re-takes the seat, which is idempotent, and works
+    // identically on the phone that started the game and on the player's other
+    // one (stage 3.5.2).
+    for (const item of root.querySelectorAll<HTMLElement>('[data-game]')) {
+      item.addEventListener('click', () => deps.onJoin(item.dataset.game as string));
+    }
     for (const item of root.querySelectorAll<HTMLElement>('[data-field]')) {
       item.addEventListener('click', () => {
         const field = deps.fields.find((f) => f.id === item.dataset.field);
@@ -606,6 +649,34 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     unsubscribe();
     root.innerHTML = '';
   };
+}
+
+/**
+ * "Your games", or nothing at all (stage 2.3.4).
+ *
+ * Absent rather than empty when there is nothing to show, and that covers three
+ * different situations on purpose: no games yet, not signed in, and no signal.
+ * All three are states in which the honest thing to say is nothing — a heading
+ * over an empty list would read as "your games have gone", which for a player
+ * who paused one last week is alarming and wrong. The list is an addition to the
+ * home screen, and its failure mode is being the home screen that was there
+ * before it existed.
+ */
+function gamesSectionHtml(deps: HomeDeps): string {
+  const shown = homeGames(deps.games);
+  if (shown.length === 0) return '';
+  const now = Date.now();
+  return `
+    <h2>Your games</h2>
+    <ul class="games" data-games>
+      ${shown.map((game) => gameItemHtml(game, now)).join('')}
+    </ul>
+    ${
+      shouldOfferTidy(deps.games)
+        ? `<p><button data-tidy class="secondary">Tidy up old games</button></p>`
+        : ''
+    }
+  `;
 }
 
 /**

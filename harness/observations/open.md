@@ -146,3 +146,37 @@ rejected field today is a bug in our own writer or a hand-edited store. Worth
 doing if `rejected` ever turns out to be non-empty in practice; the fix is a
 `refused` map beside `acked`, holding the `updatedAt` that was turned down, so
 the field is re-offered when it changes and not before.
+
+### O-14 — Nothing drives the game list on the home screen
+**Spotted:** 2026-09-08, stage 2.3.4
+**Why it matters:** The list, the countdown wording and the tidy-up screen are
+covered as pure functions (`test/game-list.test.ts`) and the whole server side is
+covered in `workerd` (`test/worker/games.test.ts`), but the DOM in between is
+covered by nothing. The specific things unverified: that tapping a row reaches
+`showJoin` with the right code, that the tidy screen's checkboxes drive
+`onForget`, and that the section is *absent* rather than an empty heading when a
+phone is signed out — which is the state every real browser is in until `2.5.1`,
+so it is the state most people would see first.
+**Not doing yet because:** playwright is not installed in the container, and
+there are already two written-but-never-run drivers (`check-fields.mjs`,
+`check-invite.mjs`). Writing a third unrun driver adds to a pile rather than to
+the evidence. The moment any of them can be run, this is worth `check-games.mjs`
+alongside them: sign in through the dev seam in two contexts, create a game in
+one, and assert it appears on the other's home screen.
+
+### O-15 — Signing in mid-game makes a player their own opponent
+**Spotted:** 2026-09-08, stage 3.5.2
+**Why it matters:** The seat key is now the `sub` when a request carries a
+session and the body's `playerId` when it does not (decision 0033). A player who
+creates a game signed out, then signs in and reopens the link, is no longer
+recognised — `colorOf` is matching a `sub` against a stored UUID — so the join
+takes the *other* seat and one person holds both. The game is then unplayable and
+the only recourse is a new code.
+**Not doing yet because:** the window is narrow and closes on its own. It needs
+sessions to exist *and* sign-in not to be required, which is the gap between
+`2.1`/`2.2` and `2.5.1`; today nothing in a real browser establishes a session at
+all, so only the dev seam can reach it. **This must be closed before or with
+`2.5.1`** — either by requiring sign-in before a game may be created, which is
+what that stage is, or by adopting the seat: if a signed-in request carries a
+`playerId` that matches a seat with no account on it, take that seat over
+(rewriting `presence` with it) rather than looking for a free one.

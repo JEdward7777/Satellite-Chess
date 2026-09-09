@@ -31,6 +31,7 @@ import {
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
 import { type FieldSnapshot, geometryFromSnapshot } from '../shared/field.js';
+import type { GameIndexUpdate } from '../shared/game-index.js';
 import {
   DEFAULT_REACH,
   type ReachConfig,
@@ -67,6 +68,12 @@ interface SocketAttachment {
 export interface CreateGameOptions {
   joinCode: string;
   creatorPlayerId: string;
+  /**
+   * The account the creator's seat accrues to, or null for a phone with no
+   * session behind it. Only a seat with one gets a line in a game index
+   * (stage 2.3.4).
+   */
+  creatorAccount?: string | null;
   /** The colour the creator takes; the joiner gets the other. */
   creatorColor: Color;
   field: FieldSnapshot;
@@ -86,6 +93,8 @@ interface GameRow {
   field_snapshot_json: string;
   white_player_id: string | null;
   black_player_id: string | null;
+  white_account: string | null;
+  black_account: string | null;
   white_ms_remaining: number;
   black_ms_remaining: number;
   increment_ms: number;
@@ -225,20 +234,24 @@ export class GameDO extends DurableObject<Env> {
     const white = options.creatorColor === 'w' ? options.creatorPlayerId : null;
     const black = options.creatorColor === 'b' ? options.creatorPlayerId : null;
 
+    const account = options.creatorAccount ?? null;
+
     this.sql.exec(
       `INSERT INTO game (
          id, join_code, status, fen, field_snapshot_json,
-         white_player_id, black_player_id,
+         white_player_id, black_player_id, white_account, black_account,
          white_ms_remaining, black_ms_remaining, increment_ms,
          active_color, last_clock_start_at,
          white_reach_bonus_sq, black_reach_bonus_sq, reach_json,
          rev, created_at, updated_at
-       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
+       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
       options.joinCode,
       STARTING_FEN,
       JSON.stringify(options.field),
       white,
       black,
+      options.creatorColor === 'w' ? account : null,
+      options.creatorColor === 'b' ? account : null,
       clock.whiteMs,
       clock.blackMs,
       clock.incrementMs,
@@ -258,6 +271,12 @@ export class GameDO extends DurableObject<Env> {
     // An unclaimed code must not linger. If nobody joins, this object deletes
     // itself and stops existing, which frees the code and keeps the account tidy.
     await this.timers.schedule('gc', now + UNCLAIMED_GAME_TTL_MS);
+
+    // Indexed from the moment it exists, before anybody has joined. That is the
+    // case the index is most needed for: a code created, shared, and then lost
+    // when the tab closed is otherwise unrecoverable even by the person who made
+    // it (stage 2.3.4).
+    await this.syncIndex(now);
     return true;
   }
 
@@ -273,7 +292,10 @@ export class GameDO extends DurableObject<Env> {
    * arrived. The game already carries the creator's field; the joiner only ever
    * needed to be told what it is.
    */
-  async join(playerId: string): Promise<
+  async join(
+    playerId: string,
+    account: string | null = null,
+  ): Promise<
     | { ok: true; color: Color; field: FieldSnapshot }
     | { ok: false; reason: 'not_found' | 'full' }
   > {
@@ -281,7 +303,14 @@ export class GameDO extends DurableObject<Env> {
     if (game === null) return { ok: false, reason: 'not_found' };
 
     const existing = this.colorOf(game, playerId);
-    if (existing !== null) return { ok: true, color: existing, field: this.fieldOf(game) };
+    if (existing !== null) {
+      // Re-entering a seat this player already holds. The line is re-sent rather
+      // than skipped, because the commonest way to arrive here is a phone
+      // opening a game it has not seen for a month — and that account may have
+      // no line for this game at all.
+      await this.syncIndex(Date.now(), existing);
+      return { ok: true, color: existing, field: this.fieldOf(game) };
+    }
 
     const free: Color | null =
       game.white_player_id === null ? 'w' : game.black_player_id === null ? 'b' : null;
@@ -290,9 +319,10 @@ export class GameDO extends DurableObject<Env> {
     const now = Date.now();
     this.sql.exec(
       free === 'w'
-        ? `UPDATE game SET white_player_id = ?, updated_at = ? WHERE id = 1`
-        : `UPDATE game SET black_player_id = ?, updated_at = ? WHERE id = 1`,
+        ? `UPDATE game SET white_player_id = ?, white_account = ?, updated_at = ? WHERE id = 1`
+        : `UPDATE game SET black_player_id = ?, black_account = ?, updated_at = ? WHERE id = 1`,
       playerId,
+      account,
       now,
     );
     this.sql.exec(`INSERT INTO presence (player_id, color) VALUES (?, ?)`, playerId, free);
@@ -305,6 +335,9 @@ export class GameDO extends DurableObject<Env> {
     await this.timers.cancel('gc');
     this.bumpRev();
     this.broadcastState();
+    // Both seats now have lines: the joiner's is new, and the creator's says
+    // `staging` rather than `waiting`.
+    await this.syncIndex(now);
     return { ok: true, color: free, field: this.fieldOf(game) };
   }
 
@@ -658,6 +691,8 @@ export class GameDO extends DurableObject<Env> {
       now,
     );
     await this.armFlag();
+    // A resume clears the suspension, so the countdown has to leave the list too.
+    await this.syncIndex(now);
   }
 
   /**
@@ -988,6 +1023,10 @@ export class GameDO extends DurableObject<Env> {
     // kilobytes, so a timer that deletes someone's history saves nothing and
     // costs them the only record of an afternoon.
     await this.timers.cancel('gc');
+
+    // The result is the one thing the index most needs to be right about: it is
+    // what makes the row removable, and what stage 2.3.5's record is built from.
+    await this.syncIndex(now);
   }
 
   // -------------------------------------------------------------------------
@@ -1040,6 +1079,9 @@ export class GameDO extends DurableObject<Env> {
     this.clearCarry();
     this.bumpRev();
     this.broadcastState();
+    // The transition the index exists for: from here the game may sit for a
+    // month with nothing but its join code to find it by (decision 0025).
+    await this.syncIndex(now);
   }
 
   /**
@@ -1237,6 +1279,143 @@ export class GameDO extends DurableObject<Env> {
   }
 
   // -------------------------------------------------------------------------
+  // The game index (stage 2.3.4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Tell each player's account what this game has become.
+   *
+   * The game writes the index; the phone never does (decision 0033). That is
+   * what makes a listed result worth trusting, and it is why this lives here
+   * rather than in a route the client could call.
+   *
+   * **Called at state changes, not at moves.** A push is a request against the
+   * 100k/day budget, and a game is forty moves long: indexing every one would
+   * double the cost of playing in order to keep a line up to date that nobody
+   * reads while they are looking at the board. So it is called when a game is
+   * created, joined, started, suspended, resumed or finished — the transitions
+   * that change what the line *says* — and `lastMoveAt` rides along with
+   * whichever of those happens next.
+   *
+   * Failure is swallowed. An account that cannot be reached costs a line in a
+   * list; a throw here would cost the move that triggered it, on a phone in a
+   * field, and the index is not worth that. The digest is only written after a
+   * push succeeds, so the next transition tries again.
+   *
+   * `forceColor` re-sends one seat's line even when nothing has changed. Taking
+   * a seat again is the one moment worth that: it is the signal that somebody is
+   * looking at this game, and it is the only thing that puts the line back if
+   * the account has no row for it — because they tidied it away, or because a
+   * push failed once and the next transition is a month off.
+   */
+  private async syncIndex(now: number = Date.now(), forceColor?: Color): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+
+    for (const color of ['w', 'b'] as const) {
+      const account = color === 'w' ? game.white_account : game.black_account;
+      // No account, no line. A seat held by a phone that is not signed in
+      // addresses a `UserDO` that does not exist, and writing to it would
+      // invent an account for a UUID (stage 2.5.1 removes this case).
+      if (account === null) continue;
+
+      const update = this.indexUpdate(game, color);
+      // Deterministic by construction — every field comes from a stored column —
+      // so an unchanged game pushes nothing. Without this, reopening a finished
+      // game would re-send the same line every time somebody looked at it.
+      const digest = JSON.stringify(update);
+      if (color !== forceColor && this.meta(`index_${color}`) === digest) continue;
+
+      try {
+        await this.env.USER.getByName(account).recordGame(account, update, now);
+        this.setMeta(`index_${color}`, digest);
+      } catch (error) {
+        console.error('game index push failed', error);
+      }
+    }
+  }
+
+  /** One seat's line, entirely out of stored columns so that it never drifts. */
+  private indexUpdate(game: GameRow, color: Color): GameIndexUpdate {
+    const outcome = game.result_outcome as ResultOutcome | null;
+    return {
+      joinCode: game.join_code,
+      color,
+      status: game.status,
+      // From the snapshot rather than from the account's own field list: the
+      // game is played on the field as it was when the game was made, and a
+      // re-calibration since must not rewrite the name of an old afternoon.
+      fieldName: this.fieldName(game),
+      lastMoveAt: this.lastMoveAt(),
+      suspendedAt: game.suspended_at,
+      suspendedBy: game.suspended_by,
+      result:
+        outcome === null || game.result_at === null
+          ? null
+          : {
+              outcome,
+              reason: game.result_reason as ResultReason,
+              at: game.result_at,
+            },
+      updatedAt: game.updated_at,
+    };
+  }
+
+  private fieldName(game: GameRow): string | null {
+    try {
+      return this.fieldOf(game).name;
+    } catch {
+      // A malformed snapshot costs the line its label, not the line.
+      return null;
+    }
+  }
+
+  private lastMoveAt(): number | null {
+    const [row] = [
+      ...this.sql.exec<{ at: number | null }>(`SELECT MAX(server_ms) AS at FROM moves`),
+    ];
+    return row?.at ?? null;
+  }
+
+  /**
+   * Take this game out of both players' lists, because it is about to stop
+   * existing.
+   *
+   * Only garbage collection calls this, and garbage collection only ever
+   * reaches a game nobody joined: a played game is never deleted server-side
+   * (decision 0025). Leaving the row would leave a code in somebody's list that
+   * resolves to nothing, which is worse than a short list.
+   */
+  private async dropIndex(): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    for (const account of [game.white_account, game.black_account]) {
+      if (account === null) continue;
+      try {
+        await this.env.USER.getByName(account).dropGame(game.join_code);
+      } catch (error) {
+        console.error('game index drop failed', error);
+      }
+    }
+  }
+
+  private meta(key: string): string | null {
+    const [row] = [
+      ...this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = ?`, key),
+    ];
+    return row?.value ?? null;
+  }
+
+  private setMeta(key: string, value: string): void {
+    this.sql.exec(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      key,
+      value,
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Alarm
   // -------------------------------------------------------------------------
 
@@ -1333,6 +1512,7 @@ export class GameDO extends DurableObject<Env> {
 
     this.bumpRev();
     this.broadcastState();
+    await this.syncIndex(now);
   }
 
   /**
@@ -1356,6 +1536,9 @@ export class GameDO extends DurableObject<Env> {
    * gone.
    */
   private async collect(): Promise<void> {
+    // Before `deleteAll`, because after it there is no game row to read the
+    // accounts out of.
+    await this.dropIndex();
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.close(1001, 'game expired');

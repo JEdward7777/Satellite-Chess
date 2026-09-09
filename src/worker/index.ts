@@ -21,8 +21,10 @@ import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
-import { devAuthRoutes, identityOf } from './identity.js';
+import { devAuthRoutes, type Identity, identityOf } from './identity.js';
 import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
+import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
+import { byMostWanted, listedGame } from '../shared/game-index.js';
 import { apiError, json } from './http.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
@@ -117,8 +119,16 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return syncFields(request, env, url);
   }
 
+  // The game index (stage 2.3.4): what am I playing, and what did I play?
+  if (path === '/api/games') {
+    return listGames(request, env, url);
+  }
+  if (path === '/api/games/forget') {
+    return forgetGames(request, env, url);
+  }
+
   if (path === '/api/game' && request.method === 'POST') {
-    return createGame(request, env);
+    return createGame(request, env, url);
   }
 
   // `/api/game/:code` and `/api/game/:code/ws`
@@ -135,13 +145,13 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     const stub = env.GAME.getByName(code);
 
     if (match[2] === '/ws') {
-      return openSocket(request, stub);
+      return openSocket(request, env, url, stub);
     }
     if (request.method === 'GET') {
       return json(await stub.peek());
     }
     if (request.method === 'POST') {
-      return joinGame(request, stub);
+      return joinGame(request, env, url, stub);
     }
     return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
   }
@@ -161,6 +171,105 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
  */
 function userFor(env: Env, sub: string): DurableObjectStub<UserDO> {
   return env.USER.getByName(sub);
+}
+
+/**
+ * Who is taking this seat (stage 3.5.2).
+ *
+ * **A session wins over the body, always.** The `playerId` a client sends is a
+ * UUID it made up on first run, which was the right answer while there were no
+ * accounts and is the wrong one now: it belongs to a *phone*, so a game resumed
+ * on a second phone would find both seats taken by strangers. When there is a
+ * session, the seat key is the Google `sub` (decision 0014), which is the same
+ * on every phone the player owns — and is what makes stage 2.3.4's game index a
+ * list you can act on rather than a list you can only read.
+ *
+ * The `sub` is never shown to the opponent: `PlayerView` carries a colour, a
+ * connection and a position, and no identifier at all.
+ *
+ * `account` is null for a seat with no session behind it, and that is a real
+ * state until stage 2.5.1 makes sign-in mandatory: the game still plays, and it
+ * simply never appears in anybody's index.
+ */
+function seatFor(identity: Identity | null, body: unknown): { seat: string | null; account: string | null } {
+  if (identity !== null) return { seat: identity.sub, account: identity.sub };
+  return { seat: asPlayerId(body), account: null };
+}
+
+/**
+ * The account's game index (stage 2.3.4).
+ *
+ * A pure read of denormalised rows: no game is woken, which is the whole reason
+ * the rows are denormalised. Ten games would otherwise be ten Durable Object
+ * requests every time somebody opened the app.
+ *
+ * The claim countdown is computed here rather than stored, because it is a
+ * function of the clock and the row would be wrong the moment it was written.
+ * The client re-computes it too, from the same shared rule.
+ */
+async function listGames(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'GET') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+  const entries = await userFor(env, identity.sub).listGames();
+  const now = Date.now();
+  // Sorted here rather than in SQL: "most wanted" puts a game still in play
+  // above a finished one whatever the dates say, and that is a rule about what
+  // the list is *for* rather than a property of a column.
+  return json({
+    games: [...entries].sort(byMostWanted).map((entry) => listedGame(entry, now)),
+    now,
+  });
+}
+
+/**
+ * Forget games, at the player's request (stage 2.3.4.2).
+ *
+ * An offer and never a timer (decision 0025): nothing server-side ever deletes a
+ * played game, so this route is the only path by which one leaves a list, and it
+ * refuses any game that is not over. The refusals come back named rather than as
+ * a 400 for the batch — a player tidying up ten games should not have the whole
+ * gesture fail because one of them turned out to be suspended.
+ */
+async function forgetGames(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+
+  const body = await readJson(request);
+  if (body === null) return apiError('bad_message', 'Expected a JSON body.', 400);
+  const asked = asArray(body.joinCodes);
+  if (asked === null) {
+    return apiError('bad_message', '`joinCodes` must be an array.', 400);
+  }
+  if (asked.length > MAX_GAMES_PER_ACCOUNT) {
+    return apiError(
+      'too_many_games',
+      `At most ${MAX_GAMES_PER_ACCOUNT} games can be forgotten at once.`,
+      413,
+    );
+  }
+
+  const joinCodes: string[] = [];
+  for (const candidate of asked) {
+    // Normalised first, so a code read off a screen and typed back — with an O
+    // for a 0 — addresses the row it was meant to. `asJoinCode` is the shape
+    // check behind it; a code that is not a code is simply not in the index.
+    const code = normaliseJoinCode(typeof candidate === 'string' ? candidate : '');
+    const usable = asJoinCode(code);
+    if (usable !== null) joinCodes.push(usable);
+  }
+
+  const result = await userFor(env, identity.sub).forgetGames(joinCodes);
+  return json(result);
 }
 
 /**
@@ -242,11 +351,12 @@ async function syncFields(request: Request, env: Env, url: URL): Promise<Respons
  * "generate a code, ask that object to initialise itself, and if it is already
  * taken try another".
  */
-async function createGame(request: Request, env: Env): Promise<Response> {
+async function createGame(request: Request, env: Env, url: URL): Promise<Response> {
   const body = await readJson(request);
   if (body === null) return apiError('bad_message', 'Expected a JSON body.', 400);
 
-  const playerId = asPlayerId(body.playerId);
+  const identity = await identityOf(request, env, url);
+  const { seat: playerId, account } = seatFor(identity, body.playerId);
   if (playerId === null) {
     return apiError('bad_message', 'A playerId is required.', 400);
   }
@@ -270,6 +380,7 @@ async function createGame(request: Request, env: Env): Promise<Response> {
     const created = await env.GAME.getByName(joinCode).create({
       joinCode,
       creatorPlayerId: playerId,
+      creatorAccount: account,
       creatorColor,
       field,
       initialMs,
@@ -295,14 +406,20 @@ async function createGame(request: Request, env: Env): Promise<Response> {
   );
 }
 
-async function joinGame(request: Request, stub: DurableObjectStub<GameDO>): Promise<Response> {
+async function joinGame(
+  request: Request,
+  env: Env,
+  url: URL,
+  stub: DurableObjectStub<GameDO>,
+): Promise<Response> {
   const body = await readJson(request);
-  const playerId = body === null ? null : asPlayerId(body.playerId);
+  const identity = await identityOf(request, env, url);
+  const { seat: playerId, account } = seatFor(identity, body?.playerId);
   if (playerId === null) {
     return apiError('bad_message', 'A playerId is required.', 400);
   }
 
-  const result = await stub.join(playerId);
+  const result = await stub.join(playerId, account);
   if (result.ok) {
     // The field travels back with the seat (stage 6.3). A phone that arrived by
     // scanning a QR has calibrated nothing, and this is the only thing it is
@@ -322,15 +439,26 @@ async function joinGame(request: Request, stub: DurableObjectStub<GameDO>): Prom
  * `Response` carrying a `webSocket` cannot be serialised across the RPC boundary.
  *
  * The player id arrives as a query parameter rather than a body, because the
- * WebSocket handshake is a GET. Phase 2 replaces this with the authenticated
- * session — until then it is trusted, which is fine while nothing is deployed
- * publicly and is exactly what stage 2.5 exists to close.
+ * WebSocket handshake is a GET. It is only consulted when there is no session:
+ * since stage 3.5.2 an authenticated request is seated by its `sub` and the
+ * parameter is ignored, so the trusted-client hole is open only for a phone that
+ * has not signed in — which stage 2.5.1 closes for good.
  */
-async function openSocket(request: Request, stub: DurableObjectStub<GameDO>): Promise<Response> {
+async function openSocket(
+  request: Request,
+  env: Env,
+  url: URL,
+  stub: DurableObjectStub<GameDO>,
+): Promise<Response> {
   if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
     return apiError('bad_message', 'This endpoint requires a WebSocket upgrade.', 426);
   }
-  const playerId = asPlayerId(new URL(request.url).searchParams.get('playerId'));
+  // The same rule as the seat itself: a session names the player, and the query
+  // parameter is only what a signed-out phone has instead. They have to agree,
+  // or a game joined as an account would be reconnected to as a phone and the
+  // object would answer "not a player in this game".
+  const identity = await identityOf(request, env, url);
+  const { seat: playerId } = seatFor(identity, url.searchParams.get('playerId'));
   if (playerId === null) {
     return apiError('bad_message', 'A playerId is required.', 400);
   }

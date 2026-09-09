@@ -47,16 +47,30 @@
  * deleted, and returns the account's list, because the phone doing the calling
  * is outdoors on one bar and every request is billed against a 100k/day budget.
  *
+ * ## The game index is written by the game, never by the phone
+ *
+ * `fields` and `game_index` arrive here from opposite directions, and the
+ * asymmetry is deliberate (decision 0033). A field is the phone's, pushed up by
+ * its owner; an index entry is the *game's*, pushed in by `GameDO` over the
+ * `USER` binding when a game changes state. There is no endpoint that lets a
+ * client write one, which is what makes these rows worth building `2.3.5`'s
+ * permanent record on: a result the player could POST to themselves would be a
+ * record of what they felt like claiming.
+ *
  * ## What is not here yet
  *
- * `2.3.4` populates `game_index`, and `2.3.5` builds the permanent record over
- * both tables. Metres walked is the headline figure there, not games played
- * (decision 0019).
+ * `2.3.5` builds the permanent record over both tables. Metres walked is the
+ * headline figure there, not games played (decision 0019).
  */
 
 import { DurableObject } from 'cloudflare:workers';
 
 import type { FieldSpec } from '../shared/field.js';
+import {
+  type GameIndexEntry,
+  type GameIndexUpdate,
+  forgetIsRefused,
+} from '../shared/game-index.js';
 import {
   FIELD_COLUMNS,
   type FieldRow,
@@ -64,6 +78,13 @@ import {
   bindValuesFor,
   specFromRow,
 } from './user-fields.js';
+import {
+  GAME_INDEX_COLUMNS,
+  type GameIndexRow,
+  MAX_GAMES_PER_ACCOUNT,
+  bindValuesFor as gameBindValuesFor,
+  entryFromRow,
+} from './user-games.js';
 import { applyUserSchema } from './user-schema.js';
 
 /** The account, as anything outside the object sees it. */
@@ -232,6 +253,126 @@ export class UserDO extends DurableObject<Env> {
   private fieldCount(): number {
     const [row] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fields`)];
     return row.n;
+  }
+
+  // -------------------------------------------------------------------------
+  // The game index (stage 2.3.4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record what a game has become, for the seat this account holds in it.
+   *
+   * Called by `GameDO`, never by a route — see the note at the head of this file
+   * and decision 0033. The `sub` is passed and stamped for the same reason
+   * `syncFields` takes one: with `getByName` addressing there is no sign-up
+   * step, so a player's very first act may be to create a game, and this may
+   * therefore be the request that brings their account into existence.
+   *
+   * Returns false only when the index is full and this is a game it has never
+   * heard of. The game does not retry and must not: it is mid-move on a field,
+   * and an index line is not worth failing a move over.
+   */
+  async recordGame(
+    sub: string,
+    entry: GameIndexUpdate,
+    now: number = Date.now(),
+  ): Promise<boolean> {
+    let recorded = false;
+    this.ctx.storage.transactionSync(() => {
+      this.stamp(sub, now);
+      const [existing] = [
+        ...this.sql.exec<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM game_index WHERE join_code = ?`,
+          entry.joinCode,
+        ),
+      ];
+      if (existing.n === 0 && this.gameCount() >= MAX_GAMES_PER_ACCOUNT) return;
+
+      // `joined_at` is stamped here and never again: it is when this account
+      // sat down, and every write after the first is the same seat being
+      // described again by a game that has long since forgotten the moment.
+      // Everything else is the game's current answer and wins.
+      const columns = GAME_INDEX_COLUMNS.join(', ');
+      const placeholders = GAME_INDEX_COLUMNS.map(() => '?').join(', ');
+      const updates = GAME_INDEX_COLUMNS.filter((c) => c !== 'join_code')
+        .map((c) => `${c} = excluded.${c}`)
+        .join(', ');
+      this.sql.exec(
+        `INSERT INTO game_index (${columns}, joined_at) VALUES (${placeholders}, ?)
+           ON CONFLICT (join_code) DO UPDATE SET ${updates}`,
+        ...gameBindValuesFor(entry),
+        now,
+      );
+      recorded = true;
+    });
+    return recorded;
+  }
+
+  /**
+   * The game itself has ceased to exist, so the pointer to it should too.
+   *
+   * Only `GameDO.collect` calls this, and only for a code nobody ever joined —
+   * a played game is never deleted server-side (decision 0025). Unconditional,
+   * because unlike {@link forgetGames} this is not a player choosing to lose a
+   * row: the row is already pointing at nothing.
+   */
+  async dropGame(joinCode: string): Promise<void> {
+    this.sql.exec(`DELETE FROM game_index WHERE join_code = ?`, joinCode);
+  }
+
+  /** Every game this account has a seat in. */
+  async listGames(): Promise<GameIndexEntry[]> {
+    return this.games();
+  }
+
+  /**
+   * Forget games at the player's request (stage 2.3.4.2).
+   *
+   * The refusal lives here rather than in the route, because this is the only
+   * place that knows what a row actually says. Clearing out old games is an
+   * offer and never a timer (decision 0025), and the offer must never be able to
+   * take away a game that is not over — `forgetIsRefused` is the one statement
+   * of that rule and it is shared with the client, so the button is not offered
+   * for a row the server would refuse anyway.
+   *
+   * A code that is not in the index counts as forgotten. The player asked for it
+   * to be gone and it is gone; reporting "no such game" would be true and
+   * useless.
+   */
+  async forgetGames(
+    joinCodes: readonly string[],
+  ): Promise<{ forgotten: string[]; kept: { joinCode: string; reason: string }[] }> {
+    const forgotten: string[] = [];
+    const kept: { joinCode: string; reason: string }[] = [];
+    this.ctx.storage.transactionSync(() => {
+      for (const joinCode of joinCodes) {
+        const [row] = [
+          ...this.sql.exec<GameIndexRow>(
+            `SELECT * FROM game_index WHERE join_code = ?`,
+            joinCode,
+          ),
+        ];
+        const refusal = row === undefined ? null : forgetIsRefused(entryFromRow(row));
+        if (refusal !== null) {
+          kept.push({ joinCode, reason: refusal });
+          continue;
+        }
+        this.sql.exec(`DELETE FROM game_index WHERE join_code = ?`, joinCode);
+        forgotten.push(joinCode);
+      }
+    });
+    return { forgotten, kept };
+  }
+
+  private gameCount(): number {
+    const [row] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM game_index`)];
+    return row.n;
+  }
+
+  private games(): GameIndexEntry[] {
+    return [
+      ...this.sql.exec<GameIndexRow>(`SELECT * FROM game_index ORDER BY updated_at DESC`),
+    ].map(entryFromRow);
   }
 
   private fields(): FieldSpec[] {
