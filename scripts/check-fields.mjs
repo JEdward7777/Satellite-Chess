@@ -38,6 +38,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v = 'true'] = a.replace(/^--/, '').split('=');
@@ -93,7 +95,7 @@ const consoleErrors = [];
 async function phone(label) {
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
   const page = await context.newPage();
-  page.on('console', (m) => m.type() === 'error' && consoleErrors.push(`${label}: ${m.text()}`));
+  page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`${label}: ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`${label}: ${e}`));
   return { label, context, page };
 }
@@ -150,6 +152,30 @@ async function nudge({ page }) {
  * a closure would not survive: `{ includes }` for a name that must appear,
  * `{ empty: true }` for a list that must go away.
  */
+/**
+ * Wait until the **account** reflects what the other phone just did.
+ *
+ * The rename and the delete are saved locally and synced afterwards, unawaited —
+ * decision 0013's ordering, and the whole reason the feature is safe. So a
+ * driver that nudges the *first* phone the instant the second one's button is
+ * clicked is racing the push, and the first phone syncs correctly against a
+ * server that has not been told yet.
+ *
+ * That failure blames the product for a harness bug, which this project has
+ * been caught by before (observation O-07). Waiting on the account rather than
+ * sleeping is the fix: it is the actual precondition, so it cannot be too short
+ * on a slow machine or wastefully long on a fast one.
+ */
+async function waitForAccount(phone, predicate, label) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (predicate(await accountFields(phone))) return true;
+    await phone.page.waitForTimeout(250);
+  }
+  console.log(`    (gave up waiting for the account to ${label})`);
+  return false;
+}
+
 async function waitForFields({ page }, want) {
   try {
     await page.waitForFunction(
@@ -238,6 +264,11 @@ try {
   await two.page.fill('[data-name]', 'Riverside, north end');
   await two.page.click('[data-rename]');
   await two.page.waitForSelector('[data-rename]', { timeout: 15_000 });
+  await waitForAccount(
+    two,
+    (fields) => fields.some((f) => f.name.includes('north end')),
+    'hold the new name',
+  );
   await nudge(one);
   check(
     await waitForFields(one, { includes: 'north end' }),
@@ -246,8 +277,15 @@ try {
   await one.page.screenshot({ path: `${OUT}/3-renamed.png`, fullPage: true });
 
   console.log('\n5. A delete on one removes it from the other, and stays deleted');
+  // Two taps, not one: the delete arms itself and re-labels rather than opening
+  // a `confirm()` (`views/field.ts`), which is deliberate — a suppressed dialog
+  // would make a delete silently do nothing — and which a driver written but
+  // never run had no way of discovering.
+  await two.page.click('[data-delete]');
+  await two.page.waitForSelector('[data-delete][data-armed="yes"]', { timeout: 15_000 });
   await two.page.click('[data-delete]');
   await two.page.waitForSelector('[data-calibrate]', { timeout: 15_000 });
+  await waitForAccount(two, (fields) => fields.length === 0, 'let the field go');
   await nudge(one);
   check(
     await waitForFields(one, { empty: true }),
@@ -283,7 +321,10 @@ try {
   });
   check((await accountFields(two)).length === 1, 'the walker has a field again');
   await stranger.page.goto(`${ORIGIN}/?sim=1`, { waitUntil: 'domcontentloaded' });
-  await stranger.page.waitForSelector('[data-fields]', { timeout: 15_000 });
+  // `attached`, not the default `visible`: this phone is *supposed* to have no
+  // fields, and an empty `<ul>` has no height, so waiting for it to be visible
+  // waits for the one outcome this step exists to rule out.
+  await stranger.page.waitForSelector('[data-fields]', { state: 'attached', timeout: 15_000 });
   await stranger.page.waitForTimeout(1500);
   check((await accountFields(stranger)).length === 0, 'the stranger’s account is empty');
   check((await listed(stranger)).length === 0, 'and so is their home screen');

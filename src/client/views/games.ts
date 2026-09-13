@@ -40,6 +40,26 @@ import type { Color } from '../../shared/squares.js';
 export const FINISHED_SHOWN = 3;
 
 /**
+ * How many games the home screen shows before it offers to show the rest.
+ *
+ * **Home is not the list; home is the way into a game.** Below this section sit
+ * the saved fields, "Calibrate a new field", "New game" and the join-code box —
+ * the things somebody standing in a park actually came here to tap. An
+ * uncapped list pushes all of them off the screen, which a screenshot made
+ * obvious and no unit test could: the first version capped only *finished*
+ * games and let live ones run on for ever.
+ *
+ * That is not a hypothetical pile. A suspended game can never be tidied away —
+ * its row is the only handle on a game that can still be claimed or resigned —
+ * so games nobody came back to accumulate permanently, by design. Five is about
+ * what fits above the fold on a phone alongside the readout.
+ *
+ * Capped, not truncated: everything is one tap away, and the tap does not leave
+ * the screen.
+ */
+export const HOME_SHOWN = 5;
+
+/**
  * When to offer to tidy up.
  *
  * An offer and never a timer (decision 0025), and the trigger is that the list
@@ -166,15 +186,24 @@ function reasonWords(reason: ResultReason): string {
 }
 
 /**
- * The list as home shows it: everything still going, then the last few results.
+ * The list as home shows it: everything still going, then the last few results,
+ * and at most {@link HOME_SHOWN} of them unless the player asks for the rest.
  *
  * Order comes from the server, which sorts live games above finished ones; this
- * only decides how much of the tail to draw.
+ * only decides how much of the tail to draw. A game still going is never dropped
+ * in favour of a finished one — the cap bites on the end of the list, and the
+ * end of the list is the part that is over.
  */
-export function homeGames(games: readonly ListedGame[]): ListedGame[] {
+export function homeGames(games: readonly ListedGame[], all = false): ListedGame[] {
   const live = games.filter((game) => game.status !== 'finished');
   const finished = games.filter((game) => game.status === 'finished');
-  return [...live, ...finished.slice(0, FINISHED_SHOWN)];
+  const shown = [...live, ...finished.slice(0, all ? finished.length : FINISHED_SHOWN)];
+  return all ? shown : shown.slice(0, HOME_SHOWN);
+}
+
+/** How many games home is not showing, so it can offer them. */
+export function hiddenGameCount(games: readonly ListedGame[]): number {
+  return games.length - homeGames(games).length;
 }
 
 /**

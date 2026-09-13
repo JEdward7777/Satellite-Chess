@@ -196,3 +196,26 @@ clamps both numbers with the shared `clampReachSquares` / `clampHandicapSquares`
 which is the server-side cap the 2026-08-01 update asked for — a hand-rolled
 `POST /api/game` can no longer ask for a reach the UI would refuse to offer.
 
+
+### O-14 — Nothing drives the game list on the home screen
+**Opened:** 2026-09-08, stage 2.3.4. **Closed:** 2026-09-13.
+
+`scripts/check-games.mjs` is the ninth browser driver and covers exactly the gap
+the observation named: a signed-out phone shows **no section at all** rather than
+an empty heading, a game started on one phone appears on another phone of the
+same account, the line leads with the ground and carries the grouped code,
+**tapping it takes the same seat** on the phone that did not start the game
+(which is stage 3.5.2 as much as 2.3.4), a stranger lists nothing, and the
+tidy-up offer appears only once the list has grown, starts with nothing ticked,
+and removes exactly what was chosen.
+
+It could be written because the reason it had been deferred stopped being true.
+Playwright was never installed in the build containers, and every session had
+recorded that as a standing fact; this session was on the operator's own machine,
+where `PLAYWRIGHT_BROWSERS_PATH` puts chromium in one folder under `~/.cache`
+with no root and no system change. The recipe is in `reference/container.md`.
+
+Writing it also paid for itself immediately, in the way the project keeps
+predicting: the first screenshot showed seven games pushing every control on the
+home screen past the bottom of the page. That produced the `HOME_SHOWN` cap and
+**O-16**, and neither was visible to any unit test.

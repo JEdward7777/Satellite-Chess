@@ -46,6 +46,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v = 'true'] = a.replace(/^--/, '').split('=');
@@ -80,7 +82,7 @@ const check = (ok, label, detail = '') => {
 function watch(page) {
   const log = { errors: [], notFound: [], requests: [] };
   page.on('console', (msg) => {
-    if (msg.type() === 'error') log.errors.push(msg.text());
+    if (isRealConsoleError(msg)) log.errors.push(msg.text());
   });
   page.on('pageerror', (error) => log.errors.push(String(error)));
   page.on('request', (req) => log.requests.push(new URL(req.url()).pathname));

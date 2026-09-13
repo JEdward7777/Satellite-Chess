@@ -42,6 +42,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const require = createRequire(import.meta.url);
 let jsQR;
 try {
@@ -118,7 +120,7 @@ async function newPhone(name, { fields = [] } = {}) {
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const page = await context.newPage();
-  page.on('console', (m) => m.type() === 'error' && consoleErrors.push(`[${name}] ${m.text()}`));
+  page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`[${name}] ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`[${name}] ${e}`));
   await page.addInitScript(
     ({ seeded, playerId }) => {

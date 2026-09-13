@@ -11,11 +11,11 @@ and now `2.3.4` (the game index) landed in four consecutive sessions.
 tables. Metres walked is the headline, not games played (decision 0019).
 **Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local clone,
 at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
-**Last session**: `harness/sessions/2026-09-08-01.md` (the game index).
-**Careful**: three browser drivers are written but **have never been run** —
-`check-invite.mjs`, `check-fields.mjs`, and the other `check-*.mjs` scripts were
-not audited for reach-sensitive positions. Playwright is not installed in the
-container. Run them on a machine that can.
+**Last session**: `harness/sessions/2026-09-13-01.md` (the driver backlog).
+**Verified in a browser**: all **eleven** drivers pass as of 2026-09-13, the
+first time any had been run since 2026-08-03. Playwright installs without root
+into `~/.cache/satellite-chess/playwright` — recipe in `reference/container.md`.
+Keep them passing: they are the only thing that looks at the DOM.
 
 ## Where the detail lives
 
@@ -120,7 +120,8 @@ verify in a container.
 
 Loose ends that are not stages:
 
-- **Run the browser drivers on a machine with playwright.** `check-fields.mjs`
-  and `check-invite.mjs` have never been run. **Nothing drives the game list on
-  the home screen either** — see O-14.
+- **O-16 — the home screen's ordering.** Two lists that grow without bound sit
+  above the controls a player came to tap; measured, "New game" crosses the fold
+  at three games. The game list is capped, which bounds the half this stage
+  introduced; the rest wants a deliberate session, not a tail end of one.
 - **`1.9.2`** — PWA install and wake lock, on the next convenient phone.

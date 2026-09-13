@@ -43,7 +43,14 @@ import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
-import { gameItemHtml, homeGames, mountTidy, shouldOfferTidy } from './views/games.js';
+import {
+  HOME_SHOWN,
+  gameItemHtml,
+  hiddenGameCount,
+  homeGames,
+  mountTidy,
+  shouldOfferTidy,
+} from './views/games.js';
 import { mountInvite } from './views/invite.js';
 import { mountJoinFailed, mountJoining } from './views/join.js';
 import { mountScan } from './views/scan.js';
@@ -561,6 +568,15 @@ interface HomeDeps {
  * it is worth walking out a board at all.
  */
 function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
+  /**
+   * Whether the games list is showing everything.
+   *
+   * Lives out here rather than in `paint`, because `paint` runs again on every
+   * GPS fix — several times a second — and a flag inside it would collapse the
+   * list under somebody's thumb.
+   */
+  let allGames = false;
+
   const paint = (state: GpsState) => {
     const fix = state.fix;
     root.innerHTML = `
@@ -576,7 +592,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         <dd data-distance>${formatDistance(state.distanceM)}</dd>
       </dl>
       ${state.error ? `<p class="notice" data-error="${state.error.code}">${state.error.message}</p>` : ''}
-      ${gamesSectionHtml(deps)}
+      ${gamesSectionHtml(deps, allGames)}
       <h2>Your fields</h2>
       <ul class="fields" data-fields>
         ${deps.fields.map(fieldItem).join('')}
@@ -629,6 +645,10 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     });
     root.querySelector<HTMLButtonElement>('[data-scan]')?.addEventListener('click', deps.onScan);
     root.querySelector<HTMLButtonElement>('[data-tidy]')?.addEventListener('click', deps.onTidy);
+    root.querySelector<HTMLButtonElement>('[data-more]')?.addEventListener('click', () => {
+      allGames = !allGames;
+      paint(deps.gps.state);
+    });
     // Tapping a game is the same act as typing its code, so it goes down the
     // same path: `showJoin` re-takes the seat, which is idempotent, and works
     // identically on the phone that started the game and on the player's other
@@ -662,15 +682,27 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
  * home screen, and its failure mode is being the home screen that was there
  * before it existed.
  */
-function gamesSectionHtml(deps: HomeDeps): string {
-  const shown = homeGames(deps.games);
+function gamesSectionHtml(deps: HomeDeps, all: boolean): string {
+  const shown = homeGames(deps.games, all);
   if (shown.length === 0) return '';
   const now = Date.now();
+  const hidden = hiddenGameCount(deps.games);
   return `
     <h2>Your games</h2>
     <ul class="games" data-games>
       ${shown.map((game) => gameItemHtml(game, now)).join('')}
     </ul>
+    ${
+      // Expanded in place rather than on a screen of its own. The whole problem
+      // being solved is that this section pushes the rest of home out of reach,
+      // and a second screen would be a heavier answer to "show me the other
+      // two" than the question deserves.
+      hidden > 0
+        ? `<p><button data-more class="secondary">Show ${hidden} more game${hidden === 1 ? '' : 's'}</button></p>`
+        : all && deps.games.length > HOME_SHOWN
+          ? `<p><button data-more class="secondary">Show fewer</button></p>`
+          : ''
+    }
     ${
       shouldOfferTidy(deps.games)
         ? `<p><button data-tidy class="secondary">Tidy up old games</button></p>`

@@ -45,6 +45,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const require = createRequire(import.meta.url);
 let jsQR;
 try {
@@ -111,7 +113,7 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 const consoleErrors = [];
-page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
+page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(m.text()));
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
 await page.addInitScript(

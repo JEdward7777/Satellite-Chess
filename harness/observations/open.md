@@ -147,23 +147,6 @@ doing if `rejected` ever turns out to be non-empty in practice; the fix is a
 `refused` map beside `acked`, holding the `updatedAt` that was turned down, so
 the field is re-offered when it changes and not before.
 
-### O-14 — Nothing drives the game list on the home screen
-**Spotted:** 2026-09-08, stage 2.3.4
-**Why it matters:** The list, the countdown wording and the tidy-up screen are
-covered as pure functions (`test/game-list.test.ts`) and the whole server side is
-covered in `workerd` (`test/worker/games.test.ts`), but the DOM in between is
-covered by nothing. The specific things unverified: that tapping a row reaches
-`showJoin` with the right code, that the tidy screen's checkboxes drive
-`onForget`, and that the section is *absent* rather than an empty heading when a
-phone is signed out — which is the state every real browser is in until `2.5.1`,
-so it is the state most people would see first.
-**Not doing yet because:** playwright is not installed in the container, and
-there are already two written-but-never-run drivers (`check-fields.mjs`,
-`check-invite.mjs`). Writing a third unrun driver adds to a pile rather than to
-the evidence. The moment any of them can be run, this is worth `check-games.mjs`
-alongside them: sign in through the dev seam in two contexts, create a game in
-one, and assert it appears on the other's home screen.
-
 ### O-15 — Signing in mid-game makes a player their own opponent
 **Spotted:** 2026-09-08, stage 3.5.2
 **Why it matters:** The seat key is now the `sub` when a request carries a
@@ -180,3 +163,21 @@ all, so only the dev seam can reach it. **This must be closed before or with
 what that stage is, or by adopting the seat: if a signed-in request carries a
 `playerId` that matches a seat with no account on it, take that seat over
 (rewriting `presence` with it) rather than looking for a free one.
+
+### O-16 — Two unbounded lists sit above the home screen's primary actions
+**Spotted:** 2026-09-13, stage 2.3.4, by looking at a screenshot
+**Why it matters:** Home is ordered readout → Your games → Your fields →
+Calibrate → Play. Both lists grow, and everything a player came to tap is below
+them. Measured in a browser at 480x900, "New game" sits at y=542 with no games,
+y=709 with one, and **crosses the fold at three**; the fields list above it has
+the same shape with a cap of two hundred. So a regular player eventually opens
+the app and cannot see the button that starts a game.
+**Not doing yet because:** the game list was capped at `HOME_SHOWN` on
+2026-09-13, which bounds the new half of the problem — seven games now cost the
+same page as five, with the rest one tap away — and that was the part this stage
+introduced. The rest is older and bigger than one stage: the honest fix is
+either to put Play above the lists, or to give both lists a collapsed default,
+and both change a screen that three other drivers assert against. Worth doing
+deliberately rather than at the end of a session. `scripts/check-games.mjs`
+asserts the bound (home fits in two screens with seven games) rather than the
+fold, so the constraint does not quietly regress in the meantime.

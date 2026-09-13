@@ -34,6 +34,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v = 'true'] = a.replace(/^--/, '').split('=');
@@ -89,7 +91,7 @@ async function newPhone(browser, name) {
   page.on('console', (m) => {
     // A driver that provokes failures on purpose has to ignore the browser's own
     // report of them; see `check-deeplink.mjs`.
-    if (m.type() === 'error' && !m.text().includes('Failed to load resource')) {
+    if (isRealConsoleError(m)) {
       console.log(`  [${name}] console error: ${m.text()}`);
     }
   });

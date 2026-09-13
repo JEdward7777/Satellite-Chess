@@ -41,6 +41,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { isRealConsoleError } from './driver-console.mjs';
+
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v = 'true'] = a.replace(/^--/, '').split('=');
@@ -117,7 +119,7 @@ async function newPhone(name, { fields = [], detector = null, userAgent } = {}) 
     ...(userAgent ? { userAgent } : {}),
   });
   const page = await context.newPage();
-  page.on('console', (m) => m.type() === 'error' && consoleErrors.push(`[${name}] ${m.text()}`));
+  page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`[${name}] ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`[${name}] ${e}`));
 
   await page.addInitScript(

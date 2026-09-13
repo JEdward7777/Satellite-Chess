@@ -4,8 +4,10 @@ import { type GameIndexEntry, listedGame } from '../src/shared/game-index.js';
 import { CLAIM_AFTER_MS } from '../src/shared/protocol.js';
 import {
   FINISHED_SHOWN,
+  HOME_SHOWN,
   TIDY_SUGGEST_AT,
   describeGame,
+  hiddenGameCount,
   homeGames,
   shouldOfferTidy,
   tidyCandidates,
@@ -127,7 +129,7 @@ describe('describeGame', () => {
 });
 
 describe('homeGames', () => {
-  it('keeps every game still going and only the last few results', () => {
+  it('keeps a game still going and only the last few results', () => {
     const live = [listed({ joinCode: 'AAA111', status: 'suspended', suspendedAt: NOW })];
     const finished = Array.from({ length: FINISHED_SHOWN + 4 }, (_, i) =>
       listed({ joinCode: `FIN${i}00`, status: 'finished' }),
@@ -137,11 +139,44 @@ describe('homeGames', () => {
     expect(shown[0].joinCode).toBe('AAA111');
   });
 
-  it('never hides a game that is still going, however many there are', () => {
+  it('caps the list, because home is the way into a game and not the game list', () => {
+    // The rest of the home screen — the fields, Calibrate, New game, the join
+    // box — sits below this section. An uncapped list puts all of it off the
+    // bottom of the phone, which is what the first version did.
     const live = Array.from({ length: 12 }, (_, i) =>
       listed({ joinCode: `LIV${i}00`, status: 'active' }),
     );
-    expect(homeGames(live)).toHaveLength(12);
+    expect(homeGames(live)).toHaveLength(HOME_SHOWN);
+    expect(hiddenGameCount(live)).toBe(12 - HOME_SHOWN);
+  });
+
+  it('shows everything when asked, and the finished tail with it', () => {
+    const games = [
+      ...Array.from({ length: 6 }, (_, i) => listed({ joinCode: `LIV${i}00`, status: 'active' })),
+      ...Array.from({ length: 6 }, (_, i) =>
+        listed({ joinCode: `FIN${i}00`, status: 'finished' }),
+      ),
+    ];
+    expect(homeGames(games, true)).toHaveLength(12);
+  });
+
+  it('drops the end of the list, which is the part that is over', () => {
+    // A suspended game outranks a finished one whatever the cap does, because
+    // it is the one that can still be walked back to.
+    const games = [
+      ...Array.from({ length: HOME_SHOWN }, (_, i) =>
+        listed({ joinCode: `SUS${i}00`, status: 'suspended', suspendedAt: NOW, suspendedBy: 'b' }),
+      ),
+      listed({ joinCode: 'FIN999', status: 'finished' }),
+    ];
+    const shown = homeGames(games);
+    expect(shown.every((g) => g.status === 'suspended')).toBe(true);
+    expect(hiddenGameCount(games)).toBe(1);
+  });
+
+  it('offers nothing to expand when everything already fits', () => {
+    const games = [listed({ joinCode: 'AAA111', status: 'active' })];
+    expect(hiddenGameCount(games)).toBe(0);
   });
 });
 

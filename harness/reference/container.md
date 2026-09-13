@@ -4,6 +4,52 @@
 about the box the game is built in, and it is the part a new thread needs only
 when something refuses to run.*
 
+## Running the browser drivers
+
+**Playwright can be installed without root and without touching the system**,
+and on a machine that is not an ephemeral container it only has to be done once.
+This was worked out on 2026-09-13, after three sessions had recorded "playwright
+is not installed here" as a standing fact and let a backlog of unrun drivers
+build up to three.
+
+```bash
+npm install --no-save playwright jsqr          # into node_modules, not package.json
+mkdir -p ~/.cache/satellite-chess/playwright
+PLAYWRIGHT_BROWSERS_PATH=~/.cache/satellite-chess/playwright \
+  npx playwright install chromium              # ~115 MB download, 658 MB unpacked
+```
+
+Notes that matter:
+
+- **No `--with-deps`.** That flag runs `apt-get` and needs root. It was not
+  needed on WSL2 Ubuntu — chromium launched with no missing shared libraries. If
+  a future box does need them, that is the one step to hand to the operator.
+- **`PLAYWRIGHT_BROWSERS_PATH` must be set when the drivers run too**, not only
+  when the browser is installed, or playwright looks in its default cache and
+  finds nothing.
+- The browser lives in one folder and is removed with a single `rm -rf` of it.
+  Deliberately **not** under the repo: this tree is inside `Sync/`, and 658 MB of
+  browser binaries have no business being synced between machines.
+- `findChromium()` in each driver looks for `chrome-linux/chrome`; current
+  playwright unpacks to `chrome-linux64/chrome`, so it returns `undefined` and
+  playwright resolves the binary itself. Harmless, and `check-games.mjs` handles
+  both layouts. Do not "fix" the others by deleting the helper without checking
+  that the environment variable is set wherever they run.
+
+Then, with the dev server up:
+
+```bash
+npm run build:client
+npx wrangler dev --port 8799 --var DEV_AUTH_SECRET:local-dev-secret &
+export PLAYWRIGHT_BROWSERS_PATH=~/.cache/satellite-chess/playwright
+for d in scripts/check-*.mjs scripts/drive-game.mjs; do node "$d" || echo "FAILED $d"; done
+```
+
+All eleven passed on 2026-09-13. `check-fields.mjs` is the only one that needs
+the dev seam, so it is the only one that needs `DEV_AUTH_SECRET`; the rest run
+signed out, which is why they all see the designed 401s that
+`scripts/driver-console.mjs` excludes.
+
 ## Running it
 
 **A fresh container may have no Node at all.** One did on 2026-09-06, and a
