@@ -111,10 +111,11 @@ verify in a container.
 3. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
    the part that cannot be finished in a container. `src/worker/auth.ts` does not
    exist; the OAuth client, both credentials and the redirect paths (decision
-   0030) do. Two checks the code session must not assume: that the registered
-   redirect URIs match whatever `auth.ts` uses, and that every player's Google
-   address is on the Testing-status consent screen's test-user list. See
-   `harness/sessions/2026-09-06-01.md`.
+   0030) do. One check the code session must not assume: that the registered
+   redirect URIs match whatever `auth.ts` uses. **There is no test-user list to
+   maintain** — OAuth here is sign-in only (identity scopes), and the operator has
+   confirmed it works for everyone as configured. `2026-09-06-01.md` says
+   otherwise; that note is wrong, so do not raise it again.
 4. **`2.4`** — KV namespace creation. Needs `wrangler` against the Cloudflare
    API, so it is the operator's from the local clone.
 
