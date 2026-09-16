@@ -71,6 +71,14 @@ mints a session for any account you name.
 `npm run dev` switches it on by passing `--var DEV_AUTH_SECRET:local-dev-secret`.
 Running `wrangler dev` directly, the seam stays off unless you pass the same flag.
 
+Since stage 2.5.1 the gate stands in front of every screen, so **in a browser the
+quickest way in is the "Sign in as a test account" button on the sign-in screen
+itself**. It appears only when the seam's two locks are already open, which is
+`wrangler dev` on loopback and nowhere else — a deployed build reports that the
+seam is unavailable and never draws it. The `curl` route below is still the way
+to sign in as a *named* account, which is what the browser drivers do (see
+`scripts/driver-signin.mjs`) when they need two different players.
+
 ```bash
 curl -c jar.txt -X POST -H "x-dev-auth-secret: local-dev-secret" \
      -H "content-type: application/json" -d '{"sub":"alice"}' \

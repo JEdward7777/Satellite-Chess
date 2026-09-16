@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { challengeFor, readIdToken } from '../src/worker/auth.js';
+import { challengeFor, readIdToken, safeNext } from '../src/worker/auth.js';
 import { encodeUtf8 } from '../src/worker/crypto.js';
 
 /**
@@ -120,5 +120,63 @@ describe('reading the ID token', () => {
   it('refuses a payload that is not base64url, or not JSON', () => {
     expect(readIdToken({ id_token: 'head.!!!not-base64url!!!.sig' })).toBeNull();
     expect(readIdToken({ id_token: `head.${encodeUtf8('not json')}.sig` })).toBeNull();
+  });
+});
+
+/**
+ * Where a completed sign-in is allowed to land (stage 2.5.1).
+ *
+ * The gate carries a destination through the flow so that someone who scanned an
+ * invite while signed out comes back to *that invite* rather than to the home
+ * screen — the commonest first-ever sign-in is a QR in a park, and losing it is
+ * the worst moment to lose anything.
+ *
+ * That makes this function the app's only open-redirect surface, so it is an
+ * allowlist rather than a denylist: a destination has to be a route this app
+ * actually owns. Every "clever" off-origin spelling below therefore has the same
+ * boring answer, which is the point.
+ */
+describe('where sign-in may return to', () => {
+  it('keeps a route this app owns', () => {
+    expect(safeNext('/')).toBe('/');
+    expect(safeNext('/j/ABC123')).toBe('/j/ABC123');
+    expect(safeNext('/f/AAAAAAAAAAAAAAAA')).toBe('/f/AAAAAAAAAAAAAAAA');
+  });
+
+  it('keeps the query string, because the simulator lives there', () => {
+    // Losing `?sim=1` would end a simulated game the moment anybody signed in,
+    // and that is how every browser check in this project is run.
+    expect(safeNext('/j/ABC123?sim=1')).toBe('/j/ABC123?sim=1');
+    expect(safeNext('/?sim=1')).toBe('/?sim=1');
+  });
+
+  it('sends anything off-origin home instead', () => {
+    for (const hostile of [
+      'https://evil.example/',
+      '//evil.example',
+      'http://127.0.0.1:8799/j/ABC123',
+      'javascript:alert(1)',
+      '/\\evil.example',
+    ]) {
+      expect(safeNext(hostile), hostile).toBe('/');
+    }
+  });
+
+  it('sends a path this app does not own home', () => {
+    // Not a security question so much as an honesty one: the Worker would 404
+    // these, so returning a freshly signed-in player to one would end a
+    // successful sign-in on an error page.
+    for (const unowned of ['/api/me', '/auth/google/login', '/nonsense', '/j/nope']) {
+      expect(safeNext(unowned), unowned).toBe('/');
+    }
+  });
+
+  it('treats a missing, empty or over-long destination as home', () => {
+    expect(safeNext(null)).toBe('/');
+    expect(safeNext(undefined)).toBe('/');
+    expect(safeNext('')).toBe('/');
+    // `undefined` is what a flow cookie sealed before this field existed
+    // deserialises to, so it is a real input rather than a type formality.
+    expect(safeNext(`/j/ABC123?${'x'.repeat(600)}`)).toBe('/');
   });
 });

@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -82,6 +83,10 @@ const consoleErrors = [];
 try {
   console.log(`screenshots -> ${OUT}`);
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // Sign-in is mandatory since stage 2.5.1, so a context that has not signed in
+  // reaches the gate and nothing else — and the failure would present as
+  // `[data-calibrate]` never appearing, which reads as a broken home screen.
+  await signIn(context, 'sim-calibrate', ORIGIN);
   const page = await context.newPage();
   page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(m.text()));
   page.on('pageerror', (e) => consoleErrors.push(String(e)));

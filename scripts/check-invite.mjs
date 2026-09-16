@@ -46,6 +46,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const require = createRequire(import.meta.url);
 let jsQR;
@@ -111,6 +112,9 @@ const context = await browser.newContext({
   // make the clipboard tier look broken when it is only unasked.
   permissions: ['clipboard-read', 'clipboard-write'],
 });
+// The gate stands in front of everything since stage 2.5.1, including the
+// create screen this driver has to reach before there is an invite at all.
+await signIn(context, 'sim-invite-driver', ORIGIN);
 const page = await context.newPage();
 const consoleErrors = [];
 page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(m.text()));
@@ -118,7 +122,6 @@ page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
 await page.addInitScript(
   ({ fields }) => {
-    localStorage.setItem('satchess.player_id', 'sim-invite-driver');
     // Record what the share sheet was offered, and stand in for a platform that
     // has one — headless Chromium on Linux does not.
     window.__shared = [];

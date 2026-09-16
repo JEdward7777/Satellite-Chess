@@ -52,6 +52,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -124,6 +125,15 @@ async function appBooted(page) {
 
 const browser = await chromium.launch({ executablePath: findChromium() });
 const context = await browser.newContext({ permissions: ['geolocation'] });
+// One context, shared by every page below, so one sign-in covers all of them.
+//
+// This driver is also the one that exercises the gate's offline rule for free:
+// the "dark" page below reloads a deep link with the network cut, so `/api/me`
+// throws rather than answering. That must open the app anyway — a phone in a
+// field with a fortnight-old session being shown a sign-in screen it cannot
+// complete is the failure the three-state design in `client/session.ts` exists
+// to prevent, and this is where it would show up.
+await signIn(context, 'sim-deeplink', ORIGIN);
 
 try {
   // ---------------------------------------------------------------------

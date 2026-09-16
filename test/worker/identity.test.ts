@@ -176,3 +176,43 @@ describe('/api/me', () => {
     expect((await me(cookie)).status).toBe(401);
   });
 });
+
+/**
+ * What the gate is told when it is refused (stage 2.5.1).
+ *
+ * The client's sign-in screen offers a test-account button, and this 401 is how
+ * it learns whether to draw one. The flag is `devSeamEnabled` answering — the
+ * same two locks that guard the endpoint itself (decision 0029) — rather than a
+ * third switch that could be set independently and therefore set wrongly.
+ *
+ * The button is not the lock, and these assertions are what keep that true: on a
+ * deployed hostname the flag is false *and* the endpoint 404s, so a client that
+ * drew the button anyway would have nothing to call.
+ */
+describe('the gate is told whether a test account is possible', () => {
+  it('offers the dev seam on loopback with the secret set', async () => {
+    withSecret();
+    const response = await me(null);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: 'unauthenticated',
+      devSeam: true,
+    });
+  });
+
+  it('does not offer it on a deployed hostname, even with the secret set', async () => {
+    withSecret();
+    const response = await me(null, DEPLOYED);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ devSeam: false });
+    // And the endpoint the button would call does not exist there either.
+    expect((await mint('alice', { origin: DEPLOYED })).status).toBe(404);
+  });
+
+  it('does not offer it when no secret is configured', async () => {
+    withoutSecret();
+    const response = await me(null);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ devSeam: false });
+  });
+});

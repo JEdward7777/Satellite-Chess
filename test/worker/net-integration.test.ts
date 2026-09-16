@@ -37,6 +37,33 @@ function gpsFix(square: string, accuracyM = 3) {
 let counter = 6000;
 const nextCode = () => `N${String(++counter).padStart(5, '0')}`;
 
+const DEV_SECRET = 'test-dev-auth-secret';
+const mutableEnv = env as unknown as Record<string, unknown>;
+const cookies = new Map<string, string>();
+
+/**
+ * A session cookie for a seat (stage 2.5.1).
+ *
+ * The upgrade is seated by the cookie now rather than by a `playerId` query
+ * parameter, which is what `net.ts` sends in the browser — so this test carries
+ * one for the same reason a phone does. Loopback because the dev seam's hostname
+ * lock guards reading a token as well as minting one (decision 0029).
+ */
+async function cookieFor(sub: string): Promise<string> {
+  const known = cookies.get(sub);
+  if (known !== undefined) return known;
+  mutableEnv.DEV_AUTH_SECRET = DEV_SECRET;
+  const response = await SELF.fetch('http://127.0.0.1/api/dev/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dev-auth-secret': DEV_SECRET },
+    body: JSON.stringify({ sub }),
+  });
+  expect(response.status).toBe(200);
+  const cookie = (response.headers.get('set-cookie') as string).split(';')[0];
+  cookies.set(sub, cookie);
+  return cookie;
+}
+
 /**
  * Adapt a Workers WebSocket to the shape `net.ts` expects.
  *
@@ -68,18 +95,16 @@ function adapt(ws: WebSocket): WebSocketLike {
 }
 
 async function connected(joinCode: string, playerId: string) {
-  const res = await SELF.fetch(
-    `https://example.com/api/game/${joinCode}/ws?playerId=${playerId}`,
-    { headers: { upgrade: 'websocket' } },
-  );
+  const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`, {
+    headers: { upgrade: 'websocket', cookie: await cookieFor(playerId) },
+  });
   expect(res.status).toBe(101);
   const socket = res.webSocket;
   if (!socket) throw new Error('no webSocket on the upgrade response');
 
   return connectToGame({
     joinCode,
-    playerId,
-    origin: 'https://example.com',
+    origin: 'http://127.0.0.1',
     pingIntervalMs: 60_000,
     socketFactory: () => adapt(socket),
   });

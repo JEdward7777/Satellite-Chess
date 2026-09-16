@@ -13,6 +13,17 @@ sliding sessions and a pre-flight expiry warning (stage 2.2), and inviting ahead
 time so sign-in happens on wifi (decision 0015). Logged so that if it does bite
 during playtesting the evidence is framed, and the pre-analysed remedy
 (login-first *with* a field fallback) can be adopted without re-arguing it.
+**Updated 2026-09-16 (`2.5.1`) — this stops being theoretical today.** The gate
+is built, so an unauthenticated launch now genuinely reaches a sign-in screen and
+nothing else; until this morning the app simply let everyone in. One edge was
+mitigated in passing (decision 0035, rule 2): the launch check has three states,
+not two, so a phone that merely *cannot reach* the server opens the app rather
+than being shown a sign-in screen it has no signal to complete. That covers the
+returning player with a live session, which is the commonest version of this.
+What it does not cover is the case this observation is actually about — a friend
+who has never signed in, standing in a park on one bar — and nothing will, short
+of the rejected fallback. Stage `2.2.4` (cache the identity for offline start)
+narrows it further. Watch for it in phase 10.
 
 ### O-03 — Distance-travelled is client-reported and therefore trivially inflatable
 **Spotted:** 2026-07-25, stage 0.6
@@ -157,33 +168,6 @@ rejected field today is a bug in our own writer or a hand-edited store. Worth
 doing if `rejected` ever turns out to be non-empty in practice; the fix is a
 `refused` map beside `acked`, holding the `updatedAt` that was turned down, so
 the field is re-offered when it changes and not before.
-
-### O-15 — Signing in mid-game makes a player their own opponent
-**Spotted:** 2026-09-08, stage 3.5.2
-**Why it matters:** The seat key is now the `sub` when a request carries a
-session and the body's `playerId` when it does not (decision 0033). A player who
-creates a game signed out, then signs in and reopens the link, is no longer
-recognised — `colorOf` is matching a `sub` against a stored UUID — so the join
-takes the *other* seat and one person holds both. The game is then unplayable and
-the only recourse is a new code.
-**Not doing yet because:** the window is narrow and closes on its own. It needs
-sessions to exist *and* sign-in not to be required, which is the gap between
-`2.1`/`2.2` and `2.5.1`; today nothing in a real browser establishes a session at
-all, so only the dev seam can reach it. **This must be closed before or with
-`2.5.1`** — either by requiring sign-in before a game may be created, which is
-what that stage is, or by adopting the seat: if a signed-in request carries a
-`playerId` that matches a seat with no account on it, take that seat over
-(rewriting `presence` with it) rather than looking for a free one.
-**Updated 2026-09-16 (`2.1`) — this is now reachable, and it was not before.**
-The note above says "today nothing in a real browser establishes a session at
-all, so only the dev seam can reach it". That is no longer true: `2.1` and `2.2.1`
-landed, so an ordinary browser can hold a real session while `2.5.1` does not yet
-require one. The window this observation describes — sessions exist *and* sign-in
-is not mandatory — **is open right now**, and it closes only when `2.5.1` lands.
-It is not urgent in the sense of a bug in flight, because nothing in the client
-offers a sign-in button yet, so the only way in is by typing `/auth/google/login`
-by hand. But the ordering constraint is no longer theoretical and the remedy is
-unchanged: close it before or with `2.5.1`.
 
 ### O-16 — Two unbounded lists sit above the home screen's primary actions
 **Spotted:** 2026-09-13, stage 2.3.4, by looking at a screenshot

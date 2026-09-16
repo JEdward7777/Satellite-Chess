@@ -46,6 +46,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -106,12 +107,15 @@ const consoleErrors = [];
  */
 async function newPhone(name, { fields = [] } = {}) {
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // A separate account per phone, which is now what makes a joiner a *different
+  // player* rather than the same one. Before stage 2.5.1 the seat was this
+  // phone's UUID; a stranger taking the second seat is the case O-15 broke.
+  await signIn(context, `sim-join-${name.replace(/[^A-Za-z0-9]/g, '-')}`, ORIGIN, name);
   const page = await context.newPage();
   page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`[${name}] ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`[${name}] ${e}`));
   await page.addInitScript(
-    ({ seeded, playerId }) => {
-      localStorage.setItem('satchess.player_id', playerId);
+    ({ seeded }) => {
       if (seeded.length === 0) return;
       const req = indexedDB.open('satellite-chess', 1);
       req.onupgradeneeded = () => {
@@ -125,7 +129,7 @@ async function newPhone(name, { fields = [] } = {}) {
         for (const f of seeded) store.put(f);
       };
     },
-    { seeded: fields, playerId: `sim-join-${name}` },
+    { seeded: fields },
   );
   return { name, context, page };
 }

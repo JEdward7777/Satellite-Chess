@@ -20,6 +20,36 @@ const WHITE = 'player-white-0001';
 const BLACK = 'player-black-0002';
 const THIRD = 'player-third-0003';
 
+const DEV_SECRET = 'test-dev-auth-secret';
+const mutableEnv = env as unknown as Record<string, unknown>;
+const cookies = new Map<string, string>();
+
+/**
+ * A session cookie for a seat (stage 2.5.1).
+ *
+ * A seat is an account now, so anything that takes one — creating, joining,
+ * opening a socket — has to arrive carrying a session. The readable ids above
+ * are `sub`s rather than phone UUIDs, so the call sites read as they did.
+ *
+ * Addressed to loopback because the dev seam's second lock guards *reading* a
+ * token as well as minting one (decision 0029), so a dev cookie presented to a
+ * deployed-looking origin is correctly ignored.
+ */
+async function cookieFor(sub: string): Promise<string> {
+  const known = cookies.get(sub);
+  if (known !== undefined) return known;
+  mutableEnv.DEV_AUTH_SECRET = DEV_SECRET;
+  const response = await SELF.fetch('http://127.0.0.1/api/dev/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dev-auth-secret': DEV_SECRET },
+    body: JSON.stringify({ sub }),
+  });
+  expect(response.status).toBe(200);
+  const cookie = (response.headers.get('set-cookie') as string).split(';')[0];
+  cookies.set(sub, cookie);
+  return cookie;
+}
+
 let code = 0;
 /** A fresh join code per test, so objects never share state. */
 function nextCode(): string {
@@ -105,10 +135,9 @@ class Client {
 
 /** Open a real WebSocket to a game through the router. */
 async function openSocket(joinCode: string, playerId: string): Promise<Client> {
-  const res = await SELF.fetch(
-    `https://example.com/api/game/${joinCode}/ws?playerId=${playerId}`,
-    { headers: { upgrade: 'websocket' } },
-  );
+  const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`, {
+    headers: { upgrade: 'websocket', cookie: await cookieFor(playerId) },
+  });
   expect(res.status).toBe(101);
   const ws = res.webSocket;
   if (!ws) throw new Error('no webSocket on the response');
@@ -215,10 +244,10 @@ describe('the clock does not start until the game does', () => {
 
 describe('the HTTP routes', () => {
   it('creates a game over POST and returns a usable code', async () => {
-    const res = await SELF.fetch('https://example.com/api/game', {
+    const res = await SELF.fetch('http://127.0.0.1/api/game', {
       method: 'POST',
+      headers: { cookie: await cookieFor(WHITE) },
       body: JSON.stringify({
-        playerId: WHITE,
         field: makeFieldSpec('f', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }),
         initialMs: 600_000,
         incrementMs: 10_000,
@@ -229,7 +258,7 @@ describe('the HTTP routes', () => {
     expect(body.color).toBe('w');
     expect(body.joinCode).toMatch(/^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{6}$/);
 
-    const peek = await SELF.fetch(`https://example.com/api/game/${body.joinCode}`);
+    const peek = await SELF.fetch(`http://127.0.0.1/api/game/${body.joinCode}`);
     expect(await peek.json()).toMatchObject({ exists: true, status: 'waiting' });
   });
 
@@ -237,18 +266,19 @@ describe('the HTTP routes', () => {
     // The whole scan-to-play flow rests on this response: the joining phone has
     // never calibrated anything, and this is the only place it is told what
     // ground the game is played on before the socket opens.
-    const created = await SELF.fetch('https://example.com/api/game', {
+    const created = await SELF.fetch('http://127.0.0.1/api/game', {
       method: 'POST',
+      headers: { cookie: await cookieFor(WHITE) },
       body: JSON.stringify({
-        playerId: WHITE,
         field: makeFieldSpec('The common', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }),
       }),
     });
     const { joinCode } = (await created.json()) as { joinCode: string };
 
-    const joined = await SELF.fetch(`https://example.com/api/game/${joinCode}`, {
+    // No body at all: the seat is named by the session, not by the request.
+    const joined = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}`, {
       method: 'POST',
-      body: JSON.stringify({ playerId: BLACK }),
+      headers: { cookie: await cookieFor(BLACK) },
     });
     expect(joined.status).toBe(200);
     const body = (await joined.json()) as { color: string; field: { name: string; fileM: number } };
@@ -257,16 +287,16 @@ describe('the HTTP routes', () => {
     expect(body.field.fileM).toBeCloseTo(8, 6);
 
     // And the failures the join screen has to tell apart.
-    const third = await SELF.fetch(`https://example.com/api/game/${joinCode}`, {
+    const third = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}`, {
       method: 'POST',
-      body: JSON.stringify({ playerId: THIRD }),
+      headers: { cookie: await cookieFor(THIRD) },
     });
     expect(third.status).toBe(409);
     expect(await third.json()).toMatchObject({ error: 'game_full' });
 
-    const nowhere = await SELF.fetch(`https://example.com/api/game/${nextCode()}`, {
+    const nowhere = await SELF.fetch(`http://127.0.0.1/api/game/${nextCode()}`, {
       method: 'POST',
-      body: JSON.stringify({ playerId: BLACK }),
+      headers: { cookie: await cookieFor(BLACK) },
     });
     expect(nowhere.status).toBe(404);
     expect(await nowhere.json()).toMatchObject({ error: 'not_found' });
@@ -275,31 +305,38 @@ describe('the HTTP routes', () => {
   it('folds a mistyped code rather than rejecting it', async () => {
     // Crockford: O reads as 0, I and L as 1. Someone reading a code aloud across
     // a field will get this wrong, and it should still work.
-    const res = await SELF.fetch('https://example.com/api/game/0I1234');
+    const res = await SELF.fetch('http://127.0.0.1/api/game/0I1234');
     expect(res.status).toBe(200);
-    const direct = await SELF.fetch('https://example.com/api/game/011234');
+    const direct = await SELF.fetch('http://127.0.0.1/api/game/011234');
     expect(await direct.json()).toEqual(await res.json());
   });
 
   it('rejects a code that could not be one', async () => {
-    const res = await SELF.fetch('https://example.com/api/game/nope');
+    const res = await SELF.fetch('http://127.0.0.1/api/game/nope');
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: 'bad_code' });
   });
 
-  it('requires a plausible playerId', async () => {
-    const res = await SELF.fetch('https://example.com/api/game', {
+  it('refuses to seat anyone without a session', async () => {
+    // This used to assert that a too-short `playerId` was refused as malformed.
+    // Since stage 2.5.1 there is no `playerId` to be malformed: a seat is a
+    // Google `sub` or it does not exist, which is what closes O-15. So the
+    // refusal worth testing is no longer a bad name but no name at all.
+    const res = await SELF.fetch('http://127.0.0.1/api/game', {
       method: 'POST',
-      body: JSON.stringify({ playerId: 'x', field: makeFieldSpec('f', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }) }),
+      body: JSON.stringify({
+        field: makeFieldSpec('f', { a1: A1, h8: fromLocal(A1, { e: 56, n: 56 }) }),
+      }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: 'unauthenticated' });
   });
 
   it('rejects a degenerate field instead of storing it', async () => {
-    const res = await SELF.fetch('https://example.com/api/game', {
+    const res = await SELF.fetch('http://127.0.0.1/api/game', {
       method: 'POST',
+      headers: { cookie: await cookieFor(WHITE) },
       body: JSON.stringify({
-        playerId: WHITE,
         // Both corners in the same place: no square size can be derived.
         field: { id: 'x', name: 'x', a1: A1, h8: A1, version: 1, createdAt: 0, updatedAt: 0 },
       }),
@@ -311,12 +348,15 @@ describe('the HTTP routes', () => {
   it('refuses a WebSocket route without an upgrade header', async () => {
     const joinCode = nextCode();
     await createGame(joinCode);
-    const res = await SELF.fetch(`https://example.com/api/game/${joinCode}/ws?playerId=${WHITE}`);
+    // No cookie needed: the upgrade header is checked before the session is, so
+    // this refusal is about the request being the wrong shape rather than about
+    // who is making it.
+    const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`);
     expect(res.status).toBe(426);
   });
 
   it('404s an unknown endpoint rather than serving the shell', async () => {
-    const res = await SELF.fetch('https://example.com/api/nonsense');
+    const res = await SELF.fetch('http://127.0.0.1/api/nonsense');
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).toContain('application/json');
   });
@@ -341,18 +381,16 @@ describe('WebSockets', () => {
   it('refuses a socket for someone not in the game', async () => {
     const joinCode = nextCode();
     await createGame(joinCode);
-    const res = await SELF.fetch(
-      `https://example.com/api/game/${joinCode}/ws?playerId=${THIRD}`,
-      { headers: { upgrade: 'websocket' } },
-    );
+    const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`, {
+      headers: { upgrade: 'websocket', cookie: await cookieFor(THIRD) },
+    });
     expect(res.status).toBe(403);
   });
 
   it('refuses a socket for a game that does not exist', async () => {
-    const res = await SELF.fetch(
-      `https://example.com/api/game/${nextCode()}/ws?playerId=${WHITE}`,
-      { headers: { upgrade: 'websocket' } },
-    );
+    const res = await SELF.fetch(`http://127.0.0.1/api/game/${nextCode()}/ws`, {
+      headers: { upgrade: 'websocket', cookie: await cookieFor(WHITE) },
+    });
     expect(res.status).toBe(404);
   });
 

@@ -35,6 +35,7 @@
  */
 
 import { apiError } from './http.js';
+import { parseAppRoute } from '../shared/routes.js';
 import { SESSION_COOKIE, asSub, readCookie } from './identity.js';
 import { base64UrlEncode, decodeUtf8, hmacSha256, timingSafeEqual } from './crypto.js';
 import { clearCookieHeader, createSession, sessionCookieHeader } from './sessions.js';
@@ -134,8 +135,12 @@ async function startSignIn(
   const verifier = randomToken();
   const state = randomToken();
   const nonce = randomToken();
+  const next = safeNext(url.searchParams.get('next'));
 
-  const flow = await sealFlow({ state, nonce, verifier, exp: now + FLOW_TTL_MS }, clientSecret);
+  const flow = await sealFlow(
+    { state, nonce, verifier, exp: now + FLOW_TTL_MS, next },
+    clientSecret,
+  );
 
   const target = new URL(AUTH_ENDPOINT);
   target.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
@@ -192,34 +197,36 @@ async function completeSignIn(
   // The anti-forgery check: the `state` that came back must be the one this
   // server issued to this browser. Compared in constant time because it is a
   // secret the attacker is trying to guess, not merely a value to match.
-  if (!timingSafeEqual(state, flow.state)) return failed(url, 'bad_state');
+  if (!timingSafeEqual(state, flow.state)) return failed(url, 'bad_state', flow.next);
 
   const exchanged = await exchangeCode(env, code, flow.verifier, clientSecret, url);
-  if (exchanged === null) return failed(url, 'exchange_failed');
+  if (exchanged === null) return failed(url, 'exchange_failed', flow.next);
 
   const claims = readIdToken(exchanged);
-  if (claims === null) return failed(url, 'bad_token');
+  if (claims === null) return failed(url, 'bad_token', flow.next);
 
-  if (!ISSUERS.has(claims.iss)) return failed(url, 'bad_token');
-  if (claims.aud !== env.GOOGLE_CLIENT_ID) return failed(url, 'bad_token');
-  if (claims.exp * 1000 <= now) return failed(url, 'bad_token');
+  if (!ISSUERS.has(claims.iss)) return failed(url, 'bad_token', flow.next);
+  if (claims.aud !== env.GOOGLE_CLIENT_ID) return failed(url, 'bad_token', flow.next);
+  if (claims.exp * 1000 <= now) return failed(url, 'bad_token', flow.next);
   // Replay protection: this token must have been minted for the sign-in this
   // browser actually started, not captured from another one.
-  if (!timingSafeEqual(claims.nonce, flow.nonce)) return failed(url, 'bad_token');
+  if (!timingSafeEqual(claims.nonce, flow.nonce)) return failed(url, 'bad_token', flow.next);
 
   // The account key is the `sub` and never the email (decision 0014, stage
   // 2.1.4). Folded through the same validator the dev seam uses, so a `sub` that
   // could not be a Durable Object name is refused here rather than becoming an
   // address later.
   const sub = asSub(claims.sub);
-  if (sub === null) return failed(url, 'bad_token');
+  if (sub === null) return failed(url, 'bad_token', flow.next);
 
   const token = await createSession(env, sub, now);
 
-  // Home, with the sign-in machinery gone from the address bar. The flow cookie
-  // is cleared in the same response: it has been spent, and leaving it would let
-  // a replayed callback be attempted against it.
-  const headers = new Headers({ location: '/', 'cache-control': 'no-store' });
+  // Wherever they were going, with the sign-in machinery gone from the address
+  // bar — home for an ordinary sign-in, and the invite for someone who scanned a
+  // QR while signed out. The flow cookie is cleared in the same response: it has
+  // been spent, and leaving it would let a replayed callback be attempted
+  // against it.
+  const headers = new Headers({ location: flow.next, 'cache-control': 'no-store' });
   headers.append('set-cookie', sessionCookieHeader(SESSION_COOKIE, token, url));
   headers.append('set-cookie', clearCookieHeader(FLOW_COOKIE, url));
   return new Response(null, { status: 302, headers });
@@ -331,6 +338,16 @@ interface Flow {
   nonce: string;
   verifier: string;
   exp: number;
+  /**
+   * Where to land once this is over (stage 2.5.1).
+   *
+   * Carried in the sealed cookie rather than in the `state` parameter so Google
+   * never sees which game someone was invited to, and so it cannot be edited by
+   * the browser in flight. The commonest first-ever sign-in is a QR scanned in a
+   * park, and returning that player to `/` loses the invitation at the exact
+   * moment two people have already travelled to play.
+   */
+  next: string;
 }
 
 /**
@@ -378,6 +395,12 @@ async function openFlow(sealed: string, secret: string, now: number): Promise<Fl
   ) {
     return null;
   }
+  // Re-validated on the way out as well as on the way in. The cookie is signed,
+  // so this cannot have been tampered with — but a flow sealed by the build
+  // before 2.5.1 carries no `next` at all, and normalising rather than rejecting
+  // means a sign-in already in flight across a deploy completes instead of
+  // failing as "expired", which is the one failure that reads as a loop.
+  flow.next = safeNext(flow.next);
   return flow;
 }
 
@@ -427,14 +450,59 @@ export async function challengeFor(verifier: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
-/** Back to the app, with the reason in the query for stage 2.5.3 to render. */
-function failed(url: URL, reason: string): Response {
+/**
+ * Back to the app, with the reason in the query for stage 2.5.3 to render.
+ *
+ * `next` is the destination the flow was carrying, so a sign-in that fails on
+ * the way to an invite leaves the player on that invite's own URL rather than on
+ * the home screen — retrying is then the button in front of them, not six
+ * characters they have to ask for again. It defaults to home for the failures
+ * that happen before the flow cookie has been opened, where there is nothing to
+ * know.
+ */
+function failed(url: URL, reason: string, next = '/'): Response {
+  // Resolved against a throwaway base so the query can be appended without
+  // caring whether `next` already had one — `/j/ABC123?sim=1` is the case that
+  // makes string concatenation wrong, and it is the case every browser driver
+  // uses.
+  const target = new URL(safeNext(next), 'https://app.invalid');
+  target.searchParams.set('signin', 'failed');
+  target.searchParams.set('reason', reason);
   return new Response(null, {
     status: 302,
     headers: {
-      location: `/?signin=failed&reason=${encodeURIComponent(reason)}`,
+      location: `${target.pathname}${target.search}${target.hash}`,
       'set-cookie': clearCookieHeader(FLOW_COOKIE, url),
       'cache-control': 'no-store',
     },
   });
 }
+
+/**
+ * A destination this app is willing to send a browser to after sign-in.
+ *
+ * The allowlist is `parseAppRoute` — the one table the Worker and the client
+ * already share (O-06) — plus the home screen, so there is no second list to
+ * keep in step and no way to express an off-origin destination at all. Anything
+ * else becomes `/`, which makes an open redirect unreachable rather than merely
+ * guarded against: a protocol-relative `//evil.example`, an absolute URL and a
+ * path this app does not own all fail the same check.
+ *
+ * The query string is preserved deliberately. Losing `?sim=1` here would end a
+ * simulated game the moment anybody signed in, and that is how every browser
+ * check in this project is run.
+ */
+export function safeNext(raw: string | null | undefined): string {
+  // `undefined` is a real input, not a type-system formality: it is what a flow
+  // cookie sealed before this field existed deserialises to.
+  if (!raw || raw.length > MAX_NEXT) return '/';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  const path = raw.split(/[?#]/)[0];
+  return path === '/' || parseAppRoute(path) !== null ? raw : '/';
+}
+
+/**
+ * Long enough for `/f/<blob>` with a name on it, short enough that a junk
+ * destination cannot be echoed back at length. `MAX_FIELD_BLOB` is 256.
+ */
+const MAX_NEXT = 512;

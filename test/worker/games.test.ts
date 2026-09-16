@@ -44,13 +44,6 @@ async function signIn(sub: string): Promise<string> {
   return (response.headers.get('set-cookie') as string).split(';')[0];
 }
 
-let phone = 0;
-/** A player id per call, standing in for a phone that has never signed in. */
-function nextPhone(): string {
-  phone += 1;
-  return `phone-${String(phone).padStart(8, '0')}`;
-}
-
 async function createGame(
   cookie: string | null,
   colour: 'w' | 'b' = 'w',
@@ -61,7 +54,7 @@ async function createGame(
       'content-type': 'application/json',
       ...(cookie === null ? {} : { cookie }),
     },
-    body: JSON.stringify({ playerId: nextPhone(), field: FIELD, color: colour }),
+    body: JSON.stringify({ field: FIELD, color: colour }),
   });
   expect(response.status).toBe(201);
   return (await response.json()) as { joinCode: string; color: string };
@@ -71,13 +64,11 @@ async function join(
   joinCode: string,
   cookie: string | null,
 ): Promise<{ status: number; body: { color?: string; message?: string } }> {
+  // No body: since stage 2.5.1 the seat is named by the session and by nothing
+  // else, so there is nothing left for a join request to say.
   const response = await SELF.fetch(`${LOCAL}/api/game/${joinCode}`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(cookie === null ? {} : { cookie }),
-    },
-    body: JSON.stringify({ playerId: nextPhone() }),
+    headers: cookie === null ? {} : { cookie },
   });
   return { status: response.status, body: (await response.json()) as { color?: string } };
 }
@@ -160,15 +151,20 @@ describe('a game writes itself into its players’ indexes', () => {
     expect(await listGames(stranger)).toEqual([]);
   });
 
-  it('never indexes a game played without a session', async () => {
-    // Not a bug: nothing about a signed-out seat says which account it belongs
-    // to, and inventing one for a phone's UUID would be worse than a short list.
-    // Stage 2.5.1 removes the case entirely.
-    const { joinCode } = await createGame(null);
-    const latecomer = await signIn(nextSub());
-    expect(await listGames(latecomer)).toEqual([]);
-    // The game itself is untouched and perfectly playable.
-    expect(await env.GAME.getByName(joinCode).peek()).toMatchObject({ status: 'waiting' });
+  it('refuses to create a game at all without a session', async () => {
+    // This used to assert that a signed-out game simply never reached anybody's
+    // index, which was the honest answer while a seat could belong to a phone.
+    // Stage 2.5.1 removed the case rather than handling it: there is no seat
+    // without a `sub`, so the game is refused before it exists. That is what
+    // closes O-15 — a player who created a game signed out and then signed in
+    // used to be matched as two different people and took the second seat.
+    const response = await SELF.fetch(`${LOCAL}/api/game`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ field: FIELD, color: 'w' }),
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: 'unauthenticated' });
   });
 
   it('records a result from each player’s own point of view', async () => {

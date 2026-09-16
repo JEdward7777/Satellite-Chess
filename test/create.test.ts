@@ -130,9 +130,8 @@ describe('clampHandicap', () => {
 describe('createGameBody', () => {
   it('sends what the worker validates', () => {
     const d = draft({ timeControl: 0, handicapTo: 'opponent', handicapSquares: 0.2 });
-    const body = createGameBody(d, PARK, 'player-1234', 'w');
+    const body = createGameBody(d, PARK, 'w');
     expect(body).toEqual({
-      playerId: 'player-1234',
       field: PARK,
       color: 'w',
       initialMs: TIME_CONTROLS[0].initialMs,
@@ -146,12 +145,12 @@ describe('createGameBody', () => {
   it('sends the whole field, because the game snapshots it', () => {
     // A saved field is mutable and versioned; the game must carry its own copy
     // so a re-calibration elsewhere cannot reshape a game in progress.
-    const body = createGameBody(draft(), PARK, 'player-1234', 'b');
+    const body = createGameBody(draft(), PARK, 'b');
     expect(body.field).toBe(PARK);
   });
 
   it('falls back to the default time control if the index is out of range', () => {
-    const body = createGameBody(draft({ timeControl: 99 }), PARK, 'player-1234', 'w');
+    const body = createGameBody(draft({ timeControl: 99 }), PARK, 'w');
     expect(body.initialMs).toBe(DEFAULT_TIME_CONTROL.initialMs);
   });
 });

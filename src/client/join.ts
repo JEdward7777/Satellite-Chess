@@ -126,7 +126,6 @@ export interface JoinOptions {
  */
 export async function joinGame(
   rawCode: string,
-  playerId: string,
   options: JoinOptions = {},
 ): Promise<JoinOutcome> {
   const code = normaliseJoinCode(rawCode);
@@ -139,11 +138,10 @@ export async function joinGame(
 
   let response: Response;
   try {
-    response = await request(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ playerId }),
-    });
+    // No body. The seat used to be named here by a `playerId` the phone made
+    // up; since stage 2.5.1 the session cookie is the only thing that names a
+    // player, and it rides along on its own.
+    response = await request(url, { method: 'POST' });
   } catch {
     // A fetch only rejects when the request never got an answer — DNS, no
     // route, aeroplane mode. An HTTP error is a resolved promise.

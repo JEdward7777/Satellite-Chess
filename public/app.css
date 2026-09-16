@@ -603,3 +603,51 @@ body:has(.sim-panel) #app {
   object-fit: cover;
   display: block;
 }
+
+/*
+ * The sign-in gate (stage 2.5.1).
+ *
+ * The first screen anybody ever sees, and often the first screen somebody sees
+ * in a park having just scanned a QR code — so it is deliberately short, and the
+ * one button is the size of every other primary action in the app.
+ */
+.signin {
+  max-width: 32rem;
+}
+
+.signin-pitch {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+/*
+ * An anchor, styled as the primary button.
+ *
+ * Sign-in is a full-page navigation to the Worker rather than a `fetch`
+ * (decision 0030), so the control that starts it has to be a real link — a
+ * button with a click handler would be one more thing between a tap and Google,
+ * and `sw.js` already has to stay out of the way of `/auth/` for the navigation
+ * to arrive at all (O-10).
+ */
+.button {
+  display: inline-block;
+  min-height: 48px;
+  padding: 0.6rem 1.1rem;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 10px;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.signin-dev {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.signin-dev span {
+  display: block;
+  margin-top: 0.4rem;
+}

@@ -42,6 +42,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -118,14 +119,15 @@ async function newPhone(name, { fields = [], detector = null, userAgent } = {}) 
     permissions: ['camera'],
     ...(userAgent ? { userAgent } : {}),
   });
+  // Including the iPhone context: the gate is the same on a phone that cannot
+  // scan, and this driver has to get past it to see the advice line at all.
+  await signIn(context, `sim-scan-${name.replace(/[^A-Za-z0-9]/g, '-')}`, ORIGIN, name);
   const page = await context.newPage();
   page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`[${name}] ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`[${name}] ${e}`));
 
   await page.addInitScript(
-    ({ seeded, playerId, payloads }) => {
-      localStorage.setItem('satchess.player_id', playerId);
-
+    ({ seeded, payloads }) => {
       // Every track handed to the app, kept so the driver can ask afterwards
       // whether it was ever stopped. `readyState` is the browser's own answer.
       const probe = { tracks: [], frames: 0 };
@@ -167,7 +169,7 @@ async function newPhone(name, { fields = [], detector = null, userAgent } = {}) 
         for (const f of seeded) store.put(f);
       };
     },
-    { seeded: fields, playerId: `sim-scan-${name}`, payloads: detector },
+    { seeded: fields, payloads: detector },
   );
   return { name, context, page };
 }

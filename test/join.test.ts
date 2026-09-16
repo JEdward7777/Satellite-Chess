@@ -14,7 +14,6 @@ import type { FieldSnapshot } from '../src/shared/field.js';
  * someone standing in a park is told what to do next or shown a blank screen.
  */
 
-const PLAYER = 'player-abcdef01';
 
 const FIELD: FieldSnapshot = {
   fieldId: 'f1',
@@ -39,7 +38,7 @@ function answers(status: number, body: unknown): typeof fetch {
 
 describe('joining a game', () => {
   it('returns the seat and the field', async () => {
-    const outcome = await joinGame('abc 123', PLAYER, {
+    const outcome = await joinGame('abc 123', {
       fetch: answers(200, { color: 'b', field: FIELD }),
     });
     expect(outcome).toEqual({ ok: true, code: 'ABC123', colour: 'b', field: FIELD });
@@ -55,7 +54,7 @@ describe('joining a game', () => {
     }) as unknown as typeof fetch;
 
     for (const typed of ['ABC123', 'abc-123', 'ABCI23', 'abc 123']) {
-      const outcome = await joinGame(typed, PLAYER, { fetch: record });
+      const outcome = await joinGame(typed, { fetch: record });
       expect(outcome.ok && outcome.code, typed).toBe('ABC123');
     }
     expect(new Set(seen).size).toBe(1);
@@ -69,14 +68,14 @@ describe('joining a game', () => {
       throw new Error('should not have been called');
     }) as unknown as typeof fetch;
 
-    const outcome = await joinGame('NOPE', PLAYER, { fetch: never });
+    const outcome = await joinGame('NOPE', { fetch: never });
     expect(outcome.ok).toBe(false);
     expect(!outcome.ok && outcome.reason).toBe('bad_code');
     expect(!outcome.ok && outcome.hint).toContain('six characters');
   });
 
   it('says what the server said, and adds what to do about it', async () => {
-    const outcome = await joinGame('ABC123', PLAYER, {
+    const outcome = await joinGame('ABC123', {
       fetch: answers(404, {
         error: 'not_found',
         message: 'No game with that code. It may have expired.',
@@ -92,7 +91,7 @@ describe('joining a game', () => {
   it('tells a full game apart from a missing one', async () => {
     // Different advice: one is "check the code", the other is "you are the third
     // person to open this link".
-    const full = await joinGame('ABC123', PLAYER, {
+    const full = await joinGame('ABC123', {
       fetch: answers(409, { error: 'game_full', message: 'That game already has two players.' }),
     });
     expect(!full.ok && full.reason).toBe('full');
@@ -100,9 +99,9 @@ describe('joining a game', () => {
   });
 
   it('falls back to the status when there is no error code', async () => {
-    const gone = await joinGame('ABC123', PLAYER, { fetch: answers(404, {}) });
+    const gone = await joinGame('ABC123', { fetch: answers(404, {}) });
     expect(!gone.ok && gone.reason).toBe('not_found');
-    const broken = await joinGame('ABC123', PLAYER, { fetch: answers(500, {}) });
+    const broken = await joinGame('ABC123', { fetch: answers(500, {}) });
     expect(!broken.ok && broken.reason).toBe('server');
   });
 
@@ -114,7 +113,7 @@ describe('joining a game', () => {
       throw new TypeError('Failed to fetch');
     }) as unknown as typeof fetch;
 
-    const outcome = await joinGame('ABC123', PLAYER, { fetch: offline });
+    const outcome = await joinGame('ABC123', { fetch: offline });
     expect(!outcome.ok && outcome.reason).toBe('offline');
     expect(!outcome.ok && outcome.hint).toContain('signal');
   });
@@ -124,25 +123,35 @@ describe('joining a game', () => {
     const portal: typeof fetch = (async () =>
       new Response('<html>Sign in to continue</html>', { status: 200 })) as unknown as typeof fetch;
 
-    const outcome = await joinGame('ABC123', PLAYER, { fetch: portal });
+    const outcome = await joinGame('ABC123', { fetch: portal });
     expect(!outcome.ok && outcome.reason).toBe('server');
   });
 
   it('refuses a 200 that carries no field', async () => {
     // There would be no geometry to draw a board with. Better to say the join
     // failed than to open a board on a field that does not exist.
-    const outcome = await joinGame('ABC123', PLAYER, { fetch: answers(200, { color: 'b' }) });
+    const outcome = await joinGame('ABC123', { fetch: answers(200, { color: 'b' }) });
     expect(!outcome.ok && outcome.reason).toBe('server');
   });
 
-  it('posts the player id, which is what makes a re-join idempotent', async () => {
-    let body: unknown = null;
+  it('sends no body, because the session names the seat', async () => {
+    // This used to assert that the request carried a `playerId`, which was what
+    // made a re-join idempotent. Since stage 2.5.1 the seat is the account
+    // behind the session cookie, so the body has nothing left to say — and the
+    // re-join is idempotent for a better reason: reopening an invite on a second
+    // phone is now the *same* player, which is exactly what O-15 was about.
+    // Collected into an array rather than a nullable, because a value only ever
+    // assigned inside a closure stays narrowed to `null` for the typechecker.
+    const seen: RequestInit[] = [];
     const capture: typeof fetch = (async (_url: string, init: RequestInit) => {
-      body = JSON.parse(String(init.body));
+      seen.push(init);
       return new Response(JSON.stringify({ color: 'w', field: FIELD }), { status: 200 });
     }) as unknown as typeof fetch;
 
-    await joinGame('ABC123', PLAYER, { fetch: capture });
-    expect(body).toEqual({ playerId: PLAYER });
+    const outcome = await joinGame('ABC123', { fetch: capture });
+    expect(outcome.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe('POST');
+    expect(seen[0].body).toBeUndefined();
   });
 });

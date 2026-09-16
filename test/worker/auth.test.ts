@@ -267,3 +267,74 @@ describe('a real session', () => {
     delete mutableEnv.DEV_AUTH_SECRET;
   });
 });
+
+/**
+ * Where a completed sign-in lands (stage 2.5.1).
+ *
+ * The allowlist itself is unit-tested in `test/auth-token.test.ts`; what is
+ * asserted here is the part only the real runtime can show — that the
+ * destination survives the *round trip*, sealed into the flow cookie at
+ * `/login` and read back at `/callback`.
+ *
+ * This is the invitation case, and it is the one that matters: the commonest
+ * first-ever sign-in is a QR scanned in a park, and returning that player to `/`
+ * loses the invitation at the exact moment two people have already travelled to
+ * play. It travels in the cookie rather than in `state` so that Google never
+ * sees which game anybody was invited to.
+ */
+describe('coming back to where sign-in started', () => {
+  it('carries the destination through the flow cookie, not through Google', async () => {
+    configured();
+    const started = await SELF.fetch(
+      `${ORIGIN}/auth/google/login?next=${encodeURIComponent('/j/ABC123?sim=1')}`,
+      { redirect: 'manual' },
+    );
+    expect(started.status).toBe(302);
+
+    // Google is told nothing about it: no `next`, and nothing carrying it inside
+    // `state`, which is a random token and must stay one.
+    const target = new URL(started.headers.get('location') as string);
+    expect(target.searchParams.get('next')).toBeNull();
+    expect(target.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(started.headers.get('location')).not.toContain('ABC123');
+
+    // And it comes back out at the callback. A failure is used to observe it
+    // because the success path needs Google; the redirect target is the same
+    // value either way, which is the whole point of sealing it once.
+    const failedHere = await SELF.fetch(
+      `${ORIGIN}/auth/google/callback?code=abc&state=not-the-issued-state`,
+      { redirect: 'manual', headers: { cookie: flowCookie(started) } },
+    );
+    const location = failedHere.headers.get('location') as string;
+    expect(location.startsWith('/j/ABC123?')).toBe(true);
+    // `?sim=1` has to survive, or signing in would end a simulated game — and
+    // that is how every browser check in this project is run.
+    expect(location).toContain('sim=1');
+    expect(location).toContain('signin=failed');
+  });
+
+  it('sends an off-origin destination home instead of following it', async () => {
+    configured();
+    // The only open-redirect surface the app has. A signed `next` is still not a
+    // trusted one: it is validated on the way in *and* on the way out.
+    const started = await SELF.fetch(
+      `${ORIGIN}/auth/google/login?next=${encodeURIComponent('https://evil.example/steal')}`,
+      { redirect: 'manual' },
+    );
+    const failedHere = await SELF.fetch(
+      `${ORIGIN}/auth/google/callback?code=abc&state=wrong`,
+      { redirect: 'manual', headers: { cookie: flowCookie(started) } },
+    );
+    expect(failedHere.headers.get('location')).toBe('/?signin=failed&reason=bad_state');
+  });
+
+  it('defaults to home when no destination was asked for', async () => {
+    configured();
+    const started = await login();
+    const failedHere = await SELF.fetch(
+      `${ORIGIN}/auth/google/callback?code=abc&state=wrong`,
+      { redirect: 'manual', headers: { cookie: flowCookie(started) } },
+    );
+    expect(failedHere.headers.get('location')).toBe('/?signin=failed&reason=bad_state');
+  });
+});

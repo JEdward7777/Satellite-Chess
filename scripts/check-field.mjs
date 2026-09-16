@@ -43,6 +43,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const require = createRequire(import.meta.url);
 let jsQR;
@@ -119,12 +120,14 @@ async function newPhone(name, { fields = [] } = {}) {
     viewport: { width: 480, height: 900 },
     permissions: ['clipboard-read', 'clipboard-write'],
   });
+  // Each phone is its own account, which is what makes "both ends of a share are
+  // real" still true now that sign-in is mandatory (stage 2.5.1).
+  await signIn(context, `sim-field-${name.replace(/[^A-Za-z0-9]/g, '-')}`, ORIGIN, name);
   const page = await context.newPage();
   page.on('console', (m) => isRealConsoleError(m) && consoleErrors.push(`[${name}] ${m.text()}`));
   page.on('pageerror', (e) => consoleErrors.push(`[${name}] ${e}`));
   await page.addInitScript(
-    ({ seeded, playerId }) => {
-      localStorage.setItem('satchess.player_id', playerId);
+    ({ seeded }) => {
       window.__shared = [];
       window.__installShare = () => {
         navigator.share = (data) => {
@@ -145,7 +148,7 @@ async function newPhone(name, { fields = [] } = {}) {
         for (const f of seeded) store.put(f);
       };
     },
-    { seeded: fields, playerId: `sim-field-${name}` },
+    { seeded: fields },
   );
   return { name, context, page };
 }

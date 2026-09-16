@@ -231,7 +231,28 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
   with `wrangler secret list`); documenting both is the README section added by
   `2.1.5`, plus decision 0034 for why there is deliberately no local secret.
 - `2.5` todo: Auth gate on the client
-  - `2.5.1` todo: Unauthenticated launch goes to a sign-in screen and nowhere else
+  - `2.5.1` done: Unauthenticated launch goes to a sign-in screen and nowhere else
+    Done 2026-09-16, as **decision 0035**, and it is three things rather than one.
+    **The screen**: `client/views/signin.ts`, reached from `boot()` before any
+    other screen and after the survey, which is gated on its own secret (0022).
+    **The server half**, which is what makes it real: `signInRequired` in
+    `worker/index.ts` 401s creating, joining and the socket upgrade, and the
+    `playerId` seat key is *deleted* — from the body, the query string and the
+    phone (`getPlayerId` is gone). **This is what closes O-15**: a seat is a
+    `sub` or it does not exist, so a player who signed in between creating a game
+    and reopening it can no longer be mistaken for two people and handed both
+    seats. **The return path**: the destination travels in the signed flow cookie
+    and is validated against `parseAppRoute` at both ends, so a QR scanned in a
+    park survives the trip to Google instead of landing on the home screen.
+    The rule most likely to be "simplified" back into a bug is that the launch
+    check has **three** states: only a real 401 closes the gate, and an
+    unreachable server opens the app (decision 0035, rule 2).
+    Verified by 25 new tests (737 → **762**): `test/session.test.ts` for the
+    three-state rule, `test/auth-token.test.ts` for the return-path allowlist,
+    and the round trip plus the `devSeam` flag in `test/worker/auth.test.ts` and
+    `test/worker/identity.test.ts`. Every browser driver signs in through
+    `scripts/driver-signin.mjs`; **none has been run** — playwright is not
+    installed in the container.
   - `2.5.2` done: A local-dev and simulator test seam, so the game stays testable
     without a live Google round-trip on every run. Dev-only, never reachable in a
     deployed build — this is a test seam, not a product fallback.

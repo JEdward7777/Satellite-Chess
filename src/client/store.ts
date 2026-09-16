@@ -1,5 +1,5 @@
 /**
- * Local persistence: saved fields, and who this phone thinks you are.
+ * Local persistence: the fields this phone has saved.
  *
  * Decision 0013 is the whole specification here — **a calibrated field is saved
  * immediately and unconditionally**, with no login and no confirmation step.
@@ -24,22 +24,18 @@ const DB_NAME = 'satellite-chess';
 const DB_VERSION = 1;
 const FIELDS_STORE = 'fields';
 const FIELDS_KEY = 'satchess.fields';
-const PLAYER_ID_KEY = 'satchess.player_id';
 
-/**
- * This phone's anonymous identity, made on first run.
+/*
+ * There used to be a `getPlayerId` here: a UUID minted on first run, which was
+ * this phone's anonymous identity and — until stage 2.5.1 — a usable seat key.
+ * It is gone rather than merely unused, because a second key that can name a
+ * player is exactly what O-15 was: a player who created a game signed out and
+ * reopened it signed in was matched as two different people, took the other
+ * seat, and held both. A seat is a Google `sub` now, or it does not exist.
  *
- * Sign-in is mandatory to *play* (decision 0014), but a field is saved against
- * this id before any of that happens, so calibration works on a phone that has
- * never seen an account.
+ * A field is still saved with no account and no network (decision 0013); it is
+ * keyed by its own id and never needed a player.
  */
-export function getPlayerId(storage: Storage = localStorage): string {
-  const existing = storage.getItem(PLAYER_ID_KEY);
-  if (existing) return existing;
-  const id = crypto.randomUUID();
-  storage.setItem(PLAYER_ID_KEY, id);
-  return id;
-}
 
 /** Everything in memory. For tests, and never used as a fallback — it loses data. */
 export function createMemoryFieldStore(): FieldStore {

@@ -12,18 +12,23 @@
  * (decision 0033). Neither is a failure the player can see, and neither throws.
  *
  * The browser logs every failed request regardless of whether the code handled
- * it, so those two lines appear in the console of every correct signed-out run.
- * Until stage 2.5.1 makes sign-in mandatory, that is *most* runs — every driver
- * but `check-fields.mjs` never signs in at all.
+ * it, so those lines appear in the console of every correct signed-out run.
  *
- * So this excludes those two endpoints at that one status, and nothing else. A
- * 500 from either, or a 401 from anywhere else, still counts — which is the
+ * **Stage 2.5.1 made sign-in mandatory, so these are now rare rather than
+ * usual.** Every driver signs in through `driver-signin.mjs` before its first
+ * navigation, and a signed-in run should produce none of them. They are still
+ * excluded because there is one honest window left: the gate's own `/api/me`
+ * probe runs before any session exists on a genuinely signed-out load, which is
+ * what a driver testing the gate itself is looking at.
+ *
+ * So this excludes those endpoints at that one status, and nothing else. A 500
+ * from any of them, or a 401 from anywhere else, still counts — which is the
  * difference between this and the blanket "ignore failed resource loads" that
  * `check-clock.mjs` used to carry.
  */
 
 /** Endpoints that answer 401 to a signed-out phone, by design. */
-const SIGNED_OUT_401 = ['/api/fields/sync', '/api/games'];
+const SIGNED_OUT_401 = ['/api/fields/sync', '/api/games', '/api/me'];
 
 /**
  * Should this console message be treated as a failure?

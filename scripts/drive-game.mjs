@@ -42,6 +42,8 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
+import { signIn } from './driver-signin.mjs';
+
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v = 'true'] = a.replace(/^--/, '').split('=');
@@ -109,15 +111,16 @@ function squareToPixel(file, rank, orientation, w, h) {
 
 async function newPhone(browser, name) {
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // Two accounts, one per phone — which is what two players are now. `BASE`
+  // carries `?sim=1`, so the origin comes from it; the seam is loopback-only.
+  await signIn(context, `sim-drive-${name.replace(/[^A-Za-z0-9]/g, '-')}`, new URL(BASE).origin, name);
   const page = await context.newPage();
   page.on('console', (m) => {
     if (m.type() === 'error') console.log(`  [${name}] console error: ${m.text()}`);
   });
 
   await page.addInitScript(
-    ({ field, playerId }) => {
-      localStorage.setItem('satchess.player_id', playerId);
-
+    ({ field }) => {
       // A delay knob for inbound frames, so a prediction can be photographed.
       window.__wsDelay = 0;
       const Native = window.WebSocket;
@@ -154,7 +157,7 @@ async function newPhone(browser, name) {
         req.result.transaction('fields', 'readwrite').objectStore('fields').put(field);
       };
     },
-    { field: FIELD, playerId: `sim-${name}` },
+    { field: FIELD },
   );
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });

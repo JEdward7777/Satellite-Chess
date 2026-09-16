@@ -23,6 +23,38 @@ const GEO = deriveGeometry(FIELD);
 const WHITE = 'carry-white-0001';
 const BLACK = 'carry-black-0002';
 
+const DEV_SECRET = 'test-dev-auth-secret';
+const mutableEnv = env as unknown as Record<string, unknown>;
+const cookies = new Map<string, string>();
+
+/**
+ * A session cookie for a seat (stage 2.5.1).
+ *
+ * A seat is an account now, so a socket has to arrive carrying one — the
+ * `playerId` query parameter these tests used to pass is gone, and with it the
+ * case O-15 lived in. The readable ids above are simply `sub`s rather than phone
+ * UUIDs, so every call site below reads exactly as it did.
+ *
+ * Minted through the dev seam, which is why these requests are addressed to
+ * loopback: the seam's second lock guards *reading* a token as well as minting
+ * one, so a dev cookie presented to a non-loopback origin is correctly ignored
+ * (decision 0029). Cached because the id is stable and minting is a round trip.
+ */
+async function cookieFor(sub: string): Promise<string> {
+  const known = cookies.get(sub);
+  if (known !== undefined) return known;
+  mutableEnv.DEV_AUTH_SECRET = DEV_SECRET;
+  const response = await SELF.fetch('http://127.0.0.1/api/dev/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dev-auth-secret': DEV_SECRET },
+    body: JSON.stringify({ sub }),
+  });
+  expect(response.status).toBe(200);
+  const cookie = (response.headers.get('set-cookie') as string).split(';')[0];
+  cookies.set(sub, cookie);
+  return cookie;
+}
+
 let counter = 5000;
 function nextCode(): string {
   counter += 1;
@@ -88,10 +120,9 @@ class Client {
 }
 
 async function openSocket(joinCode: string, playerId: string): Promise<Client> {
-  const res = await SELF.fetch(
-    `https://example.com/api/game/${joinCode}/ws?playerId=${playerId}`,
-    { headers: { upgrade: 'websocket' } },
-  );
+  const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`, {
+    headers: { upgrade: 'websocket', cookie: await cookieFor(playerId) },
+  });
   expect(res.status).toBe(101);
   const ws = res.webSocket;
   if (!ws) throw new Error('no webSocket');

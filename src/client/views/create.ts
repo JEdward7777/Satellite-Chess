@@ -130,13 +130,11 @@ export function reachBonuses(draft: CreateDraft, myColour: Color): ReachBonuses 
 export function createGameBody(
   draft: CreateDraft,
   field: FieldSpec,
-  playerId: string,
   myColour: Color,
 ): Record<string, unknown> {
   const time = draftTimeControl(draft);
   const bonuses = reachBonuses(draft, myColour);
   return {
-    playerId,
     field,
     color: myColour,
     initialMs: time.initialMs,

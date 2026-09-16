@@ -70,3 +70,4 @@ The conditions under which this should be reopened.
 | [0032](0032-fields-sync-by-journal-not-by-list.md) | Sync fields against a journal of what the account has acknowledged | accepted |
 | [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md) | The game writes the index; the phone only ever reads it | accepted |
 | [0034](0034-the-google-flow-is-verified-on-the-deployed-worker.md) | Local dev signs in through the seam; Google is verified on the deployed Worker | accepted |
+| [0035](0035-the-gate-opens-when-the-server-cannot-be-asked.md) | The gate opens when the server cannot be asked, and a seat is a `sub` or nothing | accepted |

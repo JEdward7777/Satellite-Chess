@@ -219,3 +219,34 @@ Writing it also paid for itself immediately, in the way the project keeps
 predicting: the first screenshot showed seven games pushing every control on the
 home screen past the bottom of the page. That produced the `HOME_SHOWN` cap and
 **O-16**, and neither was visible to any unit test.
+
+
+### O-15 — Signing in mid-game makes a player their own opponent
+**Opened:** 2026-09-08, stage 3.5.2. **Closed:** 2026-09-16, stage 2.5.1
+(decision 0035).
+
+**Outcome: closed by deletion rather than by reconciliation.** The bug was that
+the seat key was the `sub` when a request carried a session and the body's
+`playerId` when it did not, so a player who created a game signed out and
+reopened it signed in was matched as two different people — `colorOf` compared a
+`sub` against a stored UUID, missed, and handed them the *other* seat. One person
+then held both, the game was unplayable, and the only recourse was a new code.
+
+The observation offered two remedies: require sign-in, or adopt the seat (a
+signed-in request carrying a `playerId` that matches an accountless seat takes it
+over). The first was taken, and taken all the way: **`playerId` is gone**, from
+the create body, from the WebSocket query string, and from the phone —
+`getPlayerId` is deleted rather than left unused. Creating, joining and the
+socket upgrade all 401 without a session.
+
+Seat adoption was rejected deliberately and the reasoning is in decision 0035: it
+is a good fix for a world where signed-out play exists, and that world was
+abolished by decision 0014. Keeping it would have left two kinds of key able to
+name a player — which is what this observation *was*. One key cannot disagree
+with itself.
+
+What the fix cost, and it is worth knowing before anyone reopens this: every
+browser driver and every worker test that opened a socket had to start carrying a
+session, because a seat is now an account. That is 58 tests in `carry.test.ts`
+alone, all repaired by one helper per file. The tests became more honest for it —
+they now exercise the real seating rule rather than a bypass.

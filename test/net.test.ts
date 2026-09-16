@@ -66,7 +66,6 @@ function harness(opts: { now?: () => number } = {}) {
   const sockets: FakeSocket[] = [];
   const connection = connectToGame({
     joinCode: 'A1B2C3',
-    playerId: 'player-1',
     origin: 'https://example.com',
     pingIntervalMs: 1_000,
     now: opts.now,
@@ -85,11 +84,13 @@ const snapshot = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('connecting', () => {
-  it('builds a ws:// URL from the origin, carrying the join code and player', () => {
+  it('builds a ws:// URL from the origin, carrying the join code', () => {
+    // No player in the URL since stage 2.5.1: the upgrade is seated by the
+    // session cookie the browser sends with the handshake. A query parameter
+    // naming the player was what a signed-out phone used instead, and that is
+    // the case the gate removed (O-15).
     const { latest } = harness();
-    expect(latest().url).toBe(
-      'wss://example.com/api/game/A1B2C3/ws?playerId=player-1',
-    );
+    expect(latest().url).toBe('wss://example.com/api/game/A1B2C3/ws');
   });
 
   it('reports connecting, then open', () => {

@@ -294,4 +294,23 @@ is; this says what will bite you when you touch it.*
   worker gets Workers only, tools get both. Do not collapse them back into one —
   the Workers globals shadow their DOM namesakes and the resulting errors name
   types with no bearing on the code. Resolved O-05.
+- **The launch check has three states, and the third one is load-bearing**
+  (decision 0035). `loadSession` in `client/session.ts` returns `signed_in`,
+  `signed_out` *or* `unknown`, and **only a real 401 closes the gate** — an
+  unreachable server, a 5xx, or a 200 of somebody's captive portal all open the
+  app. Sign-in is mandatory, so the obvious simplification is a boolean, and the
+  obvious boolean is a bug that only fires when the network is gone: a player on
+  a pitch with a fortnight-old session shown a sign-in screen they cannot
+  complete. Nothing is faked by opening — the server still refuses every call
+  without a cookie, which is the point.
+- **A seat is a `sub` or it does not exist** (stage 2.5.1, decision 0035, closing
+  O-15). There is no `playerId` anywhere any more: not in the create body, not on
+  the WebSocket URL, not in `localStorage`. If a future change needs to name a
+  player, it names the account — a second key that can identify somebody is
+  exactly what O-15 was, and the symptom was one person holding both seats of a
+  game nobody could then play.
+- **Every browser driver signs in first** (`scripts/driver-signin.mjs`), because
+  a context that has not reaches the gate and nothing else. A driver that skips
+  it does not fail with "not signed in"; it times out waiting for a selector on a
+  screen that was never going to render, which reads as a broken home screen.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

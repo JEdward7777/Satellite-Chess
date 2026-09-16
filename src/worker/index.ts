@@ -21,7 +21,7 @@ import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
-import { devAuthRoutes, type Identity, identityOf } from './identity.js';
+import { devAuthRoutes, devSeamEnabled, identityOf } from './identity.js';
 import { authRoutes } from './auth.js';
 import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
 import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
@@ -129,7 +129,15 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     }
     const identity = await identityOf(request, env, url);
     if (identity === null) {
-      return apiError('unauthenticated', 'Not signed in.', 401);
+      // The client's gate (stage 2.5.1) reads `devSeam` to decide whether to
+      // offer a test-account button beside "Sign in with Google". This is the
+      // seam's own two locks answering (decision 0029) rather than a third
+      // switch to get wrong: a deployed build reports `false` here for exactly
+      // the same reason `/api/dev/session` 404s there, so the button cannot be
+      // drawn — and could do nothing if it somehow were.
+      return apiError('unauthenticated', 'Sign in to play.', 401, {
+        devSeam: devSeamEnabled(env, url),
+      });
     }
     const account = await userFor(env, identity.sub).touch(identity.sub);
     return json({ ...identity, account });
@@ -195,26 +203,25 @@ function userFor(env: Env, sub: string): DurableObjectStub<UserDO> {
 }
 
 /**
- * Who is taking this seat (stage 3.5.2).
+ * No session, no seat (stage 2.5.1, decision 0014).
  *
- * **A session wins over the body, always.** The `playerId` a client sends is a
- * UUID it made up on first run, which was the right answer while there were no
- * accounts and is the wrong one now: it belongs to a *phone*, so a game resumed
- * on a second phone would find both seats taken by strangers. When there is a
- * session, the seat key is the Google `sub` (decision 0014), which is the same
- * on every phone the player owns — and is what makes stage 2.3.4's game index a
- * list you can act on rather than a list you can only read.
+ * Every route that can put somebody in a game answers this way when there is no
+ * identity behind the request, and that is what actually closes **O-15**. The
+ * seat key used to fall back to a `playerId` — a UUID the client made up on
+ * first run — which meant a player who created a game signed out and reopened it
+ * signed in was matched as two different people and took the second seat,
+ * leaving one person holding both. The fix is not to reconcile the two keys but
+ * to delete one of them: a seat is a `sub` or it does not exist.
  *
  * The `sub` is never shown to the opponent: `PlayerView` carries a colour, a
  * connection and a position, and no identifier at all.
  *
- * `account` is null for a seat with no session behind it, and that is a real
- * state until stage 2.5.1 makes sign-in mandatory: the game still plays, and it
- * simply never appears in anybody's index.
+ * A 401 rather than a redirect, because everything under `/api/` is fetched by
+ * the client and a redirect would arrive as an opaque HTML body. The client's
+ * gate is what turns this into a screen.
  */
-function seatFor(identity: Identity | null, body: unknown): { seat: string | null; account: string | null } {
-  if (identity !== null) return { seat: identity.sub, account: identity.sub };
-  return { seat: asPlayerId(body), account: null };
+function signInRequired(): Response {
+  return apiError('unauthenticated', 'Sign in to play.', 401);
 }
 
 /**
@@ -377,10 +384,10 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
   if (body === null) return apiError('bad_message', 'Expected a JSON body.', 400);
 
   const identity = await identityOf(request, env, url);
-  const { seat: playerId, account } = seatFor(identity, body.playerId);
-  if (playerId === null) {
-    return apiError('bad_message', 'A playerId is required.', 400);
-  }
+  if (identity === null) return signInRequired();
+  // The seat key and the account are the same thing now, and always the `sub`.
+  const playerId = identity.sub;
+  const account = identity.sub;
 
   // The field travels with the game as an immutable snapshot, so a
   // re-calibration on another phone cannot reshape a game in progress — and so a
@@ -433,12 +440,10 @@ async function joinGame(
   url: URL,
   stub: DurableObjectStub<GameDO>,
 ): Promise<Response> {
-  const body = await readJson(request);
   const identity = await identityOf(request, env, url);
-  const { seat: playerId, account } = seatFor(identity, body?.playerId);
-  if (playerId === null) {
-    return apiError('bad_message', 'A playerId is required.', 400);
-  }
+  if (identity === null) return signInRequired();
+  const playerId = identity.sub;
+  const account = identity.sub;
 
   const result = await stub.join(playerId, account);
   if (result.ok) {
@@ -474,15 +479,14 @@ async function openSocket(
   if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
     return apiError('bad_message', 'This endpoint requires a WebSocket upgrade.', 426);
   }
-  // The same rule as the seat itself: a session names the player, and the query
-  // parameter is only what a signed-out phone has instead. They have to agree,
-  // or a game joined as an account would be reconnected to as a phone and the
-  // object would answer "not a player in this game".
+  // The same rule as the seat itself: the session names the player. There used
+  // to be a `playerId` query parameter here for a phone that had not signed in,
+  // and it had to agree with the seat or a game joined as an account would be
+  // reconnected to as a phone and the object would answer "not a player in this
+  // game". Since 2.5.1 there is only one answer, so there is nothing to agree.
   const identity = await identityOf(request, env, url);
-  const { seat: playerId } = seatFor(identity, url.searchParams.get('playerId'));
-  if (playerId === null) {
-    return apiError('bad_message', 'A playerId is required.', 400);
-  }
+  if (identity === null) return signInRequired();
+  const playerId = identity.sub;
   // The path is rewritten to `/ws` so the object's `fetch` has one shape to
   // handle, independent of the public route.
   return stub.fetch(`https://game/ws?playerId=${encodeURIComponent(playerId)}`, request);
@@ -504,14 +508,6 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
 function asArray(value: unknown): unknown[] | null {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : null;
-}
-
-function asPlayerId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  // Long enough to be a UUID or a Google `sub`, short enough not to be a payload.
-  if (trimmed.length < 8 || trimmed.length > 128) return null;
-  return /^[A-Za-z0-9._:-]+$/.test(trimmed) ? trimmed : null;
 }
 
 function asPositiveInt(value: unknown): number | null {

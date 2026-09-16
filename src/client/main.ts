@@ -37,7 +37,9 @@ import {
   createLocalStorageJournal,
 } from './field-sync.js';
 import { type GamesTransport, browserGamesTransport } from './games.js';
-import { createFieldStore, getPlayerId } from './store.js';
+import { createFieldStore } from './store.js';
+import { currentDestination, devSignIn, loadSession, signInFailure } from './session.js';
+import { mountSignIn } from './views/signin.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
@@ -112,10 +114,6 @@ async function boot(): Promise<void> {
     gps.start();
   }
 
-  // Made on first run, before any sign-in and before anything is saved against
-  // it (decision 0013).
-  getPlayerId();
-
   // The field survey hijacks the whole app: it is a measuring instrument, not a
   // screen of the game, and mixing it with the normal flow would risk shipping
   // a location recorder to a player who never asked for one.
@@ -124,6 +122,42 @@ async function boot(): Promise<void> {
     // Mounted for the lifetime of the page; the teardown is deliberately
     // dropped, because nothing else ever gets to replace this screen.
     mountSurvey(root, { gps, secret: surveySecret });
+    return;
+  }
+
+  // The sign-in gate (stage 2.5.1, decision 0014): an unauthenticated launch
+  // goes to a sign-in screen and nowhere else.
+  //
+  // Deliberately *after* the survey, which is a measuring instrument rather than
+  // a screen of the game and is gated on its own secret (decision 0022) — and
+  // deliberately before everything else, including calibration. "Nowhere else"
+  // is the whole decision, and a half-gate that let someone walk out a field
+  // first would re-open the window O-15 lives in.
+  //
+  // Only `signed_out` closes the gate. An unreachable server is `unknown` and
+  // the app opens: a phone in a field with a fortnight-old session must never be
+  // shown a sign-in screen it cannot complete. See `session.ts`.
+  const session = await loadSession();
+  if (session.kind === 'signed_out') {
+    // Mounted for the lifetime of the page, as the survey is: the only ways out
+    // are a navigation to Google and a reload, and both replace this document.
+    mountSignIn(root, {
+      next: currentDestination(location),
+      devSeam: session.devSeam,
+      reason: signInFailure(location.search),
+      onDevSignIn: () => {
+        // The committed dev secret, the same value `npm run dev` passes. Safe to
+        // ship: it guards a loopback server full of invented accounts, and the
+        // hostname lock is what makes it worthless anywhere else (decision 0029).
+        void devSignIn('dev-player', 'local-dev-secret').then((ok) => {
+          // A reload rather than a re-render, because the cookie has to be in
+          // the jar before anything else asks who we are — and the address bar
+          // still holds whatever route we were gated on, so the reload resumes
+          // it rather than landing home.
+          if (ok) location.reload();
+        });
+      },
+    });
     return;
   }
 
@@ -270,7 +304,7 @@ async function boot(): Promise<void> {
         teardown();
       };
     });
-    void joinGame(code, getPlayerId()).then((outcome) => {
+    void joinGame(code).then((outcome) => {
       if (!live) return;
       if (!outcome.ok) {
         showJoinFailed(code, outcome);
@@ -287,7 +321,7 @@ async function boot(): Promise<void> {
       // slow IndexedDB write must never sit between a tapped invite and a board,
       // and there is nothing on the next screen that depends on the answer.
       void keepGameField(store, outcome.field);
-      enterGame(outcome.code, outcome.field, getPlayerId(), outcome.colour);
+      enterGame(outcome.code, outcome.field, outcome.colour);
     });
   }
 
@@ -318,11 +352,10 @@ async function boot(): Promise<void> {
     field: FieldSpec,
     colour: Color,
   ): Promise<void> {
-    const playerId = getPlayerId();
     const response = await fetch('/api/game', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(createGameBody(draft, field, playerId, colour)),
+      body: JSON.stringify(createGameBody(draft, field, colour)),
     });
     const body = (await response.json()) as {
       joinCode?: string;
@@ -363,21 +396,16 @@ async function boot(): Promise<void> {
         joinCode,
         field,
         colour,
-        onOpenBoard: () => enterGame(joinCode, field, getPlayerId(), colour),
+        onOpenBoard: () => enterGame(joinCode, field, colour),
         onLeave: () => void showHome(),
       }),
     );
   }
 
-  function enterGame(
-    joinCode: string,
-    field: FieldSnapshot,
-    playerId: string,
-    colour: Color,
-  ): void {
+  function enterGame(joinCode: string, field: FieldSnapshot, colour: Color): void {
     // Wrapped so the three acts of a carry land on screen the moment they are
     // tapped. The messages on the wire are identical; only the wait is gone.
-    const connection = withOptimism(connectToGame({ joinCode, playerId }));
+    const connection = withOptimism(connectToGame({ joinCode }));
     swap(() => {
       let detachDrag: (() => void) | null = null;
       const teardown = mountGame(root, {

@@ -35,6 +35,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -87,6 +88,9 @@ const step = (n, text) => console.log(`\n${n}. ${text}`);
 
 async function newPhone(browser, name) {
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // `BASE` carries `?sim=1`, so the origin is taken from it rather than assumed
+  // — the dev seam is loopback-only and will refuse anything else (0029).
+  await signIn(context, `sim-clock-${name.replace(/[^A-Za-z0-9]/g, '-')}`, new URL(BASE).origin, name);
   const page = await context.newPage();
   page.on('console', (m) => {
     // A driver that provokes failures on purpose has to ignore the browser's own
@@ -97,9 +101,7 @@ async function newPhone(browser, name) {
   });
 
   await page.addInitScript(
-    ({ field, playerId }) => {
-      localStorage.setItem('satchess.player_id', playerId);
-
+    ({ field }) => {
       /**
        * Rewrite the clock inside inbound snapshots.
        *
@@ -189,7 +191,7 @@ async function newPhone(browser, name) {
         req.result.transaction('fields', 'readwrite').objectStore('fields').put(field);
       };
     },
-    { field: FIELD, playerId: `sim-${name}` },
+    { field: FIELD },
   );
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });

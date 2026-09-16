@@ -76,7 +76,6 @@ export interface GameConnection {
 
 export interface GameConnectionOptions {
   joinCode: string;
-  playerId: string;
   /** Overridable for tests; defaults to this page's origin. */
   origin?: string;
   /** Injectable so a test need not run a real server. */
@@ -158,9 +157,10 @@ class Connection implements GameConnection {
   private url(): string {
     const origin = this.opts.origin ?? location.origin;
     const wsOrigin = origin.replace(/^http/, 'ws');
-    return `${wsOrigin}/api/game/${encodeURIComponent(this.opts.joinCode)}/ws?playerId=${encodeURIComponent(
-      this.opts.playerId,
-    )}`;
+    // No `playerId`. The upgrade is seated by the session cookie, which the
+    // browser sends with the handshake — the query parameter was what a phone
+    // that had not signed in used instead, and stage 2.5.1 removed that case.
+    return `${wsOrigin}/api/game/${encodeURIComponent(this.opts.joinCode)}/ws`;
   }
 
   private open(): void {
