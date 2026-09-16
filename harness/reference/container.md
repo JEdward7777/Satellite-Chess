@@ -4,6 +4,28 @@
 about the box the game is built in, and it is the part a new thread needs only
 when something refuses to run.*
 
+## Delegating a driver run: assume a shared working tree
+
+Learned the hard way on 2026-09-16, and it nearly cost uncommitted work.
+
+Another session was asked to run the drivers because it had a browser. It turned
+out to be on the **same machine, in the same checkout** — `~/Sync/projects/Satellite-Chess`
+is one directory, not one per session. The instructions sent to it included
+`git checkout <old-commit>` for a bisect, which would have moved `HEAD` in that
+shared tree on top of three files being edited live at that moment. Nothing was
+lost only because the peer noticed, refused to run it, and used a detached
+`git worktree` in scratch space instead.
+
+So, when handing a run to another session:
+
+- **Never send a command that moves `HEAD`, stashes, resets or cleans.** Assume
+  your tree is their tree until proven otherwise.
+- A bisect belongs in `git worktree add <scratch-dir> <commit>`, with
+  `node_modules` symlinked in and the client built there. That is what worked.
+- Say which paths you are actively editing, so a peer can avoid them.
+- The cheap check is `git config --get remote.origin.url` plus `pwd` at both
+  ends before anything is run.
+
 ## Running the browser drivers
 
 **Playwright can be installed without root and without touching the system**,
@@ -18,6 +40,30 @@ mkdir -p ~/.cache/satellite-chess/playwright
 PLAYWRIGHT_BROWSERS_PATH=~/.cache/satellite-chess/playwright \
   npx playwright install chromium              # ~115 MB download, 658 MB unpacked
 ```
+
+**If the box already has Chrome, skip the download entirely.** Found on
+2026-09-16 by a peer session running our drivers on a machine with system Chrome,
+and it is strictly better than the above wherever it applies — 17 seconds against
+several minutes, and no 658 MB sitting in a cache:
+
+```bash
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save playwright jsqr
+mkdir -p ~/.cache/satellite-chess/playwright/chromium-sys
+# …/chrome is the Chrome *install directory*, which is `/opt/google/chrome` on
+# Debian and Ubuntu and something else everywhere else. The path is the local
+# detail; the symlink's shape is the part that generalises.
+ln -s <chrome-install-dir> ~/.cache/satellite-chess/playwright/chromium-sys/chrome-linux
+```
+
+It works because `findChromium()` in each driver only scans
+`PLAYWRIGHT_BROWSERS_PATH` for `chromium-*/chrome-linux/chrome` and hands the
+result to `chromium.launch({ executablePath })` — so **a symlink named to match
+that shape resolves to the system browser with no source change**. That naming is
+the whole mechanism and is what to reproduce on a different platform.
+
+Verified against Google Chrome 152 on Ubuntu 24.04, Node 24: eight of eleven
+drivers passed, and all three failures were real findings rather than browser
+problems.
 
 Notes that matter:
 

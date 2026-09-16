@@ -283,6 +283,22 @@ try {
   // `goodAccuracyM`, so accuracy contributes nothing and reach is purely
   // `(base 0.4 + bonus 0.25) * 8 m` = 5.2 m. Without the bonus it reads 3.2 m,
   // so the number *is* the test.
+  // Wait for the **snapshot**, not merely for a number, and the difference is
+  // why this assertion had never once passed. `reachNow()` in `views/game.ts`
+  // renders from the GPS fix whether or not a snapshot has arrived, and with no
+  // snapshot `myReachBonusSquares` returns 0 — so the board shows the base
+  // reach, exactly 3.2 m, the instant there is a fix. Waiting for any digit
+  // matched that pre-snapshot value every time, at every commit, which is what
+  // made this look like a regression in the handicap round trip when it was a
+  // race in the driver. `[data-turn]` only stops being '—' once `net.game`
+  // exists, so it is the signal that the server has actually spoken.
+  await page.waitForFunction(
+    () => {
+      const turn = document.querySelector('[data-turn]')?.textContent?.trim();
+      return turn === 'yours' || turn === 'theirs';
+    },
+    { timeout: 15_000 },
+  );
   await page.waitForFunction(
     () => /\d/.test(document.querySelector('[data-reach]')?.textContent ?? ''),
     { timeout: 15_000 },

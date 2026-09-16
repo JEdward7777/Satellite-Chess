@@ -842,3 +842,63 @@ describe('surviving hibernation', () => {
     expect(count).toBe(1);
   });
 });
+
+/**
+ * The handicap, from the create body to the snapshot the board reads
+ * (decision 0004, stage 6.1.1).
+ *
+ * Written on 2026-09-16 because `scripts/check-invite.mjs` reported the 0.25
+ * square handicap coming back as the *default* reach, and the driver could not
+ * say which half of the round trip lost it — it only sees the number on the
+ * board, at the end of a chain that runs create body → SQL columns → snapshot →
+ * `myReachBonusSquares` → rendered text.
+ *
+ * So this asserts the two links a test can reach. If these pass and the driver
+ * still fails, the loss is in the client's reading or its rendering, which is
+ * exactly the split `gotchas.md` warns about: the bonus is per-player in the
+ * snapshot and read from there, **not** remembered from the create screen, and
+ * getting that wrong does not fail anybody's move — it quietly tells a
+ * handicapped player a legal move is out of reach, and they believe it and walk
+ * further.
+ */
+describe('the handicap survives the round trip', () => {
+  it('stores a per-colour bonus and puts it in the snapshot', async () => {
+    const cookie = await cookieFor(WHITE);
+    const created = await SELF.fetch('http://127.0.0.1/api/game', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        field: makeFieldSpec('handicap field', {
+          a1: A1,
+          h8: fromLocal(A1, { e: 7 * SQUARE_M, n: 7 * SQUARE_M }),
+        }),
+        color: 'w',
+        reachSquares: 0.4,
+        whiteReachBonusSquares: 0.25,
+        blackReachBonusSquares: 0,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const { joinCode } = (await created.json()) as { joinCode: string };
+
+    // Link one: the columns. `clampHandicapSquares` rounds to a step, so 0.25
+    // has to be expressible — if the step ever changes this is where it shows.
+    const rows = (await runInDurableObject(env.GAME.getByName(joinCode), (_instance, state) =>
+      state.storage.sql
+        .exec(`SELECT white_reach_bonus_sq, black_reach_bonus_sq FROM game WHERE id = 1`)
+        .toArray(),
+    )) as { white_reach_bonus_sq: number; black_reach_bonus_sq: number }[];
+    expect(rows[0].white_reach_bonus_sq).toBe(0.25);
+    expect(rows[0].black_reach_bonus_sq).toBe(0);
+
+    // Link two: the snapshot, which is the only thing the board ever sees.
+    const ws = await openSocket(joinCode, WHITE);
+    const snapshot = await ws.next((m) => m.t === 'state');
+    const game = snapshot.game as Record<string, unknown>;
+    expect(game.you).toBe('w');
+    const players = game.players as Record<string, { reachBonusSquares?: number } | null>;
+    expect(players.w?.reachBonusSquares).toBe(0.25);
+    expect(players.b?.reachBonusSquares ?? 0).toBe(0);
+    ws.close();
+  });
+});

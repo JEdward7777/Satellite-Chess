@@ -216,3 +216,39 @@ client rather than making it re-read — the callback already knows the `sub`.
 That is one data point and not a clearance — the failure is intermittent by
 nature, so a single success is exactly what a latent version of this bug also
 looks like. Keep watching.
+
+### O-18 — The board shows an un-handicapped reach until the first snapshot lands
+**Spotted:** 2026-09-16, while diagnosing a `check-invite.mjs` failure
+**Why it matters:** `reachNow()` in `client/views/game.ts` draws the reach circle
+from the GPS fix alone, and every input it needs has a no-snapshot fallback —
+`deps.field` for geometry, `DEFAULT_REACH` for the config, and
+`myReachBonusSquares(null)`, which returns **0**. So between the first GPS fix and
+the first `state` message the board shows the *base* reach with no handicap on it:
+3.2 m rather than 5.2 m on an 8 m field with a 0.25-square bonus.
+
+It self-corrects within a second and only at board entry, which is why nobody has
+seen it. But `reference/gotchas.md` names this exact failure as one the project
+has already shipped once: a handicapped player is told a legal move is out of
+reach, believes it, and walks further. A second of it is survivable; the shape is
+not one to leave un-noted, because the obvious "simplification" — rendering reach
+before the snapshot because a fix is available — is what produces it.
+
+**How it was found, which is the useful part:** it masqueraded as a server bug.
+`check-invite.mjs` asserted the handicap "survived the round trip" by reading
+`[data-reach]` after waiting for *any digit*, which the pre-snapshot 3.2 m
+satisfies — so the assertion **had never once passed**, at any commit, and looked
+exactly like the server dropping the handicap and serving the default reach. Two
+sessions' records say "all eleven drivers passed" on 2026-09-13; that is wrong
+about this driver, and a note written from it would have sent someone bisecting
+towards the reach redefinition (`bd3470a`) for a bug that was never there. The
+server half is fine and now has its own test in `test/worker/game-do.test.ts`:
+the bonus is stored per colour and does reach the snapshot.
+
+**Not doing yet because:** the driver race is fixed (it now waits for
+`[data-turn]`, which only leaves '—' once a snapshot exists), so the misleading
+symptom is gone. The product flash is real but small, and the honest fix is a
+decision rather than a patch: either the board renders no reach until the first
+snapshot — which costs a visible '—' on entry and is arguably more honest — or
+`deps` carries the bonus in from the invite so the first paint is already right.
+Worth deciding when `2.3.5` or phase 10 brings someone back to this screen, not
+in the middle of a stage about sign-in.

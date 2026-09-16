@@ -45,6 +45,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn as driverSignIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -53,7 +54,6 @@ const args = new Map(
   }),
 );
 const ORIGIN = args.get('origin') ?? 'http://127.0.0.1:8799';
-const SECRET = args.get('secret') ?? 'local-dev-secret';
 const OUT = args.get('out') ?? mkdtempSync(join(tmpdir(), 'satchess-games-'));
 /** Fresh every run, so a re-run does not inherit the previous one's account. */
 const PLAYER = `player-${Date.now().toString(36)}`;
@@ -114,24 +114,21 @@ async function phone(label) {
   return { label, context, page };
 }
 
-async function signIn({ context, label }, sub) {
-  const response = await context.request.post(`${ORIGIN}/api/dev/session`, {
-    headers: { 'x-dev-auth-secret': SECRET },
-    data: { sub },
-  });
-  if (!response.ok()) {
-    console.error(
-      `${label}: could not mint a dev session (${response.status()}). ` +
-        'Is wrangler dev running with DEV_AUTH_SECRET set?',
-    );
-    process.exit(2);
-  }
-}
+/**
+ * Sign this phone in as `sub`.
+ *
+ * A thin wrapper over the shared helper, so the call sites below keep reading
+ * `signIn(phone, PLAYER)`. The minting logic lived here because this was one of
+ * only two drivers that needed an identity; since stage 2.5.1 every driver does,
+ * so it lives in `driver-signin.mjs` and this is the local spelling of it.
+ */
+const signIn = ({ context, label }, sub) => driverSignIn(context, sub, ORIGIN, label);
 
 /** Start a game as this phone's account, and return its join code. */
 async function createGame({ context }, colour = 'w') {
   const response = await context.request.post(`${ORIGIN}/api/game`, {
-    data: { playerId: 'driver-phone-0001', field: FIELD, color: colour },
+    // No `playerId`: the seat is the account behind the cookie (stage 2.5.1).
+    data: { field: FIELD, color: colour },
   });
   if (!response.ok()) {
     console.error(`could not create a game (${response.status()})`);
@@ -170,15 +167,26 @@ async function waitForLine({ page }, joinCode) {
 console.log(`screenshots -> ${OUT}\n`);
 
 try {
-  console.log('1. Signed out, there is no list — not an empty one');
+  console.log('1. Signed out, there is no app at all — the gate, not an empty home screen');
+  // Until stage 2.5.1 this asserted the *softer* version of the same idea: a
+  // signed-out phone got the home screen with no games section on it, because an
+  // empty heading reads as "your games have gone". That is still the rule for a
+  // signed-in phone with nothing to show, and section 2 onwards still covers it.
+  // What a signed-out phone gets now is the gate, so that is what is checked.
   const stranger = await phone('stranger');
-  await home(stranger);
+  await stranger.page.goto(`${ORIGIN}/?sim=1`, { waitUntil: 'domcontentloaded' });
+  await stranger.page.waitForSelector('[data-signin]', { timeout: 15_000 });
+  check(await stranger.page.isVisible('[data-signin]'), 'the gate offers a way to sign in');
   check((await stranger.page.$$('[data-games]')).length === 0, 'no games list is rendered');
   check(
     !(await stranger.page.textContent('body')).includes('Your games'),
     'and no heading over it, which would read as “your games have gone”',
   );
-  await stranger.page.screenshot({ path: `${OUT}/1-signed-out.png`, fullPage: true });
+  check(
+    (await stranger.page.$$('[data-calibrate]')).length === 0,
+    'and no home screen behind it',
+  );
+  await stranger.page.screenshot({ path: `${OUT}/1-gate.png`, fullPage: true });
 
   console.log('\n2. A game started on one phone reaches the other');
   const one = await phone('phone one');

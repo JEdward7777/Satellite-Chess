@@ -39,6 +39,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 import { isRealConsoleError } from './driver-console.mjs';
+import { signIn as driverSignIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -47,7 +48,6 @@ const args = new Map(
   }),
 );
 const ORIGIN = args.get('origin') ?? 'http://127.0.0.1:8799';
-const SECRET = args.get('secret') ?? 'local-dev-secret';
 const OUT = args.get('out') ?? mkdtempSync(join(tmpdir(), 'satchess-fields-'));
 /** Fresh every run, so a re-run does not inherit the previous one's account. */
 const WALKER = `walker-${Date.now().toString(36)}`;
@@ -101,25 +101,15 @@ async function phone(label) {
 }
 
 /**
- * Sign this phone in as `sub`, through the dev seam.
+ * Sign this phone in as `sub`.
  *
- * `context.request` shares the context's cookie jar, so the cookie this sets is
- * the one the page will send — which is the only reason a driver can establish
- * an identity at all before stage 2.1 exists.
+ * A thin wrapper over the shared helper so the call sites below keep reading
+ * `signIn(phone, WALKER)`. This file had its own copy of the minting logic
+ * because it was the first driver to need an identity; since stage 2.5.1 every
+ * driver needs one, so the implementation lives in `driver-signin.mjs` and this
+ * is only the local spelling of it.
  */
-async function signIn({ context, label }, sub) {
-  const response = await context.request.post(`${ORIGIN}/api/dev/session`, {
-    headers: { 'x-dev-auth-secret': SECRET },
-    data: { sub },
-  });
-  if (!response.ok()) {
-    console.error(
-      `${label}: could not mint a dev session (${response.status()}). ` +
-        'Is wrangler dev running with DEV_AUTH_SECRET set?',
-    );
-    process.exit(2);
-  }
-}
+const signIn = ({ context, label }, sub) => driverSignIn(context, sub, ORIGIN, label);
 
 /** What the *account* holds, asked directly rather than through a screen. */
 async function accountFields({ context }) {
@@ -200,8 +190,31 @@ try {
   const one = await phone('phone one');
   const two = await phone('phone two');
 
-  console.log('\n1. Signed out, a calibrated field is still saved (decision 0013)');
+  console.log('\n1. Signed out, the gate and nothing else (decision 0014)');
+  // This is the only place anything renders the sign-in screen: every other
+  // driver establishes a session through `context.request` before its first
+  // navigation, so none of them ever sees it. That made this section the natural
+  // home for the assertion when stage 2.5.1 invalidated what it used to check.
   await one.page.goto(`${ORIGIN}/?sim=1`, { waitUntil: 'domcontentloaded' });
+  await one.page.waitForSelector('[data-signin]', { timeout: 15_000 });
+  check(await one.page.isVisible('[data-signin]'), 'the gate offers a way to sign in');
+  check(
+    (await one.page.$$('[data-calibrate]')).length === 0,
+    'and nothing of the home screen is reachable behind it',
+  );
+  await one.page.screenshot({ path: `${OUT}/1-gate.png`, fullPage: true });
+
+  console.log('\n2. Signed in, a calibrated field is saved on the phone (decision 0013)');
+  // This used to run signed *out*, which is what decision 0013 is actually about
+  // — a field is saved with no account and no network, immediately and
+  // unconditionally. Stage 2.5.1 made that state unreachable through the UI:
+  // there is no way to reach calibration without signing in. The local-first
+  // rule still holds and is still worth asserting, so it is now asserted from
+  // the only position a player can be in. What is no longer checkable here is
+  // "and no account has it, because there is no account" — that assertion went
+  // with the state it described.
+  await signIn(one, WALKER);
+  await one.page.reload({ waitUntil: 'domcontentloaded' });
   await one.page.waitForSelector('[data-calibrate]', { timeout: 15_000 });
   await one.page.click('[data-calibrate]');
   await one.page.waitForSelector('[data-tap]', { timeout: 15_000 });
@@ -224,16 +237,11 @@ try {
   await one.page.waitForSelector('[data-field]', { timeout: 15_000 });
   check(
     (await listed(one)).some((n) => n.includes('Riverside Park')),
-    'the field is on the home screen with nobody signed in',
+    'the field is on the phone the moment it is saved',
   );
-  check(
-    (await accountFields(one)).length === 0,
-    'and no account has it, because there is no account',
-  );
-  await one.page.screenshot({ path: `${OUT}/1-signed-out.png`, fullPage: true });
+  await one.page.screenshot({ path: `${OUT}/2-calibrated.png`, fullPage: true });
 
-  console.log('\n2. Signing in sends it up');
-  await signIn(one, WALKER);
+  console.log('\n3. And it reaches the account');
   await one.page.reload({ waitUntil: 'domcontentloaded' });
   await one.page.waitForSelector('[data-fields]', { timeout: 15_000 });
   // The push is background work, so poll the account rather than the screen.
