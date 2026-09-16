@@ -80,6 +80,12 @@ The one finding not acted on is **O-12**. Full numbers in
    and none has been run; `scripts/driver-signin.mjs` is new and every driver now
    depends on it. `check-deeplink.mjs` is the one that exercises the gate's
    offline rule, because it reloads a deep link with the network cut.
+   **Delegated and pending as of 2026-09-16**: the operator put this to
+   `bob-mightymen`, a peer session on another machine with a browser, who was
+   sent the full runbook. **Check for a reply before doing this yourself** — and
+   if the results never arrived, assume they did not and run it, rather than
+   assuming they did. Nothing in the repo records a driver run except a session
+   file saying so.
 3. **`2.5.3` — honest failure messages.** The natural companion to the gate and
    now the only unfinished part of `2.5`. `auth.ts` already redirects to
    `…?signin=failed&reason=…`; the screen renders the code but not yet a sentence
