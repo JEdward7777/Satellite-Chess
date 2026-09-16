@@ -9,14 +9,16 @@ on top of the same day's `2.1`/`2.2.1`/`2.2.2`/`2.4`, so sign-in is now mandator
 in fact and not only in decision 0014.
 **Next action**: `2.5.3` — honest failure messages — or `2.3.5`, the permanent
 record. See "What to do next" below; the gate made both reachable.
-**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`. **Deployed
-before the gate existed** — the gate is committed but *not yet deployed*, and a
-deploy is the first thing the next session should do or deliberately not do.
+**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, **with the gate
+on it** — deployed 2026-09-16, version `1fea90ff`, after all eleven drivers
+passed. Sign-in is now mandatory in fact, on the real origin, and the O-15 window
+that was open there all day is shut.
 **Last session**: `harness/sessions/2026-09-16-02.md`.
 **763 tests pass** (737 before this session). Typecheck and `plan:check` clean.
-**The drivers have been run once against the gate**, by a peer session with a
-browser, before the repairs below: **8 of 11 passed**. All three failures are now
-fixed or explained (`cfc9f87`), and a re-run is pending — see below.
+**All eleven browser drivers pass at `cfc9f87`**, run by a peer session with a
+browser — including the gate's own two new sections, and the rendered gate was
+inspected in a screenshot rather than trusted from assertions. **Run them from an
+empty `.wrangler` or they lie to you** (O-19).
 
 ## The gate, in one paragraph
 
@@ -72,23 +74,30 @@ The one finding not acted on is **O-12**. Full numbers in
 
 ## What to do next, concretely
 
-1. **Deploy, and then sign in on a phone.** The gate is committed and unproven in
-   a browser. The first real launch after deploying is also the first chance to
-   see **O-17** (a session written to KV and read back a second later) as a player
-   would: sign in successfully, arrive back signed out. It did not bite on
-   2026-09-16, which is one data point and not a clearance.
-2. **Re-run the browser drivers** at `cfc9f87` or later. They were run once, at
-   the commit before that, and 8 of 11 passed:
-   - `check-fields` and `check-games` failed on deliberately **signed-out**
-     sections that waited for `[data-calibrate]`. Fixed — both now assert the
-     gate. **This is the gate's only browser coverage**: every other driver signs
-     in through `context.request` before its first navigation, so nothing else
-     has ever rendered the sign-in screen. That is why the deploy is waiting.
-   - `check-invite` failed on the handicap, and it is **not a regression** — see
-     O-18. The assertion had never passed, at any commit. Fixed in the driver.
-   A re-run is delegated to `bob-mightymen`, a peer session with a browser.
-   **It shares this working tree** — see the warning at the head of
-   `reference/container.md` before sending it any command.
+1. **Sign in on a phone, through the deployed gate.** ← **start here.** The gate
+   is live (version `1fea90ff`) and verified server-side from here: `/` serves,
+   `/api/me` 401s with `devSeam:false`, `/auth/google/login` 302s to Google with
+   every parameter right, and `POST /api/dev/session` **404s**, so the seam truly
+   does not exist in production. What no request from this machine can prove is a
+   human completing a Google consent screen and landing back *through the gate*
+   (decision 0034).
+   That first launch is also the first honest chance to see **O-17** as a player
+   would: sign in successfully, arrive back signed out, because the session was
+   written to KV and read a second later from a different colo. It did not bite on
+   2026-09-16 — one data point, not a clearance. If it appears, the cheapest fix
+   is in the observation.
+2. **The drivers are green and need nothing** — all eleven pass at `cfc9f87`,
+   run twice by a peer session with a browser. Two things to carry forward rather
+   than rediscover:
+   - **Wipe `.wrangler` before any run** (O-19). A second run against unchanged
+     source gives three deterministic failures in drivers nobody touched, which
+     reads exactly like a regression and is not one.
+   - **The gate's only browser coverage is section 1 of `check-fields` and
+     `check-games`.** Every other driver signs in through `context.request`
+     before its first navigation, so nothing else ever renders the sign-in
+     screen. If that screen changes, those two sections are what catch it.
+   Delegating a run again? **A peer may share this working tree** — read the
+   warning at the head of `reference/container.md` before sending any command.
 3. **`2.5.3` — honest failure messages.** The natural companion to the gate and
    now the only unfinished part of `2.5`. `auth.ts` already redirects to
    `…?signin=failed&reason=…`; the screen renders the code but not yet a sentence

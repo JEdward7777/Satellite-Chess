@@ -252,3 +252,88 @@ snapshot — which costs a visible '—' on entry and is arguably more honest �
 `deps` carries the bonus in from the invite so the first paint is already right.
 Worth deciding when `2.3.5` or phase 10 brings someone back to this screen, not
 in the middle of a stage about sign-in.
+
+### O-19 — The browser drivers are not repeatable against accumulated local state
+**Spotted:** 2026-09-16, during the first full driver run against the sign-in gate
+**Why it matters:** Every driver assumes an empty world and nothing resets one.
+Miniflare keeps its Durable Object and KV state in `.wrangler/`, so fields, games
+and accounts accumulate across runs under the same `sub` — and the drivers that
+*count* things eventually fail. `check-field` is the canary: it asserts "still one
+field" and "without leaving the old one beside it", which a second run cannot
+satisfy.
+
+The cost is not the failure, it is **the diagnosis it invites**. Measured: a
+second run of an unchanged commit gave 8/11, with `check-field` and `check-join`
+failing 3 times out of 3 and `drive-game` 2 of 3 — deterministic enough to read as
+a real regression, in three drivers that commit had not touched. The peer session
+running it came within one step of reporting three phantom regressions; what saved
+it was checking what the commit actually changed (docs and tests, no client or
+worker source) and concluding it *could not* be the cause.
+
+**Not doing yet because:** `rm -rf .wrangler` is a complete workaround, costs
+nothing, and is now documented in `reference/container.md` as part of the runbook.
+The real fix is a reset the drivers own rather than the operator remembers, and
+there are two shapes and no obvious winner: a shared `resetWorld()` helper each
+driver calls on entry (precise, but every driver has to remember it, which is the
+same failure one level up), or a per-run `--persist-to` directory so `wrangler dev`
+starts empty by construction and nothing needs remembering (cleaner, but changes
+how every driver is launched and how the runbook reads). Worth deciding when
+somebody is next touching the drivers as a group rather than in the middle of a
+stage — and worth doing before anyone relies on a green run they did not watch.
+
+### O-20 — The simulator panel renders underneath the sign-in gate
+**Spotted:** 2026-09-16, stage 2.5.1, from a screenshot of the gate
+**Why it matters:** `boot()` mounts the simulator panel before it asks who you
+are, so a signed-out launch at `?sim=1` gets the gate *and*, below it, a working
+SIM / Me / Opponent row, accuracy and jitter sliders, and a D-pad. Decision 0014
+says an unauthenticated launch goes to a sign-in screen "and nowhere else", and
+this is visibly something else.
+
+It is not a security hole and does not reach a player: `?sim=1` is a client-side
+query check, so it exists on the deployed origin too, but the panel only drives a
+fake GPS — every API call still 401s without a session, and no *home screen* is
+reachable behind the gate (the drivers assert exactly that). So this is honesty
+and tidiness rather than exposure.
+
+**Not doing yet because:** it looks like a one-line move and is not. The mount
+sits above **two** early returns, not one — the field survey (decision 0022) also
+returns before the gate, and it currently inherits the panel. Moving the mount
+below the gate silently takes the simulator away from the survey, which is a
+measuring instrument nobody would notice losing until they needed it outdoors;
+mounting it in both places is two call sites for one panel. Neither is hard, both
+want a browser to confirm, and this session had none. Do it with the next change
+to `boot()`, and check the survey at `?survey=…&sim=1` afterwards rather than
+assuming.
+
+**Updated 2026-09-16 — the shape is decided, by the session that watched it fail.**
+Use a **per-run `--persist-to <fresh dir>`**, not a `resetWorld()` helper. Three
+arguments, and the first is the one that settles it:
+
+- **The blast radius was wider than the counting assertions.** `check-field`'s
+  "still one field" is the obvious victim, but `check-join` died waiting on
+  `[data-reason]` and `drive-game` on `[data-board]` — neither is a count, and
+  neither driver creates a field at all. Which residue broke those two was never
+  identified. So `resetWorld()` would be *an allowlist of state somebody
+  remembered to clear*, and the bug class here is state nobody remembered.
+  `--persist-to` makes emptiness **structural rather than enumerated**, which
+  covers the residue nobody could name.
+- **A per-driver reset is an obligation every future driver has to remember**,
+  which is the failure that already happened once this session: two drivers kept
+  their own `signIn()` and were skipped when the preamble went into the other
+  nine. A flag in the launcher cannot drift, because there is one of it.
+- **Per run, not per driver.** The eleven run sequentially, and resetting at each
+  driver's start would be more destructive than the problem warrants. A fresh
+  directory per run guarantees the clean start without taking any position on
+  whether a driver may depend on a predecessor.
+
+**Do not delete the directory on exit.** The entire diagnosis above came from
+being able to read 11 MB of accumulated `UserDO` sqlite *after* the failures;
+auto-cleaning would have left three deterministic failures and no evidence. Use a
+named per-run temp dir and print the path, exactly as the drivers already print
+their screenshot directory.
+
+**And `drive-game` is not fully exonerated.** On dirty state it went FAIL, PASS,
+FAIL — the only one of the three that was not deterministic. Two clean passes is
+consistent with state being the whole story but does not rule out an independent
+race on top. **If it ever fails again on a verified-clean run, treat it as its own
+bug rather than assuming this observation came back.**

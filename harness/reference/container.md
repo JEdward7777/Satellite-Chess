@@ -4,6 +4,18 @@
 about the box the game is built in, and it is the part a new thread needs only
 when something refuses to run.*
 
+## This tree is a Syncthing folder, and git can briefly look corrupt
+
+Seen on 2026-09-16: `fatal: bad object HEAD`, while a push was in flight from
+another session on the same tree. `refs/heads/main` had already synced to a new
+commit whose *object* had not arrived yet, so git was reading a ref that pointed
+at nothing. It resolved itself inside a minute.
+
+Nothing is wrong when this happens and nothing needs repairing. **Wait, then look
+again, before believing any report of repository corruption in this tree** — and
+in particular do not reach for `git fsck --lost-found`, `git gc --prune`, or a
+reclone, all of which are destructive answers to a problem that fixes itself.
+
 ## Delegating a driver run: assume a shared working tree
 
 Learned the hard way on 2026-09-16, and it nearly cost uncommitted work.
@@ -85,11 +97,26 @@ Notes that matter:
 Then, with the dev server up:
 
 ```bash
+rm -rf .wrangler          # see below — not optional if anything has run before
 npm run build:client
 npx wrangler dev --port 8799 --var DEV_AUTH_SECRET:local-dev-secret &
 export PLAYWRIGHT_BROWSERS_PATH=~/.cache/satellite-chess/playwright
 for d in scripts/check-*.mjs scripts/drive-game.mjs; do node "$d" || echo "FAILED $d"; done
 ```
+
+**Start from an empty `.wrangler`, or you will be told lies.** The drivers assume
+an empty world and nothing resets it, so local state accumulates across runs —
+duplicate fields under the same `sub`, games outliving the run that made them —
+until the drivers that *count* things start failing. `check-field` is the canary,
+because it asserts "still one field" and "without leaving the old one beside it".
+
+This was measured on 2026-09-16, and the failure is convincing rather than flaky:
+a second run gave 8/11, with `check-field` and `check-join` failing **3 times out
+of 3** and `drive-game` 2 out of 3. The three had nothing to do with the commit
+under test — it had touched no client or worker source at all — and all three
+passed immediately against a fresh `.wrangler`. So the symptom is *three phantom
+regressions in drivers nobody changed*, which is an expensive thing to chase.
+Logged as **O-19**; wiping is the workaround, not the fix.
 
 All eleven passed on 2026-09-13, **before the sign-in gate existed**. They have
 not been run since.
