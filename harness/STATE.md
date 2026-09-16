@@ -13,9 +13,10 @@ record. See "What to do next" below; the gate made both reachable.
 before the gate existed** — the gate is committed but *not yet deployed*, and a
 deploy is the first thing the next session should do or deliberately not do.
 **Last session**: `harness/sessions/2026-09-16-02.md`.
-**762 tests pass** (737 before this session). Typecheck and `plan:check` clean.
-**No browser driver has been run against the gate** — playwright is not installed
-in this container, and eleven drivers changed.
+**763 tests pass** (737 before this session). Typecheck and `plan:check` clean.
+**The drivers have been run once against the gate**, by a peer session with a
+browser, before the repairs below: **8 of 11 passed**. All three failures are now
+fixed or explained (`cfc9f87`), and a re-run is pending — see below.
 
 ## The gate, in one paragraph
 
@@ -76,16 +77,18 @@ The one finding not acted on is **O-12**. Full numbers in
    see **O-17** (a session written to KV and read back a second later) as a player
    would: sign in successfully, arrive back signed out. It did not bite on
    2026-09-16, which is one data point and not a clearance.
-2. **Run the browser drivers**, on a machine that has playwright. Eleven changed
-   and none has been run; `scripts/driver-signin.mjs` is new and every driver now
-   depends on it. `check-deeplink.mjs` is the one that exercises the gate's
-   offline rule, because it reloads a deep link with the network cut.
-   **Delegated and pending as of 2026-09-16**: the operator put this to
-   `bob-mightymen`, a peer session on another machine with a browser, who was
-   sent the full runbook. **Check for a reply before doing this yourself** — and
-   if the results never arrived, assume they did not and run it, rather than
-   assuming they did. Nothing in the repo records a driver run except a session
-   file saying so.
+2. **Re-run the browser drivers** at `cfc9f87` or later. They were run once, at
+   the commit before that, and 8 of 11 passed:
+   - `check-fields` and `check-games` failed on deliberately **signed-out**
+     sections that waited for `[data-calibrate]`. Fixed — both now assert the
+     gate. **This is the gate's only browser coverage**: every other driver signs
+     in through `context.request` before its first navigation, so nothing else
+     has ever rendered the sign-in screen. That is why the deploy is waiting.
+   - `check-invite` failed on the handicap, and it is **not a regression** — see
+     O-18. The assertion had never passed, at any commit. Fixed in the driver.
+   A re-run is delegated to `bob-mightymen`, a peer session with a browser.
+   **It shares this working tree** — see the warning at the head of
+   `reference/container.md` before sending it any command.
 3. **`2.5.3` — honest failure messages.** The natural companion to the gate and
    now the only unfinished part of `2.5`. `auth.ts` already redirects to
    `…?signin=failed&reason=…`; the screen renders the code but not yet a sentence
