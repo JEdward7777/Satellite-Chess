@@ -45,10 +45,24 @@ export PLAYWRIGHT_BROWSERS_PATH=~/.cache/satellite-chess/playwright
 for d in scripts/check-*.mjs scripts/drive-game.mjs; do node "$d" || echo "FAILED $d"; done
 ```
 
-All eleven passed on 2026-09-13. `check-fields.mjs` is the only one that needs
-the dev seam, so it is the only one that needs `DEV_AUTH_SECRET`; the rest run
-signed out, which is why they all see the designed 401s that
-`scripts/driver-console.mjs` excludes.
+All eleven passed on 2026-09-13, **before the sign-in gate existed**. They have
+not been run since.
+
+**Every driver now needs `DEV_AUTH_SECRET`**, which is the opposite of what this
+paragraph said until 2026-09-16. Stage `2.5.1` made sign-in mandatory, so a
+browser context that has not signed in reaches the gate and nothing else; each
+driver therefore mints a session through `scripts/driver-signin.mjs` before its
+first navigation, and that needs the seam open. Start `wrangler dev` with the
+`--var` above and not with a bare `--local`.
+
+**The failure, if you forget, does not mention signing in.** The driver times out
+waiting for a selector — `[data-calibrate]`, `[data-new]` — on a home screen that
+was never going to render, so it reads as a broken app rather than a missing
+session. If a driver hangs on its first `waitForSelector`, check the `--var`
+before you check anything else.
+
+`check-qr.mjs` is the exception and needs no server at all: it decodes QR
+matrices in node and never launches a browser.
 
 ## Running it
 

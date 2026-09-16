@@ -3,7 +3,7 @@
  * Drive the create-and-share flow, and read the QR code off the screen.
  *
  *     npm run build:client
- *     npx wrangler dev --port 8799 --local &
+ *     npx wrangler dev --port 8799 --var DEV_AUTH_SECRET:local-dev-secret &
  *     npm install --no-save playwright jsqr     # deliberately not dependencies
  *     node scripts/check-invite.mjs
  *

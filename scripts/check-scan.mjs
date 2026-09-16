@@ -4,7 +4,7 @@
  * (6.2.4, decision 0026).
  *
  *     npm run build:client
- *     npx wrangler dev --port 8799 --local &
+ *     npx wrangler dev --port 8799 --var DEV_AUTH_SECRET:local-dev-secret &
  *     npm install --no-save playwright              # deliberately not a dependency
  *     node scripts/check-scan.mjs
  *
