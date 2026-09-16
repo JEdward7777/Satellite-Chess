@@ -11,7 +11,10 @@ and now `2.3.4` (the game index) landed in four consecutive sessions.
 tables. Metres walked is the headline, not games played (decision 0019).
 **Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local clone,
 at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
-**Last session**: `harness/sessions/2026-09-13-01.md` (the driver backlog).
+**Last session**: `harness/sessions/2026-09-15-01.md` — planning only. It argues
+for doing sign-in (`2.1`→`2.2`→`2.5.1`) **before** `2.3.5`, because this machine
+can exercise a live Google round-trip and every account feature is inert until
+the gate exists. The operator has not chosen between them; ask.
 **Verified in a browser**: all **eleven** drivers pass as of 2026-09-13, the
 first time any had been run since 2026-08-03. Playwright installs without root
 into `~/.cache/satellite-chess/playwright` — recipe in `reference/container.md`.
