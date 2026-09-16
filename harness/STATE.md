@@ -11,23 +11,30 @@ files hold the history, and `reference/` holds everything that is simply true.*
 thing standing between a working sign-in and a player who can use it. **It must
 close O-15 with it** (see below).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, redeployed
-2026-09-16 with `env.SESSIONS` bound. `/auth/google/login` returns a correct 302
-to Google — verified against the deployed origin with curl.
+2026-09-16 with `env.SESSIONS` bound. **A real Google sign-in has been completed
+through it**, from Chrome on the operator's phone, the same day.
 **Last session**: `harness/sessions/2026-09-16-01.md`.
 **737 tests pass.** All eleven browser drivers passed on 2026-09-13;
 `check-deeplink.mjs` re-run 2026-09-16 after the `sw.js` change.
 
-## The one thing that is built but not proven
+## Sign-in has been done for real, once
 
-**Nobody has completed a real Google sign-in yet.** Everything around the code
-exchange is tested — the redirect's parameters, PKCE, the state and nonce checks,
-the session that comes out — but the exchange itself needs a human at a consent
-screen and cannot be tested any other way (decision 0034). Until that happens,
-`redirect_uri_mismatch` and consent-screen surprises remain unfalsified.
+The operator signed in from **Chrome on a phone** on 2026-09-16, against the
+deployed origin. The evidence is a session record in the `SESSIONS` namespace with
+a 30-day expiry, which only the callback can write — so the whole chain held: the
+registered `redirect_uri` matched, the deployed client secret is right, Google
+accepted the PKCE verifier, the ID token's issuer, audience, expiry and nonce all
+checked out, and the signed flow cookie survived the round trip to Google and back
+(`SameSite=Lax` doing exactly its job).
 
-To do it: open `/auth/google/login` on the deployed origin and sign in. Success is
-landing on the home screen with a `satchess_session` cookie; failure comes back as
-`/?signin=failed&reason=…` and the reason word names the cause.
+That is the one thing no test in this project can cover (decision 0034), and it is
+now done rather than pending. **O-17 did not bite** on this attempt — one data
+point, not a clearance.
+
+What is *not* yet shown is whether the phone had the service worker installed at
+the time. If it did, the `sw.js` exclusion was genuinely exercised; if not, the
+fix is deployed but unproven in the field. Worth confirming on the next phone
+visit rather than assuming either way.
 
 ## Where the detail lives
 

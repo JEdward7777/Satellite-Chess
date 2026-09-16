@@ -15,6 +15,11 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
   `sessions.ts` for `2.2.1`. The live round-trip is verified against the deployed
   Worker by hand, never locally (decision 0034), so `test/worker/auth.test.ts`
   asserts everything *around* the code exchange and never the exchange itself.
+  **Verified end to end the same day**: the operator signed in from Chrome on a
+  phone and a session record with a 30-day expiry appeared in the `SESSIONS`
+  namespace, which only the callback can write. So the registered `redirect_uri`,
+  the deployed client secret, the PKCE verifier and all four ID token claim checks
+  are confirmed against the real Google, not against a fixture.
   - `2.1.1` done: Authorization Code flow with PKCE. `client_secret` in a Worker
     secret binding; the code exchange happens server-side.
     S256, verifier 43 base64url characters — the floor Google's rule allows.

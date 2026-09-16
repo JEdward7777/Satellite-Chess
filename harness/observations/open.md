@@ -228,3 +228,7 @@ at the app signed out, and it would be intermittent and unreproducible, so it is
 worth recognising rather than debugging from scratch. If it does appear, the
 cheapest honest fix is for the callback to hand the session straight to the
 client rather than making it re-read — the callback already knows the `sub`.
+**Updated 2026-09-16:** the first real sign-in, from a phone, did not hit this.
+That is one data point and not a clearance — the failure is intermittent by
+nature, so a single success is exactly what a latent version of this bug also
+looks like. Keep watching.
