@@ -91,6 +91,32 @@ on who ran it. Nothing is lost by publishing it: what keeps the seam off a
 deployed build is that `wrangler deploy` never carries this flag, and the only
 thing the value itself guards is a loopback dev server full of invented accounts.
 
+### Signing in with Google
+
+The real sign-in is two full-page redirects, at paths that are fixed and must not
+move (decision 0030):
+
+| `GET /auth/google/login`    | builds a PKCE challenge and redirects to Google |
+| `GET /auth/google/callback` | where Google sends the browser back with a code |
+
+`redirect_uri` is derived from the origin the request arrived on, so one build
+works everywhere — but **Google only accepts redirect URIs registered on the OAuth
+client**, and these two are registered:
+
+- `https://satellite-chess.hootowl7777-cloud.workers.dev/auth/google/callback`
+- `http://localhost:8787/auth/google/callback`
+
+`8787` is the default `wrangler dev` port, which is what `npm run dev` uses.
+Running dev on another port means adding that origin's callback URL in the Google
+console — additive, about thirty seconds, no code change.
+
+`GOOGLE_CLIENT_ID` is in `wrangler.jsonc` (it is not a secret; it travels in the
+redirect URL on every sign-in). `GOOGLE_CLIENT_SECRET` is a Worker secret, set
+with `wrangler secret put`, and is **deliberately not available locally** — local
+development uses the dev seam above instead, and the Google flow is verified
+against the deployed Worker. See decision 0034 for why that split rather than a
+`.dev.vars` file.
+
 **If you are an AI assistant working on this, read
 [`harness/AGENTS.md`](harness/AGENTS.md) first.** Development state, the stage plan,
 and every decision made so far live in [`harness/`](harness/) so that a fresh

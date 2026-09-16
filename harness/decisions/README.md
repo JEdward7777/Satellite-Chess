@@ -69,3 +69,4 @@ The conditions under which this should be reopened.
 | [0031](0031-reach-is-the-independent-variable-measured-in-squares.md) | Reach is the independent variable, measured in squares | accepted (supersedes half of 0023) |
 | [0032](0032-fields-sync-by-journal-not-by-list.md) | Sync fields against a journal of what the account has acknowledged | accepted |
 | [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md) | The game writes the index; the phone only ever reads it | accepted |
+| [0034](0034-the-google-flow-is-verified-on-the-deployed-worker.md) | Local dev signs in through the seam; Google is verified on the deployed Worker | accepted |

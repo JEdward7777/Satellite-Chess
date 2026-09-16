@@ -30,6 +30,11 @@
  *    exercised: 1.5.2 verified offline from `/`.
  * 5. **No console errors and no 404s**, including the `/favicon.ico` guess that
  *    has been in every driver run since phase 1.
+ * 6. **The service worker keeps its hands off `/auth/`.** Sign-in is a server
+ *    route reached by a full-page navigation (stage 2.1), and the navigation
+ *    rule in `sw.js` was broad enough to answer it from the cache — which would
+ *    have broken the only way into the app, silently, for every returning
+ *    visitor. Added after finding exactly that, unshipped, on 2026-09-16.
  *
  * Since stage 6.2.1 the client *reads* the path rather than merely loading at it,
  * so the well-formed-but-imaginary code below is now asked about: the app
@@ -243,6 +248,27 @@ try {
     viaSw.status() === 200,
     'a returning visitor gets the shell at an unknown path (O-10)',
     String(viaSw.status()),
+  );
+
+  // The one place that divergence must NOT happen (stage 2.1).
+  //
+  // Sign-in is a server route reached by a full-page navigation, so the service
+  // worker has to stay out of its way — and its navigation rule is broad enough
+  // to have swallowed it. If this regresses, tapping "Sign in" shows the cached
+  // app shell, the redirect to Google never happens, and there is no error
+  // anywhere: the only way into the app fails silently for every returning
+  // visitor, which is precisely the class of bug this driver exists to catch.
+  //
+  // Locally there is no `GOOGLE_CLIENT_SECRET` (decision 0034), so the honest
+  // answer from the Worker is a 503. That is the assertion: any 200 of HTML here
+  // means the service worker answered instead.
+  const signIn = await returning.goto(`${ORIGIN}/auth/google/login`, {
+    waitUntil: 'domcontentloaded',
+  });
+  check(
+    signIn.status() === 503 && (signIn.headers()['content-type'] ?? '').includes('json'),
+    'the service worker does not answer /auth/ navigations (O-10)',
+    `${signIn.status()} ${signIn.headers()['content-type'] ?? ''}`,
   );
 } finally {
   await browser.close();

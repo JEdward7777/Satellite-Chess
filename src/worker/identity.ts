@@ -47,6 +47,7 @@
 import { apiError, json } from './http.js';
 import type { EnvWithSecrets } from './secrets.js';
 import { decodeUtf8, encodeUtf8, hmacSha256, timingSafeEqual } from './crypto.js';
+import { readSession } from './sessions.js';
 
 export interface Identity {
   /**
@@ -130,9 +131,18 @@ export async function identityOf(
     return sub === null ? null : { sub, via: 'dev' };
   }
 
-  // Stage 2.1/2.2: the real session is resolved here. Until then an unrecognised
-  // token is simply nobody, which is the correct answer rather than a placeholder.
-  return null;
+  // The real session (stages 2.1 and 2.2.1): an opaque token with its record in
+  // KV. This is the second branch decision 0029 said `identityOf` would grow,
+  // and it grew *beside* the seam rather than replacing it — the eleven browser
+  // drivers still sign in without Google, which is the whole reason the seam was
+  // built first.
+  //
+  // Anything that is not a live session — junk, a cookie from another app, a
+  // token whose record has expired or been signed out — is nobody. That is a
+  // normal state and not an error; whether it becomes a 401 or a sign-in screen
+  // is the caller's business.
+  const sub = await readSession(env, token, now);
+  return sub === null ? null : { sub, via: 'google' };
 }
 
 /**

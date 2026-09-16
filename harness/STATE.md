@@ -4,21 +4,30 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean, pushed to `main`.
-**Active stage**: none. **Phase 2 is most of the way through**: `2.5.2` (the dev
-identity seam), `2.3.1`/`2.3.2` (the UserDO), `2.3.3.2` (fields on the account)
-and now `2.3.4` (the game index) landed in four consecutive sessions.
-**Next action**: `2.3.5` — the permanent record, over both of the UserDO's
-tables. Metres walked is the headline, not games played (decision 0019).
-**Live**: `1.9.1` done 2026-09-06 — first deploy from the operator's local clone,
-at `https://satellite-chess.hootowl7777-cloud.workers.dev`.
-**Last session**: `harness/sessions/2026-09-15-01.md` — planning only. It argues
-for doing sign-in (`2.1`→`2.2`→`2.5.1`) **before** `2.3.5`, because this machine
-can exercise a live Google round-trip and every account feature is inert until
-the gate exists. The operator has not chosen between them; ask.
-**Verified in a browser**: all **eleven** drivers pass as of 2026-09-13, the
-first time any had been run since 2026-08-03. Playwright installs without root
-into `~/.cache/satellite-chess/playwright` — recipe in `reference/container.md`.
-Keep them passing: they are the only thing that looks at the DOM.
+**Active stage**: none. **Sign-in is built and deployed.** `2.1` (Google OAuth),
+`2.2.1`/`2.2.2` (sessions) and `2.4` (the `SESSIONS` KV namespace) all landed on
+2026-09-16, on top of the four consecutive sessions that built the UserDO.
+**Next action**: `2.5.1` — the sign-in gate on the client, which is now the only
+thing standing between a working sign-in and a player who can use it. **It must
+close O-15 with it** (see below).
+**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, redeployed
+2026-09-16 with `env.SESSIONS` bound. `/auth/google/login` returns a correct 302
+to Google — verified against the deployed origin with curl.
+**Last session**: `harness/sessions/2026-09-16-01.md`.
+**737 tests pass.** All eleven browser drivers passed on 2026-09-13;
+`check-deeplink.mjs` re-run 2026-09-16 after the `sw.js` change.
+
+## The one thing that is built but not proven
+
+**Nobody has completed a real Google sign-in yet.** Everything around the code
+exchange is tested — the redirect's parameters, PKCE, the state and nonce checks,
+the session that comes out — but the exchange itself needs a human at a consent
+screen and cannot be tested any other way (decision 0034). Until that happens,
+`redirect_uri_mismatch` and consent-screen surprises remain unfalsified.
+
+To do it: open `/auth/google/login` on the deployed origin and sign in. Success is
+landing on the home screen with a `satchess_session` cookie; failure comes back as
+`/?signin=failed&reason=…` and the reason word names the cause.
 
 ## Where the detail lives
 
@@ -26,8 +35,9 @@ Keep them passing: they are the only thing that looks at the DOM.
   affine board's two coordinate types, the clock that must never be compared
   against `Date.now()`, the privacy edges that are one careless index away from
   being undone. **Read it before changing anything you have not changed before.**
-- **`reference/container.md`** — installing Node, why `wrangler deploy` cannot
-  work from here, the git-credential and signing situation.
+- **`reference/container.md`** — **check which machine you are on first.** The
+  "wrangler cannot reach Cloudflare" rule is about the ephemeral container only;
+  on the operator's WSL machine deploys, secrets and KV all work.
 - `reference/platform-verified.md`, `budget.md`, `geometry.md` — durable facts.
 - `harness/AGENTS.md` — the rules. `npm run plan` — the stage tree.
 
@@ -36,57 +46,41 @@ Keep them passing: they are the only thing that looks at the DOM.
 Phases 0 and 1 are done bar `1.9.2` (PWA install on a phone) and `1.9.3.6` (what
 to become of the survey trace — keeping it is recommended). Phase 3 is complete
 bar `3.6.2` and the standing `3.7`, **phase 4 is finished server and client**,
-**phase 5 is closed**, and **phase 6 is closed**: lift, carry, place, resign, draw, terminal detection,
-clock handover, the promotion picker, optimistic local application, both clocks
-on screen, pause and the thirty-day claim, invites by QR and share sheet, joining
-by code or link, and fields that travel in a URL. A whole game has been played
-through it in two browsers against a real `wrangler dev` — nine moves to an
-underpromotion. **706 tests pass.**
+**phase 5 is closed**, and **phase 6 is closed**: lift, carry, place, resign, draw,
+terminal detection, clock handover, the promotion picker, optimistic local
+application, both clocks on screen, pause and the thirty-day claim, invites by QR
+and share sheet, joining by code or link, and fields that travel in a URL. A whole
+game has been played through it in two browsers against a real `wrangler dev`.
 
-**Phase 2 has an account with both of its tables in use.** `UserDO` is addressed
-by `getByName(sub)`; `GET /api/me` brings an account into existence on first
-contact; saved fields sync through `POST /api/fields/sync` with the phone still
-the primary store (decisions 0013 and 0032); and **the game index is now
-populated** (decision 0033) — written by `GameDO` over the `USER` binding at
-every state change, and by no client anywhere. `GET /api/games` lists it without
-waking a single game.
-
-**A seat now belongs to an account rather than to a phone** (`3.5.2`). That was
-the load-bearing half of `2.3.4`: matching a player by the UUID in one browser's
-`localStorage` would have made the index a list you can read and cannot enter,
-because the second phone is a third player. The `playerId` in a request body is
-honoured only when there is no session — which is still a real case until `2.5.1`
-requires sign-in.
+**Phase 2 now has a real identity.** `identityOf` has the second branch decision
+0029 promised: a `d1.` dev token or an opaque `g1_` session, reported as
+`via: 'dev' | 'google'`. Sessions are 32 random bytes with the record in KV, a
+30-day TTL, and **renewal throttled to once a day** because the free tier allows
+~1,000 KV writes against ~100,000 reads. The UserDO is addressed by
+`getByName(sub)`; `/api/me` brings an account into existence on first contact;
+fields sync through `/api/fields/sync`; the game index is written by `GameDO` and
+read by nobody else (decision 0033).
 
 **Reach is the independent variable, measured in fractional squares** (decision
-0031, reversing half of 0023). The field is fixed by the venue and the square is
-`length / 8`, so reach is the only end that can move — and it is a create-screen
-dial. The field walk found the game was *already* degenerate and fixed it,
-closing **O-02**.
-
-**The board is not forced to be square** (decision 0028): calibration walks the
-perimeter — a1, h1, h8, a8 — and fits a least-squares affine map. Every field,
-game and link made before it still reads as the square board it was calibrated
-as.
+0031). **The board is not forced to be square** (decision 0028): calibration walks
+the perimeter and fits a least-squares affine map. Every field, game and link made
+before either still reads as it was calibrated.
 
 ## The field survey is walked — the news is good
 
-The riskiest assumption in the project — that consumer GPS can resolve 8 m
-squares on grass — has real data against it. The operator walked the ten-step
-protocol on 2026-09-06: Android Chrome, 2008 fixes over 29 minutes.
+The riskiest assumption in the project — that consumer GPS can resolve 8 m squares
+on grass — has real data against it. The operator walked the ten-step protocol on
+2026-09-06: Android Chrome, 2008 fixes over 29 minutes.
 
 - Static scatter while standing still: **0.2 m median**, 0.6 m worst — against a
   4 m half-square. The square does not flicker.
 - Claimed accuracy (±3.7 m) was ~16x pessimistic but **100% honest** — every fix
   landed inside its own circle, so the reach rule is sound.
 - **8 m squares refuse 0% of moves** and mis-highlight 0%, down to 6 m squares.
-- Phantom distance while stationary: 0.1 km/h, far below the simulator's
-  predicted 19–32.
 - The one finding not acted on is **O-12**: the distance floor scales by claimed
-  accuracy rather than by observed scatter. Relaxing the anti-drift constants was
-  tried and reverted — `test/gps.test.ts` immediately produced 1525 m of phantom
-  distance per hour. Distance is the currency of the game (decision 0019), so
-  over-counting is much worse than losing 9% of a walk.
+  accuracy rather than observed scatter. Relaxing the constants was tried and
+  reverted — `test/gps.test.ts` immediately produced 1525 m of phantom distance
+  per hour. Over-counting is much worse than losing 9% of a walk.
 
 Full numbers in `harness/sessions/2026-09-06-03.md` and decision 0031. The live
 trace `2026-09-06T23-10-47-510Z-ioop0u` is deliberately **kept** (`1.9.3.6`).
@@ -94,38 +88,24 @@ trace `2026-09-06T23-10-47-510Z-ioop0u` is deliberately **kept** (`1.9.3.6`).
 
 ## What to do next, concretely
 
-**Build phase 2 bottom-up and leave the live Google round-trip until last.** Not
-operator-blocked any more — the console work is done — but still the riskiest to
-verify in a container.
-
-1. **`2.3.5` — the permanent record.** ← **start here.** Over both tables, and
-   the game index now has honest results in it to build on, which is decision
-   0033's whole point. Metres walked leads, games played never does (decision
-   0019); board crossings — distance ÷ board diagonal — sit beside it as the
-   field-independent measure. `2.3.5.2` excludes sub-4 m squares as practice;
-   `2.3.5.1` is the privacy statement, which is not a footnote (decision 0017).
-   The distance itself is still only in `presence.travel_m` inside each GameDO —
-   nothing carries it to the account yet, and that is the first thing to build.
-2. **`2.5.1` — the sign-in gate.** Worth noting that both account features are
-   inert until this and `2.1` exist: nothing in the client establishes a session
-   except the dev seam, so `/api/fields/sync` and `/api/games` 401 in an ordinary
-   browser and the phone quietly stays local-only. Designed behaviour, but it
-   means neither feature is exercised by real users until phase 2 finishes.
-3. **`2.1`, `2.2`** — the real OAuth exchange and sessions. Last, because this is
-   the part that cannot be finished in a container. `src/worker/auth.ts` does not
-   exist; the OAuth client, both credentials and the redirect paths (decision
-   0030) do. One check the code session must not assume: that the registered
-   redirect URIs match whatever `auth.ts` uses. **There is no test-user list to
-   maintain** — OAuth here is sign-in only (identity scopes), and the operator has
-   confirmed it works for everyone as configured. `2026-09-06-01.md` says
-   otherwise; that note is wrong, so do not raise it again.
-4. **`2.4`** — KV namespace creation. Needs `wrangler` against the Cloudflare
-   API, so it is the operator's from the local clone.
-
-Loose ends that are not stages:
-
-- **O-16 — the home screen's ordering.** Two lists that grow without bound sit
-  above the controls a player came to tap; measured, "New game" crosses the fold
-  at three games. The game list is capped, which bounds the half this stage
-  introduced; the rest wants a deliberate session, not a tail end of one.
-- **`1.9.2`** — PWA install and wake lock, on the next convenient phone.
+1. **`2.5.1` — the sign-in gate.** ← **start here.** An unauthenticated launch
+   goes to a sign-in screen and nowhere else (decision 0014). The server half is
+   done and waiting; nothing in the client offers a sign-in button yet, so today
+   the only way in is typing `/auth/google/login` by hand. **O-15 must close
+   before or with this stage**, and it is no longer theoretical: real sessions now
+   exist in an ordinary browser while sign-in is not yet required, which is
+   exactly the window that makes a player their own opponent. `2.5.3` (honest
+   failure messages) is the natural companion — `auth.ts` already redirects to
+   `/?signin=failed&reason=…` with nothing rendering it.
+2. **`2.3.5` — the permanent record.** Unblocked and no longer third in the queue
+   behind two inert features. Metres walked leads, games played never does
+   (decision 0019); board crossings sit beside it. The distance is still only in
+   `presence.travel_m` inside each GameDO — carrying it to the account is the
+   first thing to build. Its headline number has two known defects against it,
+   **O-03** and **O-12**, and both deserve a sentence in the record's own UI.
+3. **`2.2.3`–`2.2.5`** — the expiry pre-flight warning, offline session caching,
+   and sign-out. `destroySession` already exists for the last of these.
+4. **O-16 — the home screen's ordering.** Two unbounded lists sit above the
+   controls a player came to tap. The game list is capped; the rest wants a
+   deliberate session.
+5. **`1.9.2`** — PWA install and wake lock, on the next convenient phone.

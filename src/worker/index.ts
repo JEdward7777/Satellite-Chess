@@ -22,6 +22,7 @@ import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
 import { devAuthRoutes, type Identity, identityOf } from './identity.js';
+import { authRoutes } from './auth.js';
 import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
 import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
 import { byMostWanted, listedGame } from '../shared/game-index.js';
@@ -55,6 +56,26 @@ export default {
         console.error('unhandled API error', error);
         return apiError('internal', 'Something broke on the server.', 500);
       }
+    }
+
+    // Sign-in (stage 2.1, paths fixed by decision 0030). Claimed before the
+    // assets binding for the same reason `/api/` is: a path under `/auth/` that
+    // fell through would come back as the HTML shell with a 200, and a failed
+    // sign-in would look like the app loading.
+    //
+    // Deliberately *not* under `/api/`, and not routed through `api()`. Both of
+    // these are full-page browser navigations answering with a 302 and a
+    // `Set-Cookie`; wrapping them in the JSON error handling every other
+    // endpoint uses would turn a redirect into a body nobody reads.
+    if (url.pathname === '/auth' || url.pathname.startsWith('/auth/')) {
+      try {
+        const response = await authRoutes(request, env, url);
+        if (response) return response;
+      } catch (error) {
+        console.error('unhandled auth error', error);
+        return apiError('internal', 'Something broke during sign-in.', 500);
+      }
+      return apiError('not_found', 'No such endpoint.', 404);
     }
 
     // A client-side route has no file behind it, so serve the shell and let the

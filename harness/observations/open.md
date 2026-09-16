@@ -109,6 +109,17 @@ note was worried about: a well-formed code that names no game is now the client'
 business either way — it asks the server and says "no game with that code" — so
 the Worker's 404 was never the mechanism a player relied on. Revisit only if
 something starts depending on `/j/<junk>` being distinguishable offline.
+**Updated 2026-09-16 (`2.1`):** the divergence stopped being benign, once. Sign-in
+is two full-page navigations to `/auth/google/…`, which are in scope, so the
+navigation rule answered them from the cached shell — for every returning visitor
+the sign-in button would have done nothing and Google's redirect back would have
+been swallowed, with no error anywhere. Found by reading `sw.js` before deploying
+rather than by losing an afternoon to it. Fixed with a two-line prefix exclusion,
+which is *not* the `parseAppRoute` duplication this note baulks at: `/auth/` is a
+literal prefix with nothing to keep in step. The general rule stays open and
+unfixed. The lesson is narrower than the observation: **any new server-side path
+that is reached by navigation rather than by `fetch` has to be excluded here**,
+and there is now one line in `sw.js` where that list lives.
 
 ### O-12 — The distance floor is scaled by claimed accuracy, not observed scatter
 **Spotted:** 2026-09-07, stage 1.9.3.5
@@ -163,6 +174,16 @@ all, so only the dev seam can reach it. **This must be closed before or with
 what that stage is, or by adopting the seat: if a signed-in request carries a
 `playerId` that matches a seat with no account on it, take that seat over
 (rewriting `presence` with it) rather than looking for a free one.
+**Updated 2026-09-16 (`2.1`) — this is now reachable, and it was not before.**
+The note above says "today nothing in a real browser establishes a session at
+all, so only the dev seam can reach it". That is no longer true: `2.1` and `2.2.1`
+landed, so an ordinary browser can hold a real session while `2.5.1` does not yet
+require one. The window this observation describes — sessions exist *and* sign-in
+is not mandatory — **is open right now**, and it closes only when `2.5.1` lands.
+It is not urgent in the sense of a bug in flight, because nothing in the client
+offers a sign-in button yet, so the only way in is by typing `/auth/google/login`
+by hand. But the ordering constraint is no longer theoretical and the remedy is
+unchanged: close it before or with `2.5.1`.
 
 ### O-16 — Two unbounded lists sit above the home screen's primary actions
 **Spotted:** 2026-09-13, stage 2.3.4, by looking at a screenshot
@@ -181,3 +202,29 @@ and both change a screen that three other drivers assert against. Worth doing
 deliberately rather than at the end of a session. `scripts/check-games.mjs`
 asserts the bound (home fits in two screens with seven games) rather than the
 fold, so the constraint does not quietly regress in the meantime.
+
+### O-17 — A session is written to KV and read back a second later
+**Spotted:** 2026-09-16, stage 2.2.1
+**Why it matters:** The OAuth callback writes the session record to KV and
+redirects to `/`, where the client's first `/api/me` reads it back — typically
+within a second. Workers KV is eventually consistent, with a documented
+propagation window of up to 60 seconds. In practice the read is served by the
+colo that performed the write and the record is there, which is why this is not
+a bug anyone has seen; but a player whose two requests land in different colos
+would be bounced straight back to a sign-in screen having just signed in
+successfully, and on a mandatory-sign-in app that reads as a loop rather than as
+a hiccup. Exactly the read-after-write window that made the UserDO a Durable
+Object rather than KV in the first place (stage 2.3.2) — the difference is that
+there it was on the critical path of every request, and here it is on the
+critical path of one.
+**Not doing yet because:** every fix costs more than the failure. A signed
+stateless token would not need the read, but then it cannot be revoked, which is
+the entire reason 2.2.1 specifies a stored record. A Durable Object would be
+strongly consistent but wakes an object on every authenticated request, against a
+100k/day budget. Retrying the read is guessing at a timeout in the one place a
+player is already waiting. **Watch for it during the live sign-in test and during
+phase 10 playtesting**: the symptom is signing in successfully and arriving back
+at the app signed out, and it would be intermittent and unreproducible, so it is
+worth recognising rather than debugging from scratch. If it does appear, the
+cheapest honest fix is for the callback to hand the session straight to the
+client rather than making it re-read — the callback already knows the `sub`.

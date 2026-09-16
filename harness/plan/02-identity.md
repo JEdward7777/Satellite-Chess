@@ -10,19 +10,30 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
 
 - `2` todo: Accounts and the permanent record
 
-- `2.1` todo: Google OAuth in the Worker (`src/worker/auth.ts`)
-  - `2.1.1` todo: Authorization Code flow with PKCE. `client_secret` in a Worker
+- `2.1` done: Google OAuth in the Worker (`src/worker/auth.ts`)
+  Written 2026-09-16. Two navigations at the paths decision 0030 fixed, plus
+  `sessions.ts` for `2.2.1`. The live round-trip is verified against the deployed
+  Worker by hand, never locally (decision 0034), so `test/worker/auth.test.ts`
+  asserts everything *around* the code exchange and never the exchange itself.
+  - `2.1.1` done: Authorization Code flow with PKCE. `client_secret` in a Worker
     secret binding; the code exchange happens server-side.
-  - `2.1.2` todo: Web Crypto only (`crypto.subtle`) for the PKCE challenge and
+    S256, verifier 43 base64url characters — the floor Google's rule allows.
+  - `2.1.2` done: Web Crypto only (`crypto.subtle`) for the PKCE challenge and
     session token signing. There is no Node crypto in a Worker.
-  - `2.1.3` todo: Because the code is exchanged directly with Google over TLS, the
+  - `2.1.3` done: Because the code is exchanged directly with Google over TLS, the
     returned ID token's payload may be trusted without verifying its signature,
     per Google's guidance for the server-side flow. **This stops being true the
     moment a client-supplied ID token is accepted**, which would make RS256 JWKS
     verification mandatory (cache the JWKS in KV). Say so at the call site.
-  - `2.1.4` todo: Identity key is the Google `sub` claim, never the email. Email
+    Said at the call site, at length, in the header of `auth.ts`. The claims are
+    still checked — issuer, audience, expiry and nonce — because "came from
+    Google" and "was issued to us, for this sign-in, and is still valid" are
+    different questions.
+  - `2.1.4` done: Identity key is the Google `sub` claim, never the email. Email
     changes; `sub` does not. `UserDO` is addressed by `getByName(sub)`.
-  - `2.1.5` active: Redirect URI registration for local dev and for the deployed
+    Folded through the same `asSub` the dev seam uses, so a `sub` that could not
+    be a Durable Object name is refused before it becomes an address.
+  - `2.1.5` done: Redirect URI registration for local dev and for the deployed
     origin, both documented in the README
     Console side done 2026-09-06: OAuth client created, `GOOGLE_CLIENT_SECRET`
     set as a Worker secret, `GOOGLE_CLIENT_ID` in `wrangler.jsonc`. Paths are
@@ -35,9 +46,19 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
   - Login-first has one sharp edge: a player who cannot reach Google cannot play.
     A long-lived session is the mitigation that keeps that from mattering, because
     sign-in then happens at home on wifi rather than in a field.
-  - `2.2.1` todo: Opaque token in an HttpOnly, Secure, SameSite=Lax cookie;
+  - `2.2.1` done: Opaque token in an HttpOnly, Secure, SameSite=Lax cookie;
     session record in KV with a long TTL
-  - `2.2.2` todo: Sliding renewal, so an active player is never logged out
+    `src/worker/sessions.ts`, built by `2.1` because a callback cannot end
+    without minting a session. 32 random bytes behind a `g1_` tag, so a cookie
+    that could not have come from here is rejected without spending a KV read.
+    30-day TTL. `Secure` whenever the request arrived over HTTPS; `SameSite=Lax`
+    is required rather than preferred, because the cookie is set on the redirect
+    back from Google and `Strict` would withhold it on exactly that navigation.
+  - `2.2.2` done: Sliding renewal, so an active player is never logged out
+    **Throttled to once a day**, which the stage line does not say and the free
+    tier forces: KV allows ~1,000 writes a day against ~100,000 reads, so sliding
+    on every request would spend the day's writes in one game. A player active
+    daily keeps a session that never expires, at one write a day.
   - `2.2.3` todo: Pre-flight check — warn on the home screen, while there is still
     wifi, if the session is close to expiring
   - `2.2.4` todo: Cache the session identity for offline start, so the app opens
@@ -192,7 +213,18 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
       still matches A; re-deriving it at each hop stops the matching after one
       forward and is the obvious wrong simplification.
 
-- `2.4` todo: KV namespace creation, secret setup, and documenting both
+- `2.4` done: KV namespace creation, secret setup, and documenting both
+  Done 2026-09-16, and **it was never the operator-only step STATE.md said it
+  was**. `SESSIONS` (`5054a97e…`) was created from this machine with
+  `wrangler kv namespace create`, bound in `wrangler.jsonc`, and picked up by
+  `wrangler types`. The one wrinkle: a bare `wrangler kv namespace list` fails
+  with "Authentication error [code: 10000]" even though the token carries
+  `workers_kv (write)` — it needs `CLOUDFLARE_ACCOUNT_ID` set explicitly, and
+  the error names the wrong cause. `wrangler deploy` and `wrangler secret list`
+  need no such help.
+  Secrets were already set (`GOOGLE_CLIENT_SECRET`, `SURVEY_SECRET`, confirmed
+  with `wrangler secret list`); documenting both is the README section added by
+  `2.1.5`, plus decision 0034 for why there is deliberately no local secret.
 - `2.5` todo: Auth gate on the client
   - `2.5.1` todo: Unauthenticated launch goes to a sign-in screen and nowhere else
   - `2.5.2` done: A local-dev and simulator test seam, so the game stays testable

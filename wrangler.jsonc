@@ -22,6 +22,14 @@
   "vars": {
     "GOOGLE_CLIENT_ID": "908007056119-hvrj0p5sa9k3rtcsbecqs7ehmf9rc82j.apps.googleusercontent.com"
   },
+  // Session records (stage 2.2.1). The cookie carries an opaque token and
+  // nothing else; everything about the session lives here, so signing out and
+  // expiry are a delete and a TTL rather than a promise the token makes about
+  // itself. KV rather than a Durable Object because this is read on every
+  // authenticated request and a DO read would wake an object to answer it.
+  "kv_namespaces": [
+    { "binding": "SESSIONS", "id": "5054a97ed81e4475ae7ef4b48d1b1fbc" }
+  ],
   // The free plan requires the SQLite storage backend. `new_classes` (the legacy
   // key-value backend) fails to deploy with error 10097.
   "migrations": [

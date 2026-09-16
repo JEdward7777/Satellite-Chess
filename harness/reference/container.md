@@ -92,7 +92,24 @@ on the board to teleport, sliders for accuracy and jitter, and a switch between
 two simulated players. `globalThis.satchess` exposes the same thing to a console
 or a browser test.
 
-## Wrangler cannot reach Cloudflare from the container — deploys are the operator's
+## Wrangler and Cloudflare — **check which machine you are on first**
+
+**This section is about the ephemeral container, and only about it.** On the
+operator's own WSL machine — where sessions increasingly run — `wrangler whoami`,
+`deploy`, `secret put` and KV namespace creation all work normally. Read the
+paragraph below as "in the container", never as "in this project".
+
+That distinction was buried in a parenthesis at the end of this section until
+2026-09-16, and it cost two sessions: `2026-09-15-01` nearly deferred `2.1` on the
+grounds that it "cannot be finished in a container", and `2026-09-16-01` found
+`2.4` marked operator-only and created the KV namespace in about ten seconds. The
+cheap test is one command — run `npx wrangler whoami` and believe it, rather than
+believing this file.
+
+One real wrinkle, wherever you are: a bare `wrangler kv namespace list` fails with
+**"Authentication error [code: 10000]"** even with `workers_kv (write)` on the
+token. It needs `CLOUDFLARE_ACCOUNT_ID` set explicitly, and the error names the
+wrong cause entirely. `deploy` and `secret list` need no such help.
 
 Measured 2026-08-04, so no future session has to discover it by burning a stage on
 it. The session's egress proxy answers **403 to CONNECT** for both
@@ -108,15 +125,17 @@ serves on 127.0.0.1 with no Cloudflare contact at all — verified again on 2026
 HTTP 200 at `/` and at `/j/ABC123`. That is what all eight browser drivers run
 against, so the DO, the routing and the whole game remain fully testable here.
 
-**What does not**: `wrangler login`, `wrangler deploy`, `wrangler secret put`,
-KV namespace creation — anything touching the Cloudflare API. So `1.9.1`,
-`1.9.3.4`, `2.4` and the deployed-origin half of `2.1` were the operator's, from
-a local clone, and they are the only things that are. `1.9.1` and `1.9.3.4` are
-now done; `2.4` and the `2.1` verification remain. Do not plan a session around
-getting a deploy out of this container, and do not retry the 403 or route around
-it. (Sessions run from the operator's own machine — e.g. `2026-09-06-03`, the
-survey walk — do have Cloudflare API access and `wrangler whoami` works there;
-that is where `1.9.3.4`'s secret rotation and read-back happened.)
+**What does not, in the container**: `wrangler login`, `wrangler deploy`,
+`wrangler secret put`, KV namespace creation — anything touching the Cloudflare
+API. Do not plan a *container* session around getting a deploy out, and do not
+retry the 403 or route around it.
+
+**None of those are outstanding any more.** `1.9.1` and `1.9.3.4` were done from
+the operator's machine earlier; `2.4` (the `SESSIONS` namespace) and the deploy
+carrying `2.1` followed on 2026-09-16 from the same place. What remains of the
+`2.1` verification is not a wrangler problem at all — it is a human at a browser
+completing a Google consent screen, which no machine in this project can do on
+its own.
 
 ## A plain container may have no git credentials at all — bundle and move on
 

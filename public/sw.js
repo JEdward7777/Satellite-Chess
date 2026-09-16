@@ -91,6 +91,18 @@ self.addEventListener('fetch', (event) => {
   // than an honest network error, and `/api/…/ws` is not a GET we can answer.
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
 
+  // Sign-in is a server round trip, not a screen (decision 0030). `/auth/…` are
+  // full-page navigations to the Worker — one redirects to Google, the other is
+  // where Google sends the browser back with a code — so the navigation rule
+  // below would answer both from the cached shell and sign-in would silently do
+  // nothing for every returning visitor. This is O-10 with teeth: there the
+  // divergence was benign, here it breaks the only way into the app.
+  //
+  // Unlike narrowing the rule to `shared/routes.ts`, which this file cannot
+  // import, a prefix is all that is needed — so there is nothing to duplicate
+  // and nothing to keep in step.
+  if (url.pathname === '/auth' || url.pathname.startsWith('/auth/')) return;
+
   // A navigation to *any* in-scope URL is answered by the shell, so a deep link
   // opened with no signal still starts the app. The cache key is the shell, not
   // the URL that was navigated to — `/j/ABC123` and `/` are the same document,
