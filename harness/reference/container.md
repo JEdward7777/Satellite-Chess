@@ -78,9 +78,15 @@ npm install
 
 ```bash
 npm run dev                                                    # the whole thing, dev seam on
-npm run build:client && npx wrangler dev --port 8799 --local   # the same, no dev seam
+npm run build:client && npx wrangler dev --port 8799 \
+  --var DEV_AUTH_SECRET:local-dev-secret                       # what the drivers need
 node scripts/build-client.mjs --serve                          # client only, :8788
 npm install --no-save playwright jsqr                          # then any driver
+
+# Every driver below needs the `--var` above — see the top of this file. Without
+# it they hang on a selector that is never going to appear, which reads as a
+# broken home screen rather than as a missing session. `check-qr.mjs` is the one
+# exception: it needs no server and no browser at all.
 node scripts/drive-game.mjs                                    # two phones, a game
 node scripts/check-deeplink.mjs                                # deep links, offline
 node scripts/check-invite.mjs                                  # create, code, QR, share
@@ -89,7 +95,7 @@ node scripts/check-clock.mjs                                   # clocks, low tim
 node scripts/check-calibrate.mjs                               # four taps, a 12x6 board
 node scripts/check-scan.mjs                                    # camera, advice, camera released
 node scripts/check-field.mjs                                   # sharing a field, and keeping one
-node scripts/check-fields.mjs                                  # a field following the account (needs DEV_AUTH_SECRET)
+node scripts/check-fields.mjs                                  # a field following the account
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 
