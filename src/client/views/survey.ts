@@ -81,7 +81,7 @@ export const PROTOCOL: Step[] = [
     kind: 'mark',
     title: 'Walk 8 m and mark B',
     instruction:
-      'Pace out about 8 metres in a straight line — roughly 10 adult paces. Leave a marker. ' +
+      'Pace out about 8 meters in a straight line — roughly 10 adult paces. Leave a marker. ' +
       'Stand still for a few seconds, then tap.',
     why: 'One square on a typical field. If the phone cannot separate A from B, the game does not work.',
   },
@@ -107,7 +107,7 @@ export const PROTOCOL: Step[] = [
     kind: 'mark',
     title: 'Walk 24 m from A and mark C',
     instruction:
-      'From A, walk about 24 metres in a straight line — three squares, roughly 30 paces. Tap.',
+      'From A, walk about 24 meters in a straight line — three squares, roughly 30 paces. Tap.',
     why: 'A longer baseline, to separate distance error from bearing error.',
   },
   {

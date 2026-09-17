@@ -203,5 +203,14 @@ explain *why*, especially where a platform constraint or a game-design decision
 forced an unobvious shape. The shared modules under `src/shared/` are the
 reference for tone — they are commented for a reader who has not read the brief.
 
-British spelling in prose and identifiers (`normalise`, `centre`, `metres`),
-matching what is already there.
+**Anything a player can read is American English** (`meters`, `neighboring`,
+`kilometer`) — decision 0036. That rule has no exceptions and is the one to get
+right, because it is the only spelling anybody outside this repository sees.
+
+**Identifiers and comments are still British** (`normalise`, `centre`, `metres`),
+and that is a transitional state rather than the target. Until **O-22** sweeps
+them, **match the file you are editing** — a `myColor` sitting beside a
+`myColour` in the same function is worse than either convention. Prefer American
+in a genuinely new module.
+
+Units are **metric** and stay that way (decision 0036). Metres, not yards.

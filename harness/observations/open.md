@@ -396,3 +396,55 @@ The good news is that decision 0031 already did the hard part: reach is a count 
 set of constants whatever the square turns out to be. The board geometry is fitted
 in metres and stays that way; only what is *offered* and what is *displayed*
 changes.
+
+### O-22 — The codebase is half British, half American, on purpose for now
+**Spotted:** 2026-09-16, decision 0036
+**Why it matters:** Every string a player reads is American as of today, which was
+the part that mattered and is done. Identifiers and comments are still British, so
+the repository now has `myColour` next to `Color` and `normaliseJoinCode` beside
+`unauthenticated`. Consistent-by-accident is fine; **inconsistent-by-accident is
+what produces a `normalize` that silently shadows nothing and a `myColor` that is
+a second variable**. AGENTS.md §9 now says "match the file you are editing", which
+holds the line but does not end the split.
+
+**Not doing yet because:** the owner's constraint was "I don't want bugs", and
+this is ~615 lines across `src/`, `test/`, `scripts/` and the living harness docs
+(~250 of them identifiers in `src/`). It is mechanical, but it is too large to
+eyeball and was not worth landing on top of a stage that had just been deployed.
+
+**The analysis is already done, so whoever picks this up should not redo it:**
+
+- **There is no migration.** No SQL column, wire field, `localStorage` key or
+  IndexedDB name carries a British spelling — every hit in `schema.ts`,
+  `user-schema.ts` and `protocol.ts` is a *comment*. This was the thing that could
+  have made it dangerous, and it is not there.
+- **`harness/decisions/` and `harness/sessions/` must NOT be touched** (71 and 43
+  lines). They are append-only and immutable by AGENTS.md §4; their spelling is a
+  historical record. Only `plan/`, `reference/`, `observations/`, `STATE.md`,
+  `AGENTS.md`, `README.md` and `CLAUDE.md` are in scope.
+- **Three coupled surfaces**, each of which must change atomically or something
+  breaks silently:
+  1. `data-colour`, `data-colours`, `data-colour-note` — 4 occurrences in
+     `client/views/create.ts` and 4 in `scripts/check-invite.mjs`, which selects
+     on them. Not persisted, but src and driver must move together.
+  2. `reason: 'cancelled'` — an internal union tag produced in `client/share.ts`
+     and consumed in `views/invite.ts` and `views/field.ts`. Never displayed.
+  3. `apiError('unauthorised', …)` in `worker/survey.ts` and `worker/identity.ts`
+     — a machine-readable contract value with tests asserting on it. Note
+     `index.ts` already uses `unauthenticated`, so this is inconsistent *today*.
+- **Exported symbols** whose call sites all move at once: `normaliseJoinCode`
+  (14 uses), `squareCentre`, `squareCentreLatLng`, `metresPerDegLng`, `normalise`
+  (the vector one, in `geo.ts`), `resolveColour`, `ColourChoice`, `isInitialised`,
+  and `metres` (the formatter in `views/game.ts`, which renders `m` and so is safe
+  to rename).
+- **Do not do a blanket `-ise` → `-ize` sweep.** `advertise`, `compromise`,
+  `exercise`, `surprise`, `otherwise` and `precise` are spelled that way in both
+  dialects. Use an explicit word list. `metre` → `meter` is safe by contrast:
+  `parameter`, `diameter` and `perimeter` contain "meter", not "metre".
+- **`grey` appears twice, both in comments.** Nothing in `app.css` depends on it.
+
+Suggested order: exported symbols first with `npm run typecheck` after each, then
+local identifiers, then the three coupled surfaces in single commits, then prose,
+then the living harness docs. Then **re-run all eleven drivers from an empty
+`.wrangler`** (O-19) — `check-invite.mjs` is the one that would catch a broken
+`data-colour`.

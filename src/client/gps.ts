@@ -169,16 +169,16 @@ export function describeGpsError(code: GpsErrorCode, platform: Platform = 'other
         message:
           platform === 'ios'
             ? 'Your phone is only giving an approximate location — accurate to about a ' +
-              'kilometre, which is a hundred boards wide. Turn on Settings → Privacy & ' +
+              'kilometer, which is a hundred boards wide. Turn on Settings → Privacy & ' +
               'Security → Location Services → Safari Websites → Precise Location. If you ' +
               'added this game to your home screen, look for Satellite Chess in that list ' +
               'instead of Safari.'
             : platform === 'android'
               ? 'Your phone is only giving an approximate location, accurate to about a ' +
-                'kilometre. Turn on Settings → Location → Location Services → Google ' +
+                'kilometer. Turn on Settings → Location → Location Services → Google ' +
                 'Location Accuracy, and allow this site precise location.'
               : 'Your phone is only giving an approximate location, accurate to about a ' +
-                'kilometre. Look for a "precise location" setting for this site and turn it on.',
+                'kilometer. Look for a "precise location" setting for this site and turn it on.',
       };
   }
 }

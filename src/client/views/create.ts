@@ -381,7 +381,7 @@ function reachNote(draft: CreateDraft, field: FieldSpec | undefined): string {
     squares <= 0.5
       ? 'You must stand on or beside a square to touch it, so every move is a walk.'
       : squares <= 1
-        ? 'You can reach a little past the neighbouring square. Shorter walks, looser game.'
+        ? 'You can reach a little past the neighboring square. Shorter walks, looser game.'
         : 'You can play several squares from where you stand — much less walking.';
   return `Reach ${formatSquares(squares)} squares${onThisField}. ${character}`;
 }
