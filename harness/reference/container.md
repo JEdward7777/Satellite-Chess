@@ -204,6 +204,20 @@ One real wrinkle, wherever you are: a bare `wrangler kv namespace list` fails wi
 token. It needs `CLOUDFLARE_ACCOUNT_ID` set explicitly, and the error names the
 wrong cause entirely. `deploy` and `secret list` need no such help.
 
+**And `wrangler kv key list` reads *local* storage unless you pass `--remote`.**
+It does not say so, does not warn, and does not fail: it prints `[]` and exits 0.
+Against the `SESSIONS` namespace that reads as "there are no sessions" — which,
+on a mandatory-sign-in app whose only evidence of a working sign-in is a session
+record, is a false alarm of exactly the wrong shape. Measured 2026-09-16: the same
+command was `[]` without the flag and one live session with it. **Pass `--remote`
+whenever the question is about production**, and treat a `[]` without it as
+meaningless rather than as an answer.
+
+When counting sessions, count them — do not list them. A key is `session:<token>`
+and **the token *is* the session**: anyone holding one is signed in as that user.
+`… --remote | grep -c 'session:'` answers "how many" without putting live
+credentials in a terminal, a log, or a transcript.
+
 Measured 2026-08-04, so no future session has to discover it by burning a stage on
 it. The session's egress proxy answers **403 to CONNECT** for both
 `api.cloudflare.com:443` and `dash.cloudflare.com:443` — an organisation egress
