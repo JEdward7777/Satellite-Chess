@@ -381,3 +381,18 @@ review, and the reach and handicap notes on the create screen.
 every identifier added, so it is worth an explicit decision rather than drift —
 the convention is documented, so changing it should supersede §9 rather than
 quietly diverge from it.
+
+**One design note for whoever scopes this, because it makes the change bigger
+than a format string.** If the game goes imperial, the natural square size is
+probably *not* a converted metric one. 8 m is 8.7 yd, which is a silly number to
+read on a screen or to pace out; an American laying out a pitch would far more
+likely want a round **10 yards**, which is a football field's own unit and is
+pace-able. So the honest version of this is not "render metres as yards", it is
+"offer field sizes that are round in the player's own units" — and that reaches
+the calibration review and the create screen, not just `formatDistance`.
+
+The good news is that decision 0031 already did the hard part: reach is a count of
+**fractional squares**, not a distance, so it needs no conversion and no second
+set of constants whatever the square turns out to be. The board geometry is fitted
+in metres and stays that way; only what is *offered* and what is *displayed*
+changes.
