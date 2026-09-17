@@ -621,6 +621,23 @@ body:has(.sim-panel) #app {
 }
 
 /*
+ * A failed sign-in's likely cause, and the code underneath it (stage 2.5.3).
+ *
+ * Both are their own line: the sentence is what a player acts on, the code is
+ * what they read out to somebody who can do something about it, and running
+ * them together makes the code look like part of the apology.
+ */
+.signin-cause,
+.signin-code {
+  display: block;
+  margin-top: 0.4rem;
+}
+
+.signin-code {
+  font-size: 0.85rem;
+}
+
+/*
  * An anchor, styled as the primary button.
  *
  * Sign-in is a full-page navigation to the Worker rather than a `fetch`

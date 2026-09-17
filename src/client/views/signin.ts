@@ -21,7 +21,7 @@
  * logged as O-01 rather than half-built here.
  */
 
-import { signInHref } from '../session.js';
+import { signInFailureCause, signInHref } from '../session.js';
 
 export interface SignInDeps {
   /** Where to return after Google. Carried through the flow cookie. */
@@ -36,11 +36,10 @@ export interface SignInDeps {
   /**
    * A failed sign-in's reason code, straight from `/?signin=failed&reason=…`.
    *
-   * Shown plainly rather than translated. Naming the *likely cause* in a
-   * sentence — no signal, a Safari handoff from a home-screen PWA — is stage
-   * 2.5.3; until then the honest thing is to say that it failed and show what
-   * the server called it, because silently re-offering the button is what makes
-   * a failure look like a loop.
+   * Rendered as a sentence naming the likely cause, with the code kept
+   * underneath (stage 2.5.3). Both halves earn their place: the sentence is the
+   * only part a player can act on, and the code is the only part that survives
+   * being repeated down a phone line to somebody who can read this source.
    */
   reason: string | null;
   /** Mint a dev session and re-enter the app. Only wired when `devSeam`. */
@@ -91,18 +90,29 @@ export function mountSignIn(root: HTMLElement, deps: SignInDeps): () => void {
 }
 
 /**
- * That the last attempt failed, and what it was called.
+ * That the last attempt failed, why it probably failed, and what it was called.
  *
  * `auth.ts` redirects every failure to `…?signin=failed&reason=<code>`, and
  * until stage 2.5.1 landed nothing rendered it at all — a failed sign-in landed
- * silently on the home screen. A code is not a sentence, but it is honest, and
- * it is the difference between "that did not work" and a button that appears to
- * do nothing when pressed twice.
+ * silently on the home screen, which is indistinguishable from a dead button.
+ * 2.5.1 showed the code; 2.5.3 added the sentence above it.
+ *
+ * The code is kept, deliberately, even now that there is a sentence. It is the
+ * only part of this that is exact, and it is what somebody can read out to a
+ * person holding the source — `signInFailureCause` maps several different
+ * server-side failures onto one reassuring paragraph, so the sentence alone
+ * cannot be debugged from.
+ *
+ * `declined` is the exception at both ends: no cause sentence, and no code
+ * either. The player closed Google's sheet on purpose, and quoting an error code
+ * back at somebody for doing something deliberate is noise.
  */
 function failureHtml(reason: string): string {
+  const cause = signInFailureCause(reason);
   return `<p class="notice" data-signin-failed="${escapeHtml(reason)}">
-    That sign-in did not finish${reason === 'declined' ? '' : ` (${escapeHtml(reason)})`}.
-    You can try again.
+    <strong>That sign-in did not finish.</strong>
+    ${cause === null ? 'You can try again.' : `<span class="signin-cause">${escapeHtml(cause)}</span>`}
+    ${reason === 'declined' ? '' : `<span class="signin-code dim">Reported as: ${escapeHtml(reason)}</span>`}
   </p>`;
 }
 

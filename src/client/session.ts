@@ -129,8 +129,8 @@ export function signInHref(next: string): string {
  * `auth.ts` sends every failure back to `…?signin=failed&reason=<code>`, and
  * until the gate existed nothing rendered it — a failed sign-in landed silently
  * on the home screen, which reads as a button that does nothing when pressed.
- * Naming the likely *cause* in a sentence is stage 2.5.3; this is the honest
- * minimum until then.
+ * The code is the honest minimum; {@link signInFailureCause} is what turns it
+ * into a sentence (stage 2.5.3).
  */
 export function signInFailure(search: string): string | null {
   const params = new URLSearchParams(search);
@@ -140,6 +140,78 @@ export function signInFailure(search: string): string | null {
   // checked because it reaches the screen, and everything in a URL is untrusted.
   return reason !== null && /^[a-z_]{1,32}$/.test(reason) ? reason : 'unknown';
 }
+
+/**
+ * The likely cause of a failed sign-in, in a sentence (stage 2.5.3).
+ *
+ * A code is honest but unreadable: `bad_token` means nothing to somebody
+ * standing in a park who has just tapped a button and been sent back. The code
+ * stays on screen underneath this — it is what makes a support conversation
+ * possible — but it is no longer the whole message.
+ *
+ * ## Why every sentence hedges
+ *
+ * These are *guesses*, and the mapping is one-to-many in the wrong direction:
+ * `bad_token` is six distinct checks in `auth.ts` collapsed into one code, and
+ * `expired` covers both a flow cookie that timed out and one that never came
+ * back at all. So each sentence says "usually means" rather than asserting a
+ * cause. A confident wrong explanation is worse than a code, because it sends
+ * somebody off to fix the wrong thing — turning wifi off and on in a field
+ * because we told them it was the network, when their flow cookie was eaten by
+ * a browser handoff.
+ *
+ * Two codes deliberately have no sentence:
+ *
+ * - `declined` — the player closed Google's sheet. They know what they did, and
+ *   explaining it back to them reads as an accusation.
+ * - `unknown` — synthesised here when the reason is missing or malformed. We do
+ *   not know, and inventing something is the exact failure this stage exists to
+ *   avoid.
+ *
+ * Returning null for those is meaningful: the screen falls back to "you can try
+ * again", which is all there is to say.
+ */
+export function signInFailureCause(reason: string): string | null {
+  return FAILURE_CAUSES[reason] ?? null;
+}
+
+/**
+ * Sentences for the codes `auth.ts` actually emits. Anything absent gets none.
+ *
+ * American throughout, like everything a player reads (decision 0036).
+ */
+const FAILURE_CAUSES: Record<string, string> = {
+  // Google itself refused, before we ever saw a code. Nothing local to fix.
+  google_error:
+    'Google turned down the sign-in. That is usually temporary, so trying again often works.',
+
+  // Came back with no code or no state at all. The shape of a trip that was
+  // interrupted rather than refused.
+  bad_response:
+    'The browser came back from Google without everything we needed. That usually means the connection dropped partway through signing in.',
+
+  // The ten-minute flow window, or a flow cookie that did not survive the round
+  // trip. On a phone the second is likelier, and it is the one a player can
+  // actually do something about.
+  expired:
+    'Sign-in has a ten-minute window and this one ran out. If signing in opened a different app or tab, coming back can take longer than it looks — starting again from this screen usually works.',
+
+  // State mismatch. Almost always the handoff: the app opened Google somewhere
+  // else and the answer arrived in a browsing context that never held the flow.
+  bad_state:
+    'The browser came back from a different tab than the one that started. That usually happens when sign-in opens in another app — a home-screen app handing off to Safari does this — and starting again from this screen usually works.',
+
+  // The exchange with Google failed at the last step, which is where a marginal
+  // signal usually gives out.
+  exchange_failed:
+    'We could not finish the last step with Google. That usually means the signal gave out right at the end — somewhere with a better signal should work.',
+
+  // Six checks in one code, and none of them is the player's doing. Saying so
+  // matters: without it, somebody stands there tapping a button that cannot
+  // work, assuming they are holding it wrong.
+  bad_token:
+    'Google answered, but the answer did not check out. This one is not something you can fix by trying again — if it keeps happening, it is this server that needs looking at, not your phone.',
+};
 
 /** The path the player should be returned to after signing in. */
 export function currentDestination(location: {

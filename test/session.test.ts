@@ -4,6 +4,7 @@ import {
   currentDestination,
   loadSession,
   signInFailure,
+  signInFailureCause,
   signInHref,
 } from '../src/client/session.js';
 
@@ -136,5 +137,60 @@ describe('a sign-in that came back failed', () => {
     expect(signInFailure('?signin=failed&reason=<script>')).toBe('unknown');
     expect(signInFailure(`?signin=failed&reason=${'x'.repeat(40)}`)).toBe('unknown');
     expect(signInFailure('?signin=failed')).toBe('unknown');
+  });
+});
+
+describe('explaining a failed sign-in', () => {
+  /**
+   * Every code `failed()` in `worker/auth.ts` can send. That file is the source
+   * of truth and this list is a copy, so it can rot — but a copy that fails
+   * loudly is worth more than no check at all, and the failure mode it catches
+   * is the one that matters: somebody adds a code and the screen silently says
+   * nothing useful about it.
+   */
+  const EMITTED = [
+    'google_error',
+    'bad_response',
+    'expired',
+    'bad_state',
+    'exchange_failed',
+    'bad_token',
+  ];
+
+  it('has a sentence for every failure the server can send', () => {
+    for (const code of EMITTED) {
+      const cause = signInFailureCause(code);
+      expect(cause, code).not.toBeNull();
+      // Long enough to be a sentence rather than a restated code.
+      expect(cause!.length, code).toBeGreaterThan(40);
+    }
+  });
+
+  it('hedges rather than asserting a cause it cannot know', () => {
+    // `bad_token` is six distinct checks collapsed into one code and `expired`
+    // covers two unrelated failures, so none of these may claim to know what
+    // happened. Sending somebody to fix the wrong thing is worse than a code.
+    for (const code of EMITTED) {
+      expect(signInFailureCause(code), code).toMatch(/usually|not something you can fix/);
+    }
+  });
+
+  it('says nothing about a deliberate decline', () => {
+    // They closed the sheet. Explaining that back to them reads as an accusation.
+    expect(signInFailureCause('declined')).toBeNull();
+  });
+
+  it('invents nothing when it does not know', () => {
+    // `unknown` is what a missing or malformed reason becomes. A guess here is
+    // the exact failure this stage exists to prevent.
+    expect(signInFailureCause('unknown')).toBeNull();
+    expect(signInFailureCause('a_code_from_a_later_version')).toBeNull();
+    expect(signInFailureCause('')).toBeNull();
+  });
+
+  it('tells the player when trying again will not help', () => {
+    // The one failure that is the server's fault. Without this, somebody stands
+    // in a field tapping a button that cannot work, assuming it is their phone.
+    expect(signInFailureCause('bad_token')).toMatch(/not something you can fix/);
   });
 });

@@ -4,27 +4,16 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean, pushed to `main`.
-**Active stage**: none. **The sign-in gate is built.** `2.5.1` landed 2026-09-16
-on top of the same day's `2.1`/`2.2.1`/`2.2.2`/`2.4`, so sign-in is now mandatory
-in fact and not only in decision 0014.
-**Next action**: `2.5.3` — honest failure messages — or `2.3.5`, the permanent
-record. See "What to do next" below; the gate made both reachable.
-**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, **with the gate
-on it** — deployed 2026-09-16, version `1fea90ff`, after all eleven drivers
-passed. Sign-in is now mandatory in fact, on the real origin, and the O-15 window
-that was open there all day is shut.
-**And a real Google sign-in has been completed *through* the gate**, the same day,
-from desktop Firefox with no cookie and no service worker cache — so the gate
-rendered, the button worked, and the whole chain held. The evidence is a second
-session record in the `SESSIONS` namespace, which only the callback can write.
-That is the one thing no test in this project can cover (decision 0034), and it
-is now done against the gated build rather than against the one before it.
-**Last session**: `harness/sessions/2026-09-16-02.md`.
-**763 tests pass** (737 before this session). Typecheck and `plan:check` clean.
-**All eleven browser drivers pass at `cfc9f87`**, run by a peer session with a
-browser — including the gate's own two new sections, and the rendered gate was
-inspected in a screenshot rather than trusted from assertions. **Run them from an
-empty `.wrangler` or they lie to you** (O-19).
+**Active stage**: none. **Phase 2's gate is finished** — `2.5.3` landed 2026-09-17
+and closed `2.5`, on top of the same week's `2.1`/`2.2.1`/`2.2.2`/`2.4`/`2.5.1`.
+**Next action**: `2.3.5` — the permanent record — or the phase 7 audit O-23 asks
+for. See "What to do next" below.
+**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, with the gate on
+it — deployed 2026-09-16, version `1fea90ff`. **`2.5.3` is not deployed yet**;
+it is client-only and ships with the next `npm run deploy`.
+**768 tests pass** (763 before this session). Typecheck and `plan:check` clean.
+**All eleven browser drivers pass at `cfc9f87`** — but **run them from an empty
+`.wrangler` or they lie to you** (O-19).
 
 ## The gate, in one paragraph
 
@@ -32,90 +21,77 @@ An unauthenticated launch reaches a sign-in screen and nothing else. The server
 half is what makes it real: creating a game, joining one, and opening the socket
 all 401 without a session, and **`playerId` is gone** — from the request body,
 from the WebSocket URL, and from `localStorage`. That is what closed **O-15**: a
-seat is a Google `sub` or it does not exist, so a player cannot be mistaken for
-two people and handed both seats. A completed sign-in returns to wherever it
-started, carried in the signed flow cookie, so a QR scanned in a park survives
-the trip to Google. All three rules, and the reasoning that will look wrong later,
-are **decision 0035**.
+seat is a Google `sub` or it does not exist. A completed sign-in returns to
+wherever it started, carried in the signed flow cookie. All three rules are
+**decision 0035**. As of `2.5.3` a failed sign-in explains itself: a hedged
+sentence naming the likely cause, with the exact code kept underneath.
 
 **The rule most likely to be broken by a well-meaning simplification**: the launch
 check has *three* states, not two. Only a real 401 closes the gate; an unreachable
 server opens the app. Collapsing that to a boolean is invisible on a developer's
 machine and shows a sign-in screen to a player standing in a field.
 
+**The second rule, new with `2.5.3`**: the failure sentences hedge on purpose, and
+a test enforces it. `bad_token` is six checks collapsed into one code; `expired`
+covers two unrelated failures. Tightening "usually means" into an assertion sends
+somebody to fix the wrong thing.
+
 ## Where the detail lives
 
-- **`reference/gotchas.md`** — what will bite you when you touch the code. Read it
-  before changing anything you have not changed before.
-- **`reference/container.md`** — **check which machine you are on first.** The
-  "wrangler cannot reach Cloudflare" rule is about the ephemeral container only;
-  on the operator's WSL machine deploys, secrets and KV all work.
+- **`reference/gotchas.md`** — what will bite you when you touch the code.
+- **`reference/container.md`** — **check which machine you are on first**, and read
+  the warning at its head before delegating anything: a peer session may share
+  this working tree.
 - `reference/platform-verified.md`, `budget.md`, `geometry.md` — durable facts.
 - `harness/AGENTS.md` — the rules. `npm run plan` — the stage tree.
 
 ## In one paragraph
 
-Phases 0 and 1 are done bar `1.9.2` (PWA install on a phone) and `1.9.3.6`. Phase
-3 is complete bar `3.6.2` and the standing `3.7`; **phases 4, 5 and 6 are
-closed**. **Phase 2 now has identity end to end**: Google OAuth, opaque sessions
-in KV with throttled sliding renewal, the UserDO, field sync, the game index —
-and, as of this session, the gate in front of all of it. A real Google sign-in was
-completed from a phone on 2026-09-16, against the deployed origin.
+Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
+`1.9.3.6`. **Phases 4, 5 and 6 are closed** — server-authoritative chess with carry
+validation, the clock with flag-fall and suspension, and the whole join flow.
+Phase 3 is complete bar `3.6.2` and the standing `3.7`. **Phase 2 now has identity
+end to end and its gate is shut.** What is left is the *record* (`2.3.5`), session
+lifecycle polish (`2.2.3`–`2.2.5`), and then phases 7–10.
+
+**Read O-23 before trusting the 73%.** Phase 7 is recorded as entirely `todo` and
+is substantially built — the handshake, `'staging'`, `t: 'ready'`, the Ready button
+and reconnect backoff all exist and are tested. Roughly fourteen stages are counted
+outstanding that are largely done.
 
 **Reach is the independent variable, measured in fractional squares** (decision
-0031). **The board is not forced to be square** (decision 0028). Every field, game
-and link made before either still reads as it was calibrated.
+0031). **The board is not forced to be square** (decision 0028).
 
 ## The field survey is walked — the news is good
 
-The riskiest assumption in the project — that consumer GPS can resolve 8 m squares
-on grass — has real data against it. The operator walked the ten-step protocol on
-2026-09-06: Android Chrome, 2008 fixes over 29 minutes. Static scatter while
-standing still was **0.2 m median** against a 4 m half-square, claimed accuracy
-was ~16x pessimistic but **100% honest**, and **8 m squares refuse 0% of moves**.
-The one finding not acted on is **O-12**. Full numbers in
-`harness/sessions/2026-09-06-03.md` and decision 0031. The live trace
+Static scatter while standing still was **0.2 m median** against a 4 m half-square,
+claimed accuracy was ~16x pessimistic but **100% honest**, and **8 m squares refuse
+0% of moves**. The operator walked the ten-step protocol on 2026-09-06: Android
+Chrome, 2008 fixes over 29 minutes. The one finding not acted on is **O-12**. Full
+numbers in `harness/sessions/2026-09-06-03.md` and decision 0031. The live trace
 `2026-09-06T23-10-47-510Z-ioop0u` is deliberately **kept** (`1.9.3.6`).
 `SURVEY_SECRET` is `field-walk-2026-a7k3m9qx`.
 
 ## What to do next, concretely
 
-1. **Sign in on a *phone*, through the deployed gate.** Done on **desktop
-   Firefox** on 2026-09-16 and it worked — but the phone is a different test and
-   is the one that matters, because the sharp edges in decision 0014 and O-01 are
-   all mobile: an iOS home-screen PWA whose OAuth redirect hands off to Safari and
-   returns in another browsing context, and a first sign-in attempted on one bar
-   in a field. A laptop proves the chain; it proves nothing about the handoff.
-   **`1.9.2`** (PWA install) is the natural companion, since installing it is what
-   creates the case worth testing.
-   Watch for **O-17** while doing it: signing in successfully and arriving back
-   signed out, because the session was written to KV and read a second later from
-   another colo. It has now failed to bite twice. Still not a clearance — the
-   failure is intermittent by nature.
-2. **The drivers are green and need nothing** — all eleven pass at `cfc9f87`,
-   run twice by a peer session with a browser. Two things to carry forward rather
-   than rediscover:
-   - **Wipe `.wrangler` before any run** (O-19). A second run against unchanged
-     source gives three deterministic failures in drivers nobody touched, which
-     reads exactly like a regression and is not one.
-   - **The gate's only browser coverage is section 1 of `check-fields` and
-     `check-games`.** Every other driver signs in through `context.request`
-     before its first navigation, so nothing else ever renders the sign-in
-     screen. If that screen changes, those two sections are what catch it.
-   Delegating a run again? **A peer may share this working tree** — read the
-   warning at the head of `reference/container.md` before sending any command.
-3. **`2.5.3` — honest failure messages.** The natural companion to the gate and
-   now the only unfinished part of `2.5`. `auth.ts` already redirects to
-   `…?signin=failed&reason=…`; the screen renders the code but not yet a sentence
-   naming the likely cause (no signal, a Safari handoff from a home-screen PWA).
-4. **`2.3.5` — the permanent record.** Metres walked leads, games played never
-   does (decision 0019). The distance is still only in `presence.travel_m` inside
+1. **`2.3.5` — the permanent record.** The largest remaining piece of phase 2, and
+   the reason accounts are mandatory at all (decision 0019): meters walked leads,
+   games played never does. Distance is still only in `presence.travel_m` inside
    each GameDO; carrying it to the account is the first thing to build. **O-03**
    and **O-12** both deserve a sentence in the record's own UI.
-5. **`2.2.3`–`2.2.5`** — expiry pre-flight, offline session caching, sign-out.
-   `2.2.4` is the stronger version of decision 0035's rule 2 and would let the app
-   know *who* it is offline rather than merely letting it open. `destroySession`
-   already exists for sign-out.
-6. **O-16 — the home screen's ordering.** Two unbounded lists sit above the
-   controls a player came to tap.
-7. **`1.9.2`** — PWA install and wake lock, on the next convenient phone.
+2. **The phase 7 audit (O-23).** Read phase 7 against the code stage by stage and
+   mark what is actually done. Settle whether the game index (2.3.4) makes `7.3.1`
+   obsolete rather than outstanding. Small, and it makes the plan trustworthy.
+3. **`2.2.3`–`2.2.5`** — expiry pre-flight, offline session caching, sign-out.
+   `2.2.4` is the stronger form of decision 0035's rule 2 and would let the app
+   know *who* it is offline rather than merely letting it open.
+4. **A phone sign-in through the gate, plus the wake lock** — closes `1.9.2` and
+   the last unproven part of the gate together. The PWA installed fine on Android
+   on 2026-09-17; the wake lock was not tested and it is unclear whether that
+   install signed in *through* the gate. iOS is the case that actually bites:
+   a home-screen app handing OAuth to Safari and returning in another context.
+   Watch for **O-17** — signing in successfully and arriving back signed out.
+5. **O-16** — two unbounded lists sit above the home screen's primary actions.
+6. **`2.5.3` has no browser coverage.** No driver asserts on the failure block;
+   provoking a real failure needs a deliberately broken callback. Worth a section
+   in `check-fields` or `check-games` if the sign-in screen changes again.

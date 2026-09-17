@@ -230,7 +230,7 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
   Secrets were already set (`GOOGLE_CLIENT_SECRET`, `SURVEY_SECRET`, confirmed
   with `wrangler secret list`); documenting both is the README section added by
   `2.1.5`, plus decision 0034 for why there is deliberately no local secret.
-- `2.5` todo: Auth gate on the client
+- `2.5` done: Auth gate on the client
   - `2.5.1` done: Unauthenticated launch goes to a sign-in screen and nowhere else
     Done 2026-09-16, as **decision 0035**, and it is three things rather than one.
     **The screen**: `client/views/signin.ts`, reached from `boot()` before any
@@ -286,5 +286,16 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
       passing or failing according to who ran it. So the variable is passed on
       the `wrangler dev` command line instead (`--var`), where `wrangler types`
       cannot see it and `wrangler deploy` cannot carry it.
-  - `2.5.3` todo: Honest failure messages when sign-in cannot complete, naming the
+  - `2.5.3` done: Honest failure messages when sign-in cannot complete, naming the
     likely cause (no signal, Safari handoff from a home-screen PWA)
+    `signInFailureCause` in `client/session.ts` maps each code `failed()` can send
+    to a sentence; `views/signin.ts` renders it above the code, which stays.
+    **Every sentence hedges on purpose** — `bad_token` is six distinct checks
+    collapsed into one code and `expired` covers both a timed-out flow and one
+    whose cookie never came back, so none of them may claim to know what
+    happened. A confident wrong cause sends somebody to fix the wrong thing,
+    which is worse than a code they can read out.
+    `declined` and `unknown` deliberately get no sentence: the first is something
+    the player did on purpose, the second is something we do not know. 5 tests
+    in `test/session.test.ts` (763 → **768**), including one asserting the hedge
+    and one asserting that `bad_token` tells the player retrying will not help.
