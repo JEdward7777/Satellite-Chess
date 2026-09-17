@@ -216,6 +216,13 @@ client rather than making it re-read — the callback already knows the `sub`.
 That is one data point and not a clearance — the failure is intermittent by
 nature, so a single success is exactly what a latent version of this bug also
 looks like. Keep watching.
+**Updated 2026-09-16, again:** a second real sign-in, from desktop Firefox and
+through the deployed gate, did not hit it either. Two for two, and still not a
+clearance for the same reason: both were from the operator's own machines, which
+will consistently reach the same colo, and this bug needs the write and the read
+to land in *different* ones. So these two successes are close to no evidence at
+all about the case that matters — a second player, somewhere else, signing in for
+the first time. The first time somebody else uses this app is the real test.
 
 ### O-18 — The board shows an un-handicapped reach until the first snapshot lands
 **Spotted:** 2026-09-16, while diagnosing a `check-invite.mjs` failure
@@ -337,3 +344,40 @@ FAIL — the only one of the three that was not deterministic. Two clean passes 
 consistent with state being the whole story but does not rule out an independent
 race on top. **If it ever fails again on a verified-clean run, treat it as its own
 bug rather than assuming this observation came back.**
+
+### O-21 — Every distance on screen is metric, and the owner is American
+**Spotted:** 2026-09-16, by the owner reading the word "metre" on screen
+**Why it matters:** Distance is not a detail here, it is *the currency*
+(decision 0019) — "you have walked 47 km playing chess" is the headline of the
+permanent record `2.3.5` is about to build, and it is the most player-facing
+number in the project. Square size, reach, field dimensions and the calibration
+review are all in metres too. An owner who thinks in yards is reading their own
+game in a foreign unit.
+
+**Two separate questions, and conflating them would be expensive:**
+
+1. **Display units** (metres vs yards/feet). A *display* concern only. Everything
+   underneath must stay metric and would not change: `shared/geo.ts` works in
+   metres because GPS does, the affine board is fitted in metres, and distance is
+   accumulated in metres. A conversion anywhere below the view layer would be a
+   bug factory. There is already a precedent for unit-free design that went well:
+   decision 0031 made reach a count of **fractional squares**, so the game's main
+   dial has no units at all and needs no conversion.
+2. **British spelling** (`metre`/`normalise`/`centre`). A deliberate project
+   convention — `harness/AGENTS.md` §9 mandates it in prose *and identifiers*.
+   That is a different change with a different cost, and it reaches into function
+   names and stored field names rather than into rendered strings.
+
+**Not doing yet because:** the owner said "that is for later", and it is a
+feature rather than a fault. Worth scoping alongside `2.3.5`, which is what makes
+the number prominent enough to care about. When it is scoped: the setting belongs
+on the **account** (UserDO), not the device, for the same reason fields do — it
+should follow the player to their second phone. The call sites are few and
+findable: `formatDistance` (`client/main.ts`), `describeSquares`
+(`shared/field.ts`), the reach readout in `client/views/game.ts`, the calibration
+review, and the reach and handicap notes on the create screen.
+
+**The spelling half is cheaper now than later**, and gets more expensive with
+every identifier added, so it is worth an explicit decision rather than drift —
+the convention is documented, so changing it should supersede §9 rather than
+quietly diverge from it.

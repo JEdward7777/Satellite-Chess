@@ -13,6 +13,12 @@ record. See "What to do next" below; the gate made both reachable.
 on it** — deployed 2026-09-16, version `1fea90ff`, after all eleven drivers
 passed. Sign-in is now mandatory in fact, on the real origin, and the O-15 window
 that was open there all day is shut.
+**And a real Google sign-in has been completed *through* the gate**, the same day,
+from desktop Firefox with no cookie and no service worker cache — so the gate
+rendered, the button worked, and the whole chain held. The evidence is a second
+session record in the `SESSIONS` namespace, which only the callback can write.
+That is the one thing no test in this project can cover (decision 0034), and it
+is now done against the gated build rather than against the one before it.
 **Last session**: `harness/sessions/2026-09-16-02.md`.
 **763 tests pass** (737 before this session). Typecheck and `plan:check` clean.
 **All eleven browser drivers pass at `cfc9f87`**, run by a peer session with a
@@ -74,18 +80,18 @@ The one finding not acted on is **O-12**. Full numbers in
 
 ## What to do next, concretely
 
-1. **Sign in on a phone, through the deployed gate.** ← **start here.** The gate
-   is live (version `1fea90ff`) and verified server-side from here: `/` serves,
-   `/api/me` 401s with `devSeam:false`, `/auth/google/login` 302s to Google with
-   every parameter right, and `POST /api/dev/session` **404s**, so the seam truly
-   does not exist in production. What no request from this machine can prove is a
-   human completing a Google consent screen and landing back *through the gate*
-   (decision 0034).
-   That first launch is also the first honest chance to see **O-17** as a player
-   would: sign in successfully, arrive back signed out, because the session was
-   written to KV and read a second later from a different colo. It did not bite on
-   2026-09-16 — one data point, not a clearance. If it appears, the cheapest fix
-   is in the observation.
+1. **Sign in on a *phone*, through the deployed gate.** Done on **desktop
+   Firefox** on 2026-09-16 and it worked — but the phone is a different test and
+   is the one that matters, because the sharp edges in decision 0014 and O-01 are
+   all mobile: an iOS home-screen PWA whose OAuth redirect hands off to Safari and
+   returns in another browsing context, and a first sign-in attempted on one bar
+   in a field. A laptop proves the chain; it proves nothing about the handoff.
+   **`1.9.2`** (PWA install) is the natural companion, since installing it is what
+   creates the case worth testing.
+   Watch for **O-17** while doing it: signing in successfully and arriving back
+   signed out, because the session was written to KV and read a second later from
+   another colo. It has now failed to bite twice. Still not a clearance — the
+   failure is intermittent by nature.
 2. **The drivers are green and need nothing** — all eleven pass at `cfc9f87`,
    run twice by a peer session with a browser. Two things to carry forward rather
    than rediscover:
