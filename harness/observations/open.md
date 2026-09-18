@@ -449,45 +449,50 @@ then the living harness docs. Then **re-run all eleven drivers from an empty
 `.wrangler`** (O-19) — `check-invite.mjs` is the one that would catch a broken
 `data-colour`.
 
-### O-23 — Phase 7's handshake is built, but the plan records all of it as `todo`
-**Spotted:** 2026-09-17, while answering "is the game playable"
-**Why it matters:** `harness/plan/07-resume.md` lists every stage in phase 7 as
-`todo`, so `npm run plan` reports the suspend/resume handshake as unstarted work.
-It is not. The DO half is implemented and tested:
+### O-24 — Every driver but one drops `=1` from `--base=…?sim=1`
+**Spotted:** 2026-09-18, running drivers on a port other than 8799 (phase 7)
+**Why it matters:** Each driver parses its arguments with
+`a.replace(/^--/, '').split('=')` and keeps only the second piece, so
+`--base=http://127.0.0.1:8811/?sim=1` becomes `…/?sim`. `simRequested` wants
+`sim=1`, the simulator never starts, and the driver times out on `satchess.me`
+or on a square readout that never changes. That reads as a broken game screen
+rather than a bad argument. The only thing keeping this hidden is that the
+default base is right, so any run on another port (a peer server is already on
+8799, a reviewer picks 8844) fails for no visible reason.
+`scripts/check-resume.mjs` splits on the first `=` only and is the pattern to
+copy. That fix is one line in each of the ten other drivers.
+**Not doing yet because:** out of phase 7's scope, and the phase 7 session ran
+`drive-game` and `check-clock` from scratch copies with the port edited instead.
+Cheap enough to do in the next session that touches drivers.
 
-- `game-do.ts:612–688` is the start/resume handshake — both players connected,
-  both `in_start_zone`, then `status = 'active'` and the clock starts. The comment
-  at `game-do.ts:332` states 7.1.3's requirement verbatim ("start uses the same
-  handshake as a resume, so there is one code path").
-- `'staging'` is a real `GameStatus` in `src/shared/protocol.ts`, `t: 'ready'` is
-  a real inbound message, and `views/game.ts:277` draws the Ready button (7.2.3).
-- `net.ts:102` has reconnection backoff with a snapshot resync (7.3.2), and
-  `game-do.test.ts`, `carry.test.ts` and `net-integration.test.ts` all exercise
-  `in_start_zone`.
-- `scripts/drive-game.mjs` walks white to e1 and black to e8 and the game starts,
-  so the positional handshake demonstrably works in a browser.
+### O-25 — A deferred automatic `ready` waits for the next GPS fix, not for the clock
+**Spotted:** 2026-09-18, review of phase 7 (optional note)
+**Why it matters:** `considerReady` in `views/game.ts` runs on a GPS fix or a
+network event, never on the 1 s paint ticker. After an in-zone relay, `AutoReady`
+gives the server `RELAY_CONFIRM_MS` (3 s) to confirm and then sends `ready`, but
+only on the next call. A phone standing still still gets a fix about once a
+second, so in practice this costs at most a second. A browser that throttles or
+stops `watchPosition` while the handset is motionless, though (some do when
+backgrounded or when there is no movement), would hold the `ready` until the
+player moves, which is the stranded "checking with the server…" state that fix
+was meant to remove.
+**Fix, when wanted:** call `considerReady(false)` from the existing 1 s `ticker`
+as well. It is idempotent and does nothing almost every time.
+**Not doing yet because:** not seen. The simulator emits a fix every second, and
+no real phone has run the handshake yet (stage 10.1).
 
-That drift is the problem rather than the code: the one number this project
-reports about itself — 73% — counts ~14 stages as outstanding that are substantially
-done, and a future session picking phase 7 off the plan would start by rebuilding
-something that already works.
-
-**What is genuinely still missing in phase 7**, and should stay `todo`:
-- `7.2.1` — the client sends `ready` on a *tap*, never on its own when it believes
-  it qualifies. The positional completion is entirely server-side, via `onPos`.
-- `7.2.2` — there is no "waiting for your opponent, they are N m away" readout.
-  The staging prompt is a flat "Walk to your own back rank, then tap Ready."
-  (`views/game.ts:480`), so the wait is illegible, which is the O-08 complaint
-  seen from the other side.
-- `7.3.1` and `7.3.3` — no `game_id` in `localStorage`; the only persisted keys
-  are `satchess.fields` and `satchess.field_sync`. Resume from a cold start may
-  be reachable through the game index (2.3.4) instead, which would make `7.3.1`
-  *obsolete* rather than outstanding — but nobody has checked, and that is the
-  question to settle before re-statusing.
-
-**Not doing yet because:** re-statusing a phase nobody touched this session, on
-evidence gathered while answering a question, is how a plan stops being trusted.
-The audit is small and worth doing deliberately: read phase 7 against the code
-stage by stage, mark what is done, and drop `7.3.1` if the game index covers it.
-Until then the honest statement is "phase 7 is partly built and the plan does not
-know it", not a corrected percentage.
+### O-26 — A refused automatic `ready` keeps the latch for the rest of the episode
+**Spotted:** 2026-09-18, review of phase 7
+**Why it matters:** `AutoReady` latches when it sends, whatever the answer. If the
+server refuses (its fix and the phone's differ at the edge of the zone), no
+further automatic `ready` goes until the player leaves the zone locally, the
+socket changes, or the status changes. Recovery then depends on the relay (which
+speaks only after 2 m of movement) or the Ready button. Both work, and the
+refusal is shown on screen with a distance, so the player is not left guessing.
+But decision 0037 does not say this, and the obvious reading of "once per
+arrival" is that an unanswered arrival is retried.
+**Not doing yet because:** retrying a *refused* claim on a timer would spend
+requests on a disagreement that a second identical fix will not settle. Leaving
+it to the player is probably right. Record it in the next decision that touches
+the handshake, or promote it if playtesting (10.4.4) finds people stuck on the
+boundary.

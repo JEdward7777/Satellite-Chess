@@ -4,16 +4,28 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean, pushed to `main`.
-**Active stage**: none. **Phase 2's gate is finished** — `2.5.3` landed 2026-09-17
-and closed `2.5`, on top of the same week's `2.1`/`2.2.1`/`2.2.2`/`2.4`/`2.5.1`.
-**Next action**: `2.3.5` — the permanent record — or the phase 7 audit O-23 asks
-for. See "What to do next" below.
-**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, with the gate on
-it — deployed 2026-09-16, version `1fea90ff`. **`2.5.3` is not deployed yet**;
-it is client-only and ships with the next `npm run deploy`.
-**768 tests pass** (763 before this session). Typecheck and `plan:check` clean.
-**All eleven browser drivers pass at `cfc9f87`** — but **run them from an empty
-`.wrangler` or they lie to you** (O-19).
+**Active stage**: none. **Phase 7 is closed** (2026-09-18). The O-23 audit marked
+what was already built, and the rest was built: an automatic `ready`, the
+waiting distances, and resume from a cold start. `7.3.1` was dropped (decision 0038).
+**Next action**: `2.2.3`–`2.2.5`, the session lifecycle. See "What to do next".
+**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
+2026-09-16, version `1fea90ff`. **Neither `2.5.3` nor phase 7 is deployed.**
+Phase 7 changes the Worker, so the next `npm run deploy` carries both.
+**793 tests pass**. Typecheck and `plan:check` are clean. `check-resume`,
+`drive-game` and `check-clock` passed on 2026-09-18. **Run drivers from an empty
+`.wrangler`** (O-19), and not with `--base=…?sim=1` on anything but
+`check-resume` (O-24).
+
+## The handshake, in one paragraph
+
+A game starts, and a suspended one resumes, when both players are connected and
+both are on their own back rank, verified server-side (decision 0005). The phone
+says `ready` by itself, once per arrival (`client/handshake.ts`). The flag
+**expires with the socket**, and a relay that flips it is followed by a snapshot
+(decision 0037). A killed phone finds its game again on home, through the game
+index (decision 0038). The rule most likely to be broken by a simplification is
+treating a sent relay as delivered. The server drops relays inside its interval
+floor, so `AutoReady` waits 3 s for confirmation and then sends `ready` anyway.
 
 ## The gate, in one paragraph
 
@@ -50,14 +62,10 @@ somebody to fix the wrong thing.
 Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
 `1.9.3.6`. **Phases 4, 5 and 6 are closed** — server-authoritative chess with carry
 validation, the clock with flag-fall and suspension, and the whole join flow.
-Phase 3 is complete bar `3.6.2` and the standing `3.7`. **Phase 2 now has identity
-end to end and its gate is shut.** What is left is the *record* (`2.3.5`), session
-lifecycle polish (`2.2.3`–`2.2.5`), and then phases 7–10.
-
-**Read O-23 before trusting the 73%.** Phase 7 is recorded as entirely `todo` and
-is substantially built — the handshake, `'staging'`, `t: 'ready'`, the Ready button
-and reconnect backoff all exist and are tested. Roughly fourteen stages are counted
-outstanding that are largely done.
+Phase 3 is complete bar `3.6.2` and the standing `3.7`. **Phase 2 has identity
+end to end and its gate is shut. Phase 7 is closed** (78% overall, and now an
+honest number). What is left is session lifecycle polish (`2.2.3`–`2.2.5`), the
+*record* (`2.3.5`), and then phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031). **The board is not forced to be square** (decision 0028).
@@ -74,24 +82,17 @@ numbers in `harness/sessions/2026-09-06-03.md` and decision 0031. The live trace
 
 ## What to do next, concretely
 
-1. **`2.3.5` — the permanent record.** The largest remaining piece of phase 2, and
-   the reason accounts are mandatory at all (decision 0019): meters walked leads,
-   games played never does. Distance is still only in `presence.travel_m` inside
-   each GameDO; carrying it to the account is the first thing to build. **O-03**
-   and **O-12** both deserve a sentence in the record's own UI.
-2. **The phase 7 audit (O-23).** Read phase 7 against the code stage by stage and
-   mark what is actually done. Settle whether the game index (2.3.4) makes `7.3.1`
-   obsolete rather than outstanding. Small, and it makes the plan trustworthy.
-3. **`2.2.3`–`2.2.5`** — expiry pre-flight, offline session caching, sign-out.
-   `2.2.4` is the stronger form of decision 0035's rule 2 and would let the app
-   know *who* it is offline rather than merely letting it open.
-4. **A phone sign-in through the gate, plus the wake lock** — closes `1.9.2` and
-   the last unproven part of the gate together. The PWA installed fine on Android
-   on 2026-09-17; the wake lock was not tested and it is unclear whether that
-   install signed in *through* the gate. iOS is the case that actually bites:
-   a home-screen app handing OAuth to Safari and returning in another context.
-   Watch for **O-17** — signing in successfully and arriving back signed out.
-5. **O-16** — two unbounded lists sit above the home screen's primary actions.
-6. **`2.5.3` has no browser coverage.** No driver asserts on the failure block;
-   provoking a real failure needs a deliberately broken callback. Worth a section
-   in `check-fields` or `check-games` if the sign-in screen changes again.
+1. **`2.2.3`–`2.2.5`**: expiry pre-flight, offline session caching, sign-out.
+   `2.2.4` is the stronger form of decision 0035's rule 2. It would let the app
+   know *who* it is while offline, not merely let it open.
+2. **`2.3.5`, the permanent record.** The reason accounts are mandatory at all
+   (decision 0019): meters walked is the headline figure, and games played never
+   is. Distance lives only in `presence.travel_m` inside each GameDO, and carrying
+   it to the account is the first thing to build. **O-03** and **O-12** each
+   deserve a sentence in the record's own UI.
+3. **Deploy.** `2.5.3` and phase 7 are both waiting.
+4. **A phone test**: sign-in through the gate, the wake lock (`1.9.2`), and the
+   back-rank handshake on real GPS (watch for **O-25**). iOS is the case that
+   bites: a home-screen app handing OAuth to Safari. Watch for **O-17** too.
+5. **O-24**: a one-line argument-parsing fix in ten drivers.
+6. **O-16**: two unbounded lists sit above the home screen's primary actions.

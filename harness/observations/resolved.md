@@ -250,3 +250,63 @@ browser driver and every worker test that opened a socket had to start carrying 
 session, because a seat is now an account. That is 58 tests in `carry.test.ts`
 alone, all repaired by one helper per file. The tests became more honest for it —
 they now exercise the real seating rule rather than a bypass.
+
+### O-23 — Phase 7's handshake is built, but the plan records all of it as `todo`
+**Resolved:** 2026-09-18, the phase 7 audit (decisions 0037 and 0038)
+**Outcome:** Phase 7 read stage by stage against the code, and closed. `7.1.1`–`7.1.3`
+and `7.3.2` were already built and tested; they are marked `done`, with the code
+and tests cited in `harness/plan/07-resume.md`. `7.2.1` (an automatic `ready`),
+`7.2.2` (the waiting lines, with distances) and `7.3.3` (a cold start resumes)
+were built. `7.2.3`, the button, was marked only after a browser tapped it, and
+that tap found a real bug: the snapshot sent after a refusal wiped the refusal,
+so the button did nothing visible. **`7.3.1` is dropped** (decision 0038). Its
+premise was anonymous play, and the game index already does the job, on every
+phone of the account. Decision 0037 records the client's send rule and a server
+change the audit turned up: `in_start_zone` is now cleared when a player's last
+socket closes, because a phone killed on its back rank could otherwise reconnect
+from anywhere and resume at once. `scripts/check-resume.mjs` drives the phase end
+to end. The headline number went from 73% to 78%.
+
+The original observation follows.
+
+**Spotted:** 2026-09-17, while answering "is the game playable"
+**Why it matters:** `harness/plan/07-resume.md` lists every stage in phase 7 as
+`todo`, so `npm run plan` reports the suspend/resume handshake as unstarted work.
+It is not. The DO half is implemented and tested:
+
+- `game-do.ts:612–688` is the start/resume handshake — both players connected,
+  both `in_start_zone`, then `status = 'active'` and the clock starts. The comment
+  at `game-do.ts:332` states 7.1.3's requirement verbatim ("start uses the same
+  handshake as a resume, so there is one code path").
+- `'staging'` is a real `GameStatus` in `src/shared/protocol.ts`, `t: 'ready'` is
+  a real inbound message, and `views/game.ts:277` draws the Ready button (7.2.3).
+- `net.ts:102` has reconnection backoff with a snapshot resync (7.3.2), and
+  `game-do.test.ts`, `carry.test.ts` and `net-integration.test.ts` all exercise
+  `in_start_zone`.
+- `scripts/drive-game.mjs` walks white to e1 and black to e8 and the game starts,
+  so the positional handshake demonstrably works in a browser.
+
+That drift is the problem rather than the code: the one number this project
+reports about itself — 73% — counts ~14 stages as outstanding that are substantially
+done, and a future session picking phase 7 off the plan would start by rebuilding
+something that already works.
+
+**What is genuinely still missing in phase 7**, and should stay `todo`:
+- `7.2.1` — the client sends `ready` on a *tap*, never on its own when it believes
+  it qualifies. The positional completion is entirely server-side, via `onPos`.
+- `7.2.2` — there is no "waiting for your opponent, they are N m away" readout.
+  The staging prompt is a flat "Walk to your own back rank, then tap Ready."
+  (`views/game.ts:480`), so the wait is illegible, which is the O-08 complaint
+  seen from the other side.
+- `7.3.1` and `7.3.3` — no `game_id` in `localStorage`; the only persisted keys
+  are `satchess.fields` and `satchess.field_sync`. Resume from a cold start may
+  be reachable through the game index (2.3.4) instead, which would make `7.3.1`
+  *obsolete* rather than outstanding — but nobody has checked, and that is the
+  question to settle before re-statusing.
+
+**Not doing yet because:** re-statusing a phase nobody touched this session, on
+evidence gathered while answering a question, is how a plan stops being trusted.
+The audit is small and worth doing deliberately: read phase 7 against the code
+stage by stage, mark what is done, and drop `7.3.1` if the game index covers it.
+Until then the honest statement is "phase 7 is partly built and the plan does not
+know it", not a corrected percentage.

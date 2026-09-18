@@ -313,4 +313,17 @@ is; this says what will bite you when you touch it.*
   a context that has not reaches the gate and nothing else. A driver that skips
   it does not fail with "not signed in"; it times out waiting for a selector on a
   screen that was never going to render, which reads as a broken home screen.
+- **A back rank is evidence, and it expires with the socket** (decision 0037).
+  `in_start_zone` is cleared when a player's last socket closes. The phone then
+  says `ready` once per arrival without being asked (`client/handshake.ts`), and
+  the server follows any relay that flips the flag with a snapshot. Two
+  "simplifications" that each break it: letting the flag survive a disconnect (a
+  phone killed on e1 then resumes from across town), and treating a sent relay as
+  delivered (the server drops a `pos` inside its interval floor, and standing
+  still, no second one ever comes).
+- **Send the snapshot before the error, never after.** The client clears
+  `lastError` when a good snapshot lands, so an `error` followed by a
+  `broadcastState()` is erased unread. `onReady`'s refusal did exactly that until
+  `check-resume.mjs` tapped the button. Any new refusal that also changes state
+  has to keep this order.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

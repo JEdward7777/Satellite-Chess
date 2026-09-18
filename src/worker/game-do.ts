@@ -459,8 +459,16 @@ export class GameDO extends DurableObject<Env> {
 
     if (remaining.length > 0) return;
 
+    // `in_start_zone` goes with the connection (decision 0037). It is evidence
+    // of where somebody was standing, and a phone that has gone away cannot
+    // vouch for where its owner walked afterwards — to the car, home, anywhere.
+    // Kept, it let a player killed on their back rank reconnect from across town
+    // and resume the moment their opponent arrived, which is exactly the
+    // positional advantage decision 0005 exists to remove. The client re-sends
+    // `ready` on the new socket if it is still there, so an honest blip costs
+    // one message.
     this.sql.exec(
-      `UPDATE presence SET connected = 0, last_seen_at = ? WHERE player_id = ?`,
+      `UPDATE presence SET connected = 0, last_seen_at = ?, in_start_zone = 0 WHERE player_id = ?`,
       now,
       attachment.playerId,
     );
@@ -558,8 +566,8 @@ export class GameDO extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const [row] = [...this.sql.exec<{ last_pos_at: number | null }>(
-      `SELECT last_pos_at FROM presence WHERE player_id = ?`,
+    const [row] = [...this.sql.exec<{ last_pos_at: number | null; in_start_zone: number }>(
+      `SELECT last_pos_at, in_start_zone FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
     if (row?.last_pos_at != null && now - row.last_pos_at < POS_SERVER_MIN_INTERVAL_MS) {
@@ -598,13 +606,25 @@ export class GameDO extends DurableObject<Env> {
     // half-applied: standing in your zone counted only if your *opponent*
     // happened to tap Ready, which meant two players who both simply walked to
     // their back ranks would wait forever.
-    if (zone && (game?.status === 'staging' || game?.status === 'suspended')) {
+    const awaiting = game?.status === 'staging' || game?.status === 'suspended';
+    if (zone && awaiting) {
       const before = game.status;
       await this.startIfBothReady();
       if (this.game()?.status !== before) {
         this.bumpRev();
         this.broadcastState();
+        return;
       }
+    }
+    // While the handshake is what everyone is waiting on, whether each player
+    // is on their back rank *is* the news (stage 7.2.2): both screens say who
+    // has arrived, and the arriving phone stops offering to tell the server
+    // something it already knows. So a relay that changes the answer is
+    // followed by a snapshot. Outbound, so it costs no request; and only on a
+    // change, so a player standing still sends nothing more than before.
+    if (awaiting && (row?.in_start_zone === 1) !== zone) {
+      this.bumpRev();
+      this.broadcastState();
     }
   }
 
@@ -656,6 +676,12 @@ export class GameDO extends DurableObject<Env> {
     );
 
     if (!zone.ok) {
+      // Snapshot first, refusal second. A client clears its last error when a
+      // good snapshot lands, so the other order delivered the refusal and wiped
+      // it a millisecond later — a tapped Ready from the wrong end of the board
+      // did nothing visible at all (found by `check-resume.mjs`, stage 7.2.3).
+      this.bumpRev();
+      this.broadcastState();
       this.send(ws, {
         t: 'error',
         code: 'out_of_reach',
@@ -663,8 +689,6 @@ export class GameDO extends DurableObject<Env> {
           `You are ${zone.nearestM.toFixed(0)} m from your back rank and your reach is ` +
           `${zone.reachM.toFixed(1)} m. Walk to your own end of the board.`,
       });
-      this.bumpRev();
-      this.broadcastState();
       return;
     }
 

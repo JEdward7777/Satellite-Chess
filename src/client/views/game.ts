@@ -40,6 +40,14 @@ import {
   nextAlert,
 } from '../clock.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
+import {
+  AutoReady,
+  awaitingHandshake,
+  handshakeEpisode,
+  myHandshakeLine,
+  opponentHandshakeLine,
+  walkToBackRankM,
+} from '../handshake.js';
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import {
@@ -272,6 +280,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden>—</dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
+        <p data-handshake class="dim" hidden></p>
         <p data-notice class="notice" hidden></p>
         <p>
           <button data-ready hidden>I'm on my back rank</button>
@@ -322,6 +331,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    */
   let alertedAt: AlertLevel = 'none';
   const alerts = createClockAlerts(browserClockAlertOptions());
+  /** Says "I am on my back rank" once per arrival, unasked (stage 7.2.1). */
+  const autoReady = new AutoReady();
 
   /** The field the *game* is played on, which outranks the one we were handed. */
   const geometry = () =>
@@ -341,6 +352,53 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   /** Where the player is in board space, or null before the first fix. */
   const hereNow = (): BoardPoint | null =>
     gps.fix ? toBoardPoint(geometry(), gps.fix.pos) : null;
+
+  /** How far I am from my own back rank, by this phone's reckoning. */
+  const myBackRank = () => {
+    const fix = gps.fix;
+    if (!fix || !net.game) return null;
+    return walkToBackRankM(geometry(), net.game, myColor(), fix.pos, fix.accuracyM);
+  };
+
+  /**
+   * Tell the server I have arrived, if it does not know yet (stage 7.2.1).
+   *
+   * Asked on every fix and every snapshot, and almost always the answer is no:
+   * `AutoReady` sends once per arrival, never per fix. The server re-checks the
+   * position itself, so this is a claim and not a verdict — and a refusal comes
+   * back as the same "you are N m from your back rank" the button would get.
+   */
+  function considerReady(relayed: boolean): void {
+    const game = net.game;
+    const fix = fixNow();
+    const mine = myBackRank();
+    const send = autoReady.decide({
+      status: game?.status ?? null,
+      open: net.status === 'open',
+      serverSaysInZone: game?.players[game.you]?.inStartZone ?? false,
+      localInZone: mine === null ? null : mine.inZone,
+      relayed,
+      episode: handshakeEpisode(game, net.reconnects),
+      now: Date.now(),
+    });
+    if (send && fix) deps.connection.send({ t: 'ready', pos: fix });
+  }
+
+  /** The one or two lines that make the wait legible (stage 7.2.2). */
+  function handshakeLines(): { mine: string; theirs: string } {
+    const game = net.game;
+    if (!game) return { mine: '', theirs: '' };
+    const theirColor: Color = game.you === 'w' ? 'b' : 'w';
+    const them = game.players[theirColor];
+    const seen = net.opponent;
+    const distance = seen
+      ? walkToBackRankM(geometry(), game, theirColor, { lat: seen.lat, lng: seen.lng }, seen.acc)
+      : null;
+    return {
+      mine: myHandshakeLine(game.players[game.you]?.inStartZone ?? false, myBackRank()),
+      theirs: opponentHandshakeLine(them, distance),
+    };
+  }
 
   /** My carry, the opponent's, or none — with the distances already worked out. */
   const guidanceNow = (): CarryGuidance | null => {
@@ -477,7 +535,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (game.result) {
       return `${game.result.outcome} — ${game.result.reason.replace(/_/g, ' ')}.`;
     }
-    if (game.status === 'staging') return 'Walk to your own back rank, then tap Ready.';
+    if (game.status === 'staging') return handshakeLines().mine;
     if (game.status === 'suspended') return suspendedPrompt(game.suspension);
 
     const carry = guidanceNow();
@@ -596,11 +654,27 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     const dropButton = root.querySelector<HTMLButtonElement>('[data-drop]');
     if (dropButton) dropButton.hidden = !carry?.mine;
+    // The button is the fallback for when GPS and the ground disagree (7.2.3);
+    // arriving normally needs no tap. It stays even once the server agrees:
+    // a pause taken with both players already on their back ranks resumes on
+    // the next relay or tap, and for two people standing still the tap is the
+    // only one coming.
+    const awaiting = awaitingHandshake(net.game?.status);
     const readyButton = root.querySelector<HTMLButtonElement>('[data-ready]');
     if (readyButton) {
-      const staging = net.game?.status === 'staging' || net.game?.status === 'suspended';
-      readyButton.hidden = !staging;
+      readyButton.hidden = !awaiting;
       readyButton.disabled = !fix;
+    }
+    const handshake = root.querySelector<HTMLElement>('[data-handshake]');
+    if (handshake) {
+      handshake.hidden = !awaiting || net.game?.result != null;
+      if (awaiting) {
+        const lines = handshakeLines();
+        // While staging, my own line is already the prompt. While suspended the
+        // prompt is about the suspension itself (decision 0025), so both go here.
+        handshake.textContent =
+          net.game?.status === 'staging' ? lines.theirs : `${lines.mine} ${lines.theirs}`;
+      }
     }
 
     // Pause is offered only while the clock is actually running, and the claim
@@ -642,7 +716,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paint();
     // The one place position leaves the phone outside a move, and it refuses far
     // more often than it accepts (see `offerPosition`).
-    if (state.fix) deps.connection.offerPosition(state.fix, state.distanceM);
+    const relayed = state.fix ? deps.connection.offerPosition(state.fix, state.distanceM) : false;
+    considerReady(relayed);
   });
   const offNet = deps.connection.subscribe((state) => {
     net = state;
@@ -661,6 +736,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     ) {
       pendingPromotion = null;
     }
+    // A snapshot can be the news that matters: the game has just gone to
+    // staging or been suspended while I was already standing on my back rank,
+    // or the server has forgotten me because my socket was replaced.
+    considerReady(false);
     paint();
   });
 

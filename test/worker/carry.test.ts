@@ -253,10 +253,15 @@ describe('the start handshake', () => {
     const white = await openSocket(joinCode, WHITE);
     await white.next((m) => m.t === 'state');
 
+    white.clear();
     white.send({ t: 'ready', pos: at('d4') });
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('out_of_reach');
     expect(String(err.message)).toMatch(/your own end of the board/);
+    // The refusal must be the last word. A client clears its error when a
+    // snapshot lands, so a snapshot sent after it erased it unread (7.2.3).
+    await new Promise((r) => setTimeout(r, 50));
+    expect(white.received.map((m) => m.t)).toEqual(['state', 'error']);
     white.close();
   });
 
@@ -1383,6 +1388,148 @@ describe('pause, and claiming a game nobody came back to (decision 0025)', () =>
     white.send({ t: 'pause' });
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('not_active');
+    white.close();
+    black.close();
+  });
+});
+
+describe('a start zone lasts only as long as the connection that vouched for it (decision 0037)', () => {
+  /** Close a socket and wait for the object to have marked the player gone. */
+  async function goneFor(client: Client, stub: DurableObjectStub<GameDO>, color: 'w' | 'b') {
+    client.close();
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const [row] = await runInDurableObject(stub, (_i, state) => [
+        ...state.storage.sql.exec<{ connected: number }>(
+          `SELECT connected FROM presence WHERE color = ?`,
+          color,
+        ),
+      ]);
+      if (row?.connected === 0) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error('the object never noticed the socket close');
+  }
+
+  const zoneOf = async (stub: DurableObjectStub<GameDO>, color: 'w' | 'b') =>
+    (
+      await runInDurableObject(stub, (_i, state) => [
+        ...state.storage.sql.exec<{ in_start_zone: number }>(
+          `SELECT in_start_zone FROM presence WHERE color = ?`,
+          color,
+        ),
+      ])
+    )[0]?.in_start_zone;
+
+  it('forgets a back rank when the phone that stood on it goes away', async () => {
+    // The phone died on e1, its owner walked off, and it reconnects from
+    // somewhere else. Had the flag survived, black arriving on e8 would start
+    // the game with white nowhere near their own end.
+    const joinCode = nextCode();
+    const stub = env.GAME.getByName(joinCode);
+    await stub.create({
+      joinCode, creatorPlayerId: WHITE, creatorColor: 'w', field: FIELD,
+      initialMs: 600_000, incrementMs: 0,
+    });
+    await stub.join(BLACK);
+    const white = await openSocket(joinCode, WHITE);
+    const black = await openSocket(joinCode, BLACK);
+    await white.next((m) => m.t === 'state');
+    await black.next((m) => m.t === 'state');
+
+    white.send({ t: 'ready', pos: at('e1') });
+    await black.next(
+      (m) => m.t === 'state' && (((m.game as Msg).players as Msg).w as Msg).inStartZone === true,
+    );
+    expect(await zoneOf(stub, 'w')).toBe(1);
+
+    await goneFor(white, stub, 'w');
+    expect(await zoneOf(stub, 'w')).toBe(0);
+
+    const back = await openSocket(joinCode, WHITE);
+    const snapshot = await back.next((m) => m.t === 'state');
+    expect((((snapshot.game as Msg).players as Msg).w as Msg).inStartZone).toBe(false);
+
+    black.send({ t: 'ready', pos: at('e8') });
+    await black.next((m) => m.t === 'state' && (((m.game as Msg).players as Msg).b as Msg).inStartZone === true);
+    expect(await stub.peek()).toMatchObject({ status: 'staging' });
+
+    // Standing there again, and saying so on the new socket, is all it takes.
+    back.send({ t: 'ready', pos: at('e1') });
+    await back.next((m) => m.t === 'state' && (m.game as Msg).status === 'active');
+    back.close();
+    black.close();
+  });
+
+  it('resumes a game suspended by a disconnect once the returning phone is back on its rank (7.3.3)', async () => {
+    const { stub, white, black, joinCode } = await startedGame({ initialMs: 600_000, incrementMs: 0 });
+
+    // White's phone is killed mid-game; the grace period runs out.
+    await closeAndSettle(white, stub);
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(`UPDATE timers SET due_at = ? WHERE kind = 'disconnect'`, Date.now() - 1);
+      await state.storage.setAlarm(Date.now() + 3_600_000);
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await stub.peek()).toMatchObject({ status: 'suspended' });
+    const frozen = await stub.clocks();
+    expect(frozen.running).toBe(false);
+
+    // Black stays put on e8 and says so.
+    black.send({ t: 'ready', pos: at('e8') });
+
+    // A cold start: a brand-new socket, no memory of the old one. Connecting
+    // alone resumes nothing — the phone is somewhere in the car park.
+    const back = await openSocket(joinCode, WHITE);
+    await back.next((m) => m.t === 'state');
+    const d4 = at('d4');
+    await new Promise((r) => setTimeout(r, POS_SERVER_MIN_INTERVAL_MS + 50));
+    back.send({ t: 'pos', lat: d4.lat, lng: d4.lng, acc: d4.acc });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(await stub.peek()).toMatchObject({ status: 'suspended' });
+
+    // Walked back to the white end: the game picks up where it stopped.
+    back.send({ t: 'ready', pos: at('e1') });
+    await back.next((m) => m.t === 'state' && (m.game as Msg).status === 'active');
+    const resumed = await stub.clocks();
+    expect(resumed.running).toBe(true);
+    // Nothing was charged while the game sat frozen.
+    expect(resumed.w).toBeLessThanOrEqual(frozen.w);
+    expect(resumed.w).toBeGreaterThan(frozen.w - 1_000);
+    back.close();
+    black.close();
+  });
+});
+
+describe('arriving on a back rank is news while the handshake waits (stage 7.2.2)', () => {
+  it('tells both phones when a relay puts someone on their back rank, and not again while they stand there', async () => {
+    const joinCode = nextCode();
+    const stub = env.GAME.getByName(joinCode);
+    await stub.create({
+      joinCode, creatorPlayerId: WHITE, creatorColor: 'w', field: FIELD,
+      initialMs: 600_000, incrementMs: 0,
+    });
+    await stub.join(BLACK);
+    const white = await openSocket(joinCode, WHITE);
+    const black = await openSocket(joinCode, BLACK);
+    await white.next((m) => m.t === 'state');
+    await black.next((m) => m.t === 'state');
+    black.clear();
+
+    const e1 = at('e1');
+    white.send({ t: 'pos', lat: e1.lat, lng: e1.lng, acc: e1.acc });
+    const told = await black.next((m) => m.t === 'state');
+    expect(told.game).toMatchObject({ status: 'staging' });
+    expect((((told.game as Msg).players as Msg).w as Msg).inStartZone).toBe(true);
+
+    // A second relay from the same rank changes nothing, so it is only relayed.
+    black.clear();
+    const f1 = at('f1');
+    await new Promise((r) => setTimeout(r, POS_SERVER_MIN_INTERVAL_MS + 50));
+    white.send({ t: 'pos', lat: f1.lat, lng: f1.lng, acc: f1.acc });
+    await black.next((m) => m.t === 'opp_pos');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(black.received.filter((m) => m.t === 'state')).toHaveLength(0);
+
     white.close();
     black.close();
   });

@@ -72,3 +72,5 @@ The conditions under which this should be reopened.
 | [0034](0034-the-google-flow-is-verified-on-the-deployed-worker.md) | Local dev signs in through the seam; Google is verified on the deployed Worker | accepted |
 | [0035](0035-the-gate-opens-when-the-server-cannot-be-asked.md) | The gate opens when the server cannot be asked, and a seat is a `sub` or nothing | accepted |
 | [0036](0036-american-spelling-in-anything-a-player-reads.md) | American spelling in anything a player reads; metric units stay | accepted (supersedes the spelling rule in AGENTS.md §9) |
+| [0037](0037-the-phone-says-ready-once-and-the-evidence-ends-with-the-socket.md) | The phone says `ready` once per arrival; a back rank is forgotten when the socket goes | accepted |
+| [0038](0038-a-cold-start-finds-its-game-through-the-index.md) | A cold start finds its game through the game index, not `localStorage` | accepted |
