@@ -31,7 +31,20 @@
 /** What `/api/me` said, or what we assume when it could not say anything. */
 export type SessionState =
   /** A live session. `sub` is the account key; it is never shown to an opponent. */
-  | { kind: 'signed_in'; sub: string; via: 'dev' | 'google' }
+  | {
+      kind: 'signed_in';
+      sub: string;
+      via: 'dev' | 'google';
+      /** For the account screen only (stage 2.2.5). Null when the server has none. */
+      email: string | null;
+      /**
+       * How long until the session stops working, as the server counts it
+       * (stage 2.2.3). A *duration*, not a timestamp: the server's `expiresAt`
+       * minus its own `serverNow`, so this phone's clock is never compared with
+       * the server's (`gotchas.md`). Null from a server too old to say.
+       */
+      expiresInMs: number | null;
+    }
   /**
    * The server said 401. The gate closes.
    *
@@ -88,7 +101,13 @@ export async function loadSession(options: SessionOptions = {}): Promise<Session
 
   if (!response.ok) return { kind: 'unknown' };
 
-  let body: { sub?: unknown; via?: unknown };
+  let body: {
+    sub?: unknown;
+    via?: unknown;
+    email?: unknown;
+    expiresAt?: unknown;
+    serverNow?: unknown;
+  };
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -102,7 +121,47 @@ export async function loadSession(options: SessionOptions = {}): Promise<Session
     kind: 'signed_in',
     sub: body.sub,
     via: body.via === 'dev' ? 'dev' : 'google',
+    email: typeof body.email === 'string' && body.email !== '' ? body.email : null,
+    expiresInMs:
+      isFiniteNumber(body.expiresAt) && isFiniteNumber(body.serverNow)
+        ? body.expiresAt - body.serverNow
+        : null,
   };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * How a sign-out went (stage 2.2.5).
+ *
+ * `offline` is its own answer rather than a kind of failure, because it is the
+ * one the player can do something about, and because it is the likeliest: the
+ * account screen is reachable with no signal (stage 2.2.4) and the cookie is
+ * `HttpOnly`, so only the server can take it away. Nothing has changed on
+ * either end when this comes back.
+ */
+export type SignOutResult = 'signed_out' | 'offline' | 'failed';
+
+/**
+ * Ask the server to forget this phone's session.
+ *
+ * Only a 2xx counts. A 401 cannot happen — the endpoint answers anybody — and a
+ * 5xx means the record may still be alive in KV, so reporting success on it
+ * would tell somebody they had signed out of a phone that is still signed in.
+ */
+export async function signOut(options: SessionOptions = {}): Promise<SignOutResult> {
+  const request = options.fetch ?? fetch;
+  try {
+    const response = await request(`${options.origin ?? ''}/api/signout`, {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+    });
+    return response.ok ? 'signed_out' : 'failed';
+  } catch {
+    return 'offline';
+  }
 }
 
 /**

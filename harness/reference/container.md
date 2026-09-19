@@ -170,6 +170,7 @@ node scripts/check-scan.mjs                                    # camera, advice,
 node scripts/check-field.mjs                                   # sharing a field, and keeping one
 node scripts/check-fields.mjs                                  # a field following the account
 node scripts/check-resume.mjs                                  # the handshake, and a cold start
+node scripts/check-account.mjs                                 # offline identity, sign-out, pre-flight
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

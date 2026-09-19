@@ -76,11 +76,39 @@ function keyFor(token: string): string {
   return `session:${token}`;
 }
 
-/** What is stored against a token. Deliberately small: the account and two stamps. */
+/**
+ * What is stored against a token. Deliberately small: the account, two stamps,
+ * and the address the player signed in with.
+ *
+ * `email` is for the account screen and nothing else (stage 2.2.5). It is never
+ * a key and never compared — the `sub` is the account (decision 0014) — and it
+ * lives on the session rather than on the account because it is a fact about
+ * *this sign-in*: Google tells us once, at the callback, and a later sign-in may
+ * tell us something different. Optional because every session minted before
+ * 2.2.5 has none, and those must keep working.
+ */
 interface SessionRecord {
   sub: string;
   createdAt: number;
   lastSeenAt: number;
+  email?: string;
+}
+
+/** A live session, as the rest of the Worker sees it. */
+export interface SessionInfo {
+  sub: string;
+  /** The address Google gave at sign-in, for display only. Null if not known. */
+  email: string | null;
+  /**
+   * When KV will drop the record, in **server** milliseconds (stage 2.2.3).
+   *
+   * Every write sets `expirationTtl` from the moment of writing, and every write
+   * stamps `lastSeenAt`, so the expiry is exactly `lastSeenAt + SESSION_TTL_MS`
+   * — after a renewal on this very read, if there was one. A server timestamp:
+   * the client must not compare it with its own clock (`gotchas.md`), which is
+   * why `/api/me` sends its own `now` beside it.
+   */
+  expiresAt: number;
 }
 
 /**
@@ -94,12 +122,14 @@ export async function createSession(
   env: EnvWithSecrets,
   sub: string,
   now: number = Date.now(),
+  details: { email?: string | null } = {},
 ): Promise<string> {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   const token = `${SESSION_PREFIX}${base64UrlEncode(bytes)}`;
 
   const record: SessionRecord = { sub, createdAt: now, lastSeenAt: now };
+  if (typeof details.email === 'string' && details.email !== '') record.email = details.email;
   await env.SESSIONS.put(keyFor(token), JSON.stringify(record), {
     // KV expires the record itself, so an abandoned session cannot outlive its
     // welcome even if nothing ever reads it again.
@@ -109,8 +139,7 @@ export async function createSession(
 }
 
 /**
- * The account a session token names, or null for anything that is not a live
- * session.
+ * The session a token names, or null for anything that is not a live session.
  *
  * Renews in the background when the record has gone stale — `waitUntil` is not
  * available here, so the write is awaited, but it happens at most once a day per
@@ -120,7 +149,7 @@ export async function readSession(
   env: EnvWithSecrets,
   token: string,
   now: number = Date.now(),
-): Promise<string | null> {
+): Promise<SessionInfo | null> {
   // Rejected before the lookup: a cookie from another app, or junk, must not
   // cost a KV read. Every real token was minted with this prefix.
   if (!token.startsWith(SESSION_PREFIX)) return null;
@@ -136,17 +165,42 @@ export async function readSession(
   }
   if (typeof record.sub !== 'string' || record.sub === '') return null;
 
+  // When the record was last written, which is what its KV expiry counts from.
+  // A record with no usable stamp is treated as written now: the only way to
+  // get one is a hand edit, and pretending it is about to expire would put a
+  // warning on the home screen that nothing the player does can clear.
+  let writtenAt =
+    typeof record.lastSeenAt === 'number' && Number.isFinite(record.lastSeenAt)
+      ? record.lastSeenAt
+      : now;
+
   // Sliding renewal (stage 2.2.2), throttled — see the note at the top of this
   // file for why this is not done on every read.
-  if (typeof record.lastSeenAt === 'number' && now - record.lastSeenAt >= RENEW_AFTER_MS) {
-    await env.SESSIONS.put(
-      keyFor(token),
-      JSON.stringify({ ...record, lastSeenAt: now } satisfies SessionRecord),
-      { expirationTtl: Math.floor(SESSION_TTL_MS / 1000) },
-    );
+  if (now - writtenAt >= RENEW_AFTER_MS) {
+    try {
+      await env.SESSIONS.put(
+        keyFor(token),
+        JSON.stringify({ ...record, lastSeenAt: now } satisfies SessionRecord),
+        { expirationTtl: Math.floor(SESSION_TTL_MS / 1000) },
+      );
+      writtenAt = now;
+    } catch (error) {
+      // A failed renewal is not a failed request. The free tier's ~1,000 KV
+      // writes a day are the likeliest cause, and before stage 2.2.3 this threw
+      // straight through to a 500 on every authenticated call — which the
+      // client reads as "server unreachable" (decision 0035), so the player
+      // could open the app and then do nothing in it. The record is still
+      // valid; it simply did not slide, and the expiry reported below says so
+      // honestly, which is exactly the case the pre-flight warning exists for.
+      console.error('session renewal failed', error);
+    }
   }
 
-  return record.sub;
+  return {
+    sub: record.sub,
+    email: typeof record.email === 'string' && record.email !== '' ? record.email : null,
+    expiresAt: writtenAt + SESSION_TTL_MS,
+  };
 }
 
 /**

@@ -61,6 +61,21 @@ export interface Identity {
    * deployed build; it exists so a log line can prove that rather than assert it.
    */
   via: 'dev' | 'google';
+  /**
+   * The address the player signed in with, for the account screen (stage
+   * 2.2.5). Display only — never a key, never compared. Null for a dev session,
+   * and for any Google session minted before the address was recorded.
+   */
+  email: string | null;
+  /**
+   * When this session stops working, in server milliseconds (stage 2.2.3).
+   *
+   * For a real session, when KV will drop the record; for a dev token, the
+   * `exp` it was signed with. Reported so the phone can warn *before* it walks
+   * somewhere without signal, not so it can decide anything: the server's own
+   * answer on the next request is still the only one that counts.
+   */
+  expiresAt: number;
 }
 
 /** The session cookie. Shared with stage 2.2's real sessions when they land. */
@@ -127,8 +142,10 @@ export async function identityOf(
     // minted. Without this, a token minted against a local build would keep
     // working if the same secret were ever set on a deployed one.
     if (!devSeamEnabled(env, url)) return null;
-    const sub = await verifyDevToken(token, env.DEV_AUTH_SECRET as string, now);
-    return sub === null ? null : { sub, via: 'dev' };
+    const claims = await readDevToken(token, env.DEV_AUTH_SECRET as string, now);
+    return claims === null
+      ? null
+      : { sub: claims.sub, via: 'dev', email: null, expiresAt: claims.exp };
   }
 
   // The real session (stages 2.1 and 2.2.1): an opaque token with its record in
@@ -141,8 +158,10 @@ export async function identityOf(
   // token whose record has expired or been signed out — is nobody. That is a
   // normal state and not an error; whether it becomes a 401 or a sign-in screen
   // is the caller's business.
-  const sub = await readSession(env, token, now);
-  return sub === null ? null : { sub, via: 'google' };
+  const session = await readSession(env, token, now);
+  return session === null
+    ? null
+    : { sub: session.sub, via: 'google', email: session.email, expiresAt: session.expiresAt };
 }
 
 /**
@@ -220,6 +239,18 @@ export async function verifyDevToken(
   secret: string,
   now: number = Date.now(),
 ): Promise<string | null> {
+  return (await readDevToken(token, secret, now))?.sub ?? null;
+}
+
+/**
+ * The claims of a valid, unexpired dev token — the `sub`, and the `exp` that
+ * `/api/me` reports as the session's expiry (stage 2.2.3).
+ */
+export async function readDevToken(
+  token: string,
+  secret: string,
+  now: number = Date.now(),
+): Promise<{ sub: string; exp: number } | null> {
   const parts = token.split('.');
   if (parts.length !== 3 || parts[0] !== DEV_PREFIX) return null;
 
@@ -242,7 +273,8 @@ export async function verifyDevToken(
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now) {
     return null;
   }
-  return asSub(claims.sub);
+  const sub = asSub(claims.sub);
+  return sub === null ? null : { sub, exp: claims.exp };
 }
 
 // ---------------------------------------------------------------------------

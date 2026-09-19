@@ -21,7 +21,14 @@ import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
-import { devAuthRoutes, devSeamEnabled, identityOf } from './identity.js';
+import {
+  SESSION_COOKIE,
+  devAuthRoutes,
+  devSeamEnabled,
+  identityOf,
+  readCookie,
+} from './identity.js';
+import { clearCookieHeader, destroySession, sessionCookieHeader } from './sessions.js';
 import { authRoutes } from './auth.js';
 import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
 import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
@@ -127,7 +134,8 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     if (request.method !== 'GET') {
       return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
     }
-    const identity = await identityOf(request, env, url);
+    const now = Date.now();
+    const identity = await identityOf(request, env, url, now);
     if (identity === null) {
       // The client's gate (stage 2.5.1) reads `devSeam` to decide whether to
       // offer a test-account button beside "Sign in with Google". This is the
@@ -140,7 +148,29 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
       });
     }
     const account = await userFor(env, identity.sub).touch(identity.sub);
-    return json({ ...identity, account });
+    // `serverNow` travels beside `expiresAt` because the phone's clock is not
+    // this one (`gotchas.md`): the client turns the pair into "expires in N"
+    // and never compares our timestamp with its own `Date.now()` (stage 2.2.3).
+    // A plain object, not `Headers`: `json()` spreads what it is given, and a
+    // `Headers` instance spreads to nothing.
+    const headers: Record<string, string> = {};
+    if (identity.via === 'google') {
+      // Re-issue the cookie on every launch check. Sliding renewal (2.2.2)
+      // slides the *record*, but until 2.2.3 nothing slid the cookie: it was
+      // set once, at sign-in, with a 30-day Max-Age — so the browser threw away
+      // a daily player's perfectly live session a month after they signed in,
+      // and they met the sign-in screen anyway. A `Set-Cookie` costs no KV
+      // write, so this is free, and it is only ever sent on `/api/me`, which a
+      // phone asks once per launch.
+      const token = readCookie(request, SESSION_COOKIE);
+      if (token !== null) headers['set-cookie'] = sessionCookieHeader(SESSION_COOKIE, token, url);
+    }
+    return json({ ...identity, serverNow: now, account }, { headers });
+  }
+
+  // Sign out (stage 2.2.5).
+  if (path === '/api/signout') {
+    return signOut(request, env, url);
   }
 
   // Saved fields, off the phone and onto the account (stage 2.3.3.2).
@@ -186,6 +216,38 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   }
 
   return apiError('not_found', 'No such endpoint.', 404);
+}
+
+/**
+ * Forget this phone's session (stage 2.2.5).
+ *
+ * Deleting the KV record is what signs somebody out; clearing the cookie only
+ * stops this browser sending it (`destroySession`). Both, then, and in that
+ * order, so that a failure to delete surfaces as an error the player sees
+ * rather than as a sign-out that quietly left a working token behind.
+ *
+ * Idempotent and open to anybody: signing out while already signed out is a
+ * success with nothing to do, which is what a second tap on a slow connection
+ * should get. A dev token has no record, so for one of those clearing the
+ * cookie is the whole of it.
+ *
+ * A POST rather than a link, because a GET that signs you out can be triggered
+ * by an `<img>` on any page. The `Origin` check closes the remaining route — a
+ * cross-site form POST carries no `SameSite=Lax` cookie, so it could not delete
+ * a record, but its response could still clear the cookie. Absent `Origin` is
+ * allowed: only a browser sends one, and a browser always does on a POST.
+ */
+async function signOut(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const origin = request.headers.get('origin');
+  if (origin !== null && origin !== url.origin) {
+    return apiError('forbidden', 'Signing out has to come from this app.', 403);
+  }
+  const token = readCookie(request, SESSION_COOKIE);
+  if (token !== null) await destroySession(env, token);
+  return json({ ok: true }, { headers: { 'set-cookie': clearCookieHeader(SESSION_COOKIE, url) } });
 }
 
 /**

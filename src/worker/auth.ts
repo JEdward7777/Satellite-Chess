@@ -38,7 +38,12 @@ import { apiError } from './http.js';
 import { parseAppRoute } from '../shared/routes.js';
 import { SESSION_COOKIE, asSub, readCookie } from './identity.js';
 import { base64UrlEncode, decodeUtf8, hmacSha256, timingSafeEqual } from './crypto.js';
-import { clearCookieHeader, createSession, sessionCookieHeader } from './sessions.js';
+import {
+  clearCookieHeader,
+  createSession,
+  destroySession,
+  sessionCookieHeader,
+} from './sessions.js';
 import type { EnvWithSecrets } from './secrets.js';
 
 /** Confirmed against Google's OpenID discovery document, 2026-09-16. */
@@ -219,7 +224,25 @@ async function completeSignIn(
   const sub = asSub(claims.sub);
   if (sub === null) return failed(url, 'bad_token', flow.next);
 
-  const token = await createSession(env, sub, now);
+  // The address is kept for the account screen only (stage 2.2.5): "signed in
+  // as" is the one question that screen must answer, and a `sub` is not an
+  // answer anybody recognises. Only a verified address — an unverified one is a
+  // string somebody typed into a Google form, and showing it back as "you"
+  // would be vouching for it.
+  const token = await createSession(env, sub, now, {
+    email: claims.emailVerified ? claims.email : null,
+  });
+
+  // Signing in again while already signed in — the pre-flight warning's "sign
+  // in again" (stage 2.2.3) is exactly that — would otherwise leave the old
+  // record alive in KV for up to a month, a working credential nothing points
+  // at. Best effort: failing to tidy it must not fail a sign-in that worked.
+  const previous = readCookie(request, SESSION_COOKIE);
+  if (previous !== null && previous !== token) {
+    await destroySession(env, previous).catch((error: unknown) => {
+      console.error('could not end the previous session', error);
+    });
+  }
 
   // Wherever they were going, with the sign-in machinery gone from the address
   // bar — home for an ordinary sign-in, and the invite for someone who scanned a

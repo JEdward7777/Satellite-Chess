@@ -1,5 +1,5 @@
 import { SELF, env } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SESSION_COOKIE } from '../../src/worker/identity.js';
 import { createSession, destroySession } from '../../src/worker/sessions.js';
@@ -336,5 +336,73 @@ describe('coming back to where sign-in started', () => {
       { redirect: 'manual', headers: { cookie: flowCookie(started) } },
     );
     expect(failedHere.headers.get('location')).toBe('/?signin=failed&reason=bad_state');
+  });
+});
+
+/**
+ * Signing in again while already signed in (stage 2.2.3's "Sign in again").
+ *
+ * The one test in this file that completes a callback, which needs Google's
+ * code exchange answered. `SELF` runs in the test's own isolate, so stubbing the
+ * global `fetch` intercepts the Worker's outbound request to the token endpoint
+ * — the exchange itself is still never tested against Google (decision 0034);
+ * what is asserted is what the callback does once it has an answer.
+ */
+describe('signing in again', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function idToken(claims: Record<string, unknown>): string {
+    const part = (value: unknown) =>
+      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${part({ alg: 'RS256' })}.${part(claims)}.signature`;
+  }
+
+  it('ends the session the browser already held', async () => {
+    configured();
+    const previous = await createSession(env as never, 'alice');
+    const previousCookie = `${SESSION_COOKIE}=${previous}`;
+    expect((await SELF.fetch(`${ORIGIN}/api/me`, { headers: { cookie: previousCookie } })).status).toBe(200);
+
+    const started = await login();
+    const target = new URL(started.headers.get('location') as string);
+    const nativeFetch = globalThis.fetch;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url !== 'https://oauth2.googleapis.com/token') return nativeFetch(input, init);
+      return Response.json({
+        id_token: idToken({
+          iss: 'https://accounts.google.com',
+          aud: CLIENT_ID,
+          sub: 'alice',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          nonce: target.searchParams.get('nonce'),
+          email: 'alice@example.com',
+          email_verified: true,
+        }),
+      });
+    });
+
+    const state = target.searchParams.get('state') as string;
+    const response = await SELF.fetch(
+      `${ORIGIN}/auth/google/callback?code=abc&state=${encodeURIComponent(state)}`,
+      { redirect: 'manual', headers: { cookie: `${flowCookie(started)}; ${previousCookie}` } },
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/');
+    const fresh = /satchess_session=(g1_[A-Za-z0-9_-]+)/.exec(
+      response.headers.get('set-cookie') as string,
+    )?.[1];
+    expect(fresh).toBeDefined();
+    expect(fresh).not.toBe(previous);
+    vi.restoreAllMocks();
+
+    // The old token is dead at the server, not merely replaced in this jar.
+    expect((await SELF.fetch(`${ORIGIN}/api/me`, { headers: { cookie: previousCookie } })).status).toBe(401);
+    const now = await SELF.fetch(`${ORIGIN}/api/me`, {
+      headers: { cookie: `${SESSION_COOKIE}=${fresh}` },
+    });
+    expect(await now.json()).toMatchObject({ sub: 'alice', email: 'alice@example.com' });
   });
 });

@@ -326,4 +326,23 @@ is; this says what will bite you when you touch it.*
   `broadcastState()` is erased unread. `onReady`'s refusal did exactly that until
   `check-resume.mjs` tapped the button. Any new refusal that also changes state
   has to keep this order.
+- **The cached identity is words, never a door** (decision 0039). Since `2.2.4`
+  a confirmed launch writes who the phone is to `localStorage`
+  (`satchess.identity`), and an offline launch reads it back so home can say
+  *who* is signed in. `resolveLaunch` does not consult it about the gate: an
+  `unknown` launch opens with a lapsed cache, and with none. "The phone knows its
+  session is over, so show the gate" is the tempting change, and it is decision
+  0035's bug by a new route.
+- **`json()` in `worker/http.ts` spreads its headers**, so a `Headers` instance
+  passed to it vanishes without a word — the spread of a `Headers` is `{}`. Pass
+  a plain object. Found at `2.2.3`, when the re-issued session cookie was simply
+  not there.
+- **Three routes empty the field journal, on purpose** (decision 0039,
+  `forgetAccount`): signing out, a 401 launch, and a confirmed launch as a
+  different `sub` than the one remembered (`accountChanged` — "Sign in again"
+  can come back from Google's chooser as somebody else, with no sign-out and no
+  401 in between). Kept, the next account's list would delete the last
+  account's fields off the phone as "deleted elsewhere". Emptied, they are
+  adopted by whoever signs in next (O-27). A new route into a different account
+  has to go through one of these three.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

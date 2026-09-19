@@ -38,7 +38,24 @@ import {
 } from './field-sync.js';
 import { type GamesTransport, browserGamesTransport } from './games.js';
 import { createFieldStore } from './store.js';
-import { currentDestination, devSignIn, loadSession, signInFailure } from './session.js';
+import {
+  currentDestination,
+  devSignIn,
+  loadSession,
+  signInFailure,
+  signOut,
+} from './session.js';
+import {
+  type IdentityStorage,
+  type KnownIdentity,
+  accountChanged,
+  forgetAccount,
+  readCachedIdentity,
+  resolveLaunch,
+  sessionNotice,
+  writeCachedIdentity,
+} from './account.js';
+import { homeHeaderHtml, mountAccount, sessionNoticeHtml } from './views/account.js';
 import { mountSignIn } from './views/signin.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
@@ -67,6 +84,12 @@ import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-p
  * somewhere a board could plausibly be laid out.
  */
 const SIM_START = { lat: 51.4779, lng: -0.0015 };
+
+/**
+ * How long signing out waits for pending field changes to reach the account
+ * before going ahead anyway (stage 2.2.5). A UI timeout, not game timing.
+ */
+const SIGN_OUT_SYNC_WAIT_MS = 10_000;
 
 interface SimHandle {
   world: GpsSimWorld;
@@ -137,13 +160,27 @@ async function boot(): Promise<void> {
   // Only `signed_out` closes the gate. An unreachable server is `unknown` and
   // the app opens: a phone in a field with a fortnight-old session must never be
   // shown a sign-in screen it cannot complete. See `session.ts`.
-  const session = await loadSession();
-  if (session.kind === 'signed_out') {
+  //
+  // Since stage 2.2.4 a confirmed answer is also written down, and an `unknown`
+  // one reads it back, so a phone with no signal still knows *who* it is. The
+  // cache only ever adds words to an app that was opening anyway: it is not
+  // consulted about the gate at all, which `resolveLaunch` decides from the
+  // server's answer alone. See `account.ts`.
+  const identityStorage = browserIdentityStorage();
+  const remembered = readCachedIdentity(identityStorage);
+  const launch = resolveLaunch(await loadSession(), remembered, Date.now());
+  if (launch.kind === 'gate') {
+    // The server said 401, so what the phone remembered belongs to an account
+    // that is no longer this phone's. Forgotten here as well as on sign-out,
+    // because a session can also end elsewhere — expired in KV, or signed out
+    // from this same browser in another tab — and whoever signs in next must
+    // not inherit the last account's field journal (decision 0039, rule 4).
+    forgetAccount(identityStorage, createLocalStorageJournal());
     // Mounted for the lifetime of the page, as the survey is: the only ways out
     // are a navigation to Google and a reload, and both replace this document.
     mountSignIn(root, {
       next: currentDestination(location),
-      devSeam: session.devSeam,
+      devSeam: launch.devSeam,
       reason: signInFailure(location.search),
       onDevSignIn: () => {
         // The committed dev secret, the same value `npm run dev` passes. Safe to
@@ -161,13 +198,29 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // The journal is held on to because an account change empties it (decision
+  // 0039, rule 4) — here, before the first sync can run against it, and again
+  // on signing out.
+  const journal = createLocalStorageJournal();
+  if (accountChanged(remembered, launch)) {
+    // Signed in as somebody else than last time, with no sign-out or 401 in
+    // between — "Sign in again" came back from Google's chooser as another
+    // account. The same forgetting as the other two routes, before the new
+    // identity is written and before any sync sees the old journal.
+    forgetAccount(identityStorage, journal);
+  }
+  if (launch.confirmed && launch.identity !== null) {
+    writeCachedIdentity(identityStorage, launch.identity);
+  }
+  const { identity, confirmed } = launch;
+
   // Local first, account second (decision 0013). The store the screens use
   // writes to this phone and then, in the background and without being waited
   // for, to the account — so a field is safe before anything has been asked of
   // the network, and turns up on the player's other phone when there is one.
   const fieldSync = createFieldSync({
     store: await createFieldStore(),
-    journal: createLocalStorageJournal(),
+    journal,
     transport: browserSyncTransport(),
   });
   const store = fieldSync.store;
@@ -224,6 +277,9 @@ async function boot(): Promise<void> {
         games: myGames,
         scanning,
         platform,
+        identity,
+        confirmed,
+        onAccount: () => showAccount(),
         onCalibrate: () => showCalibrate(),
         onOpen: showField,
         onNew: () => showCreate(fields),
@@ -238,6 +294,44 @@ async function boot(): Promise<void> {
       };
     });
   };
+
+  /**
+   * Who this phone is, and signing out (stage 2.2.5).
+   *
+   * Reachable with no signal — the identity may be a remembered one (2.2.4) —
+   * because "am I signed in, and as whom?" is a question somebody asks exactly
+   * when something has gone wrong. Signing out itself needs the server, and the
+   * screen says so rather than pretending.
+   */
+  function showAccount(): void {
+    swap(() =>
+      mountAccount(root, {
+        identity,
+        confirmed,
+        next: currentDestination(location),
+        onBack: () => void showHome(),
+        onSignOut: async () => {
+          // Anything still waiting to reach the account goes first — above all a
+          // delete made offline, which the journal is about to forget. Never
+          // rejects, and a sync that cannot run changes nothing. Bounded, so a
+          // connection that stalls rather than fails cannot pin the button on
+          // "Signing out…"; a sync still in flight finishes or fails on its own.
+          await Promise.race([
+            fieldSync.sync(),
+            new Promise((settle) => setTimeout(settle, SIGN_OUT_SYNC_WAIT_MS)),
+          ]);
+          const result = await signOut();
+          if (result !== 'signed_out') return result;
+          // The identity and the field journal, both — see `forgetAccount`.
+          forgetAccount(identityStorage, journal);
+          // Back through the launch check, which will now meet a 401 and show
+          // the gate. A replace, so Back does not return to a signed-in screen.
+          location.replace(`/${location.search}`);
+          return result;
+        },
+      }),
+    );
+  }
 
   /**
    * The viewfinder (stage 6.2.3), reached only where the browser can actually
@@ -581,6 +675,11 @@ interface HomeDeps {
   /** Whether this browser can read a QR from inside a page (stage 6.2.3). */
   scanning: ScanSupport;
   platform: Platform;
+  /** Who this phone is, as far as it knows (stage 2.2.4). */
+  identity: KnownIdentity | null;
+  /** Whether the server confirmed that on this launch. */
+  confirmed: boolean;
+  onAccount(): void;
   onCalibrate(): void;
   onOpen(field: FieldSpec): void;
   onNew(): void;
@@ -608,7 +707,17 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
   const paint = (state: GpsState) => {
     const fix = state.fix;
     root.innerHTML = `
-      <h1>Satellite Chess</h1>
+      ${homeHeaderHtml(deps.identity, deps.confirmed)}
+      ${
+        // The pre-flight check (stage 2.2.3): above everything, because it is
+        // only worth anything before somebody sets off. Recomputed on each
+        // paint rather than once, which costs a subtraction and means a home
+        // screen left open overnight catches up by itself.
+        sessionNoticeHtml(
+          sessionNotice(deps.identity, deps.confirmed, Date.now()),
+          `/${location.search}`,
+        )
+      }
       <dl class="readout">
         <dt>Signal</dt>
         <dd class="quality-${state.quality}" data-quality>${
@@ -657,6 +766,9 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       <p><button data-join class="secondary">Join</button></p>
       ${scanAdviceHtml(deps)}
     `;
+    root
+      .querySelector<HTMLButtonElement>('[data-account]')
+      ?.addEventListener('click', deps.onAccount);
     root
       .querySelector<HTMLButtonElement>('[data-calibrate]')
       ?.addEventListener('click', deps.onCalibrate);
@@ -778,6 +890,20 @@ function escapeHtml(text: string): string {
     (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
+}
+
+/**
+ * `localStorage`, or null where touching it throws (some private modes do).
+ *
+ * The identity cache is a nicety (stage 2.2.4), so a browser that refuses it
+ * loses the offline account line and nothing else.
+ */
+function browserIdentityStorage(): IdentityStorage | null {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
 }
 
 /**

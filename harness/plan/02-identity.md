@@ -47,7 +47,7 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
     the deployed origin and `http://localhost:8787`. Remaining: the README
     paragraph, and confirming the console list once `auth.ts` exists.
 
-- `2.2` todo: Sessions that survive a walk to the park
+- `2.2` done: Sessions that survive a walk to the park
   - Login-first has one sharp edge: a player who cannot reach Google cannot play.
     A long-lived session is the mitigation that keeps that from mattering, because
     sign-in then happens at home on wifi rather than in a field.
@@ -64,11 +64,32 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
     tier forces: KV allows ~1,000 writes a day against ~100,000 reads, so sliding
     on every request would spend the day's writes in one game. A player active
     daily keeps a session that never expires, at one write a day.
-  - `2.2.3` todo: Pre-flight check — warn on the home screen, while there is still
+  - `2.2.3` done: Pre-flight check — warn on the home screen, while there is still
     wifi, if the session is close to expiring
-  - `2.2.4` todo: Cache the session identity for offline start, so the app opens
+    Done 2026-09-18, decision **0039**. `/api/me` reports `expiresAt` beside its
+    own `serverNow`; the phone keeps only the difference. Home warns inside 3
+    days (`sessionNotice` in `client/account.ts`), with a "Sign in again" link.
+    **It rarely fires, by design**: a launch with signal slides the session a
+    month out, so it catches a renewal that could not be written and a
+    remembered session lapsing offline. Silent for dev sessions. Two real bugs
+    fixed on the way: the cookie was never renewed (set once with a 30-day
+    `Max-Age`, so the browser dropped a daily player's live session a month
+    after sign-in — `/api/me` now re-issues it), and a failed renewal write
+    500'd every authenticated request.
+  - `2.2.4` done: Cache the session identity for offline start, so the app opens
     into a playable state with no network. Only sign-*in* needs Google reachable.
-  - `2.2.5` todo: Sign out, and a clear account screen
+    Done 2026-09-18, decision **0039** rule 1. A confirmed launch writes
+    `satchess.identity`; an `unknown` launch reads it back so home says *who*.
+    **The cache is words, never a door**: `resolveLaunch` still gates on
+    `signed_out` alone, and opens with a lapsed cache or none (decision 0035
+    rule 2 unchanged). Proven offline in `scripts/check-account.mjs`.
+  - `2.2.5` done: Sign out, and a clear account screen
+    Done 2026-09-18. `POST /api/signout` (same-origin only) deletes the record
+    and clears the cookie; `views/account.ts` says who, how recently checked,
+    until when, and what signing out does *not* do. Three routes forget the
+    account and empty the field journal (`forgetAccount`, decision 0039 rule 4):
+    sign-out, a 401 launch, and a confirmed launch as a different `sub`. Fields
+    stay on the phone and are adopted by the next account (O-27).
 
 - `2.3` todo: UserDO (`src/worker/user-do.ts`)
   - `2.3.1` done: Addressed by `getByName(sub)`; `fields` and `game_index` tables

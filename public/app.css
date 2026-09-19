@@ -668,3 +668,47 @@ body:has(.sim-panel) #app {
   display: block;
   margin-top: 0.4rem;
 }
+
+/*
+ * Home's title row: who this phone is signed in as (stages 2.2.3–2.2.5).
+ *
+ * The title, a quiet line under it, and the Account button beside both. Folded
+ * into the title rather than given a line of its own, because home is already
+ * taller than a phone (O-16) and every extra line pushes the primary actions
+ * further down. The button keeps the 48px floor every other target has.
+ */
+.home-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.home-head h1 {
+  margin: 0;
+}
+
+.home-who {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.home-head button {
+  flex: none;
+  padding: 0.3rem 0.9rem;
+}
+
+.account {
+  max-width: 32rem;
+}
+
+.account-who {
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+/* The pre-flight warning's link, on its own line under the sentence. */
+.session-renew {
+  margin-top: 0.6rem;
+}

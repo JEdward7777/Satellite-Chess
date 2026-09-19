@@ -496,3 +496,62 @@ requests on a disagreement that a second identical fix will not settle. Leaving
 it to the player is probably right. Record it in the next decision that touches
 the handshake, or promote it if playtesting (10.4.4) finds people stuck on the
 boundary.
+
+### O-27 — Signing out hands this phone's fields to whoever signs in next
+**Spotted:** 2026-09-18, stage 2.2.5 (decision 0039, rule 4)
+**Why it matters:** Fields live on the phone first (decision 0013) and are not
+owned locally by any account. When an account stops being this phone's — a
+sign-out, or a launch that meets a 401 — the field journal is emptied so the next
+account's first sync cannot delete them as "deleted elsewhere". The consequence
+is that the next account to sign in on this phone *adopts* every field it holds
+and pushes them into its own account. For one person switching Google accounts
+that is harmless. On a shared family phone it gives one person's saved grounds —
+places they repeatedly and predictably stand — to another person's account,
+which is exactly the kind of edge decision 0017 exists to prevent. The account
+screen says so before anybody signs out, but a 401 route gives no such warning.
+**One case is undetectable today:** a switch to another account on a phone with
+no remembered identity (storage cleared or refused, or a journal written before
+stage 2.2.4 existed). `accountChanged` has nothing to compare the new `sub`
+against, so the old journal survives and the new account's first sync can
+delete the old account's acknowledged fields off the phone. Owner-tagged fields
+close that too.
+**And one multi-tab window:** a second tab still open as the old account can run
+a field sync against the old journal in the moment between the new account's
+callback and the first tab's `forgetAccount` — its request then carries the new
+account's cookie with the old account's journal. Narrow (both tabs have to be
+open and one has to sync in that gap), and closed by the same remedy.
+**Remedy, when wanted:** owner-tagged local fields — each field on the phone
+carries the `sub` that saved or synced it, sync pushes only the signed-in
+account's own (plus untagged ones calibrated while nobody was confirmed), and
+another account's fields are hidden rather than adopted or deleted. That keeps
+0013 (nothing is ever lost) and 0017 (nothing is handed across) together.
+**Not doing yet because:** a shared phone has not been seen, and the remedy is a
+store schema change plus a sync rule change, which wants its own stage.
+
+### O-28 — The gate crashes where `localStorage` throws
+**Spotted:** 2026-09-18, review of stages 2.2.3–2.2.5
+**Why it matters:** the gate path in `boot()` (`main.ts`, the `launch.kind ===
+'gate'` branch) calls `createLocalStorageJournal()`, whose default parameter reads
+the global `localStorage` *outside* `forgetAccount`'s try/catch. A browser whose
+`localStorage` accessor throws (some private modes, blocked site data) therefore
+throws on the way to the sign-in screen and renders nothing. The signed-in path
+has always made the same call, so such a browser was already broken past the
+gate; 2.2.5 moved the failure one screen earlier. The identity cache itself is
+careful (`browserIdentityStorage` returns null), which is why this is easy to
+miss.
+**Fix, when wanted:** build the journal from the storage `browserIdentityStorage`
+already resolved, or give `createLocalStorageJournal` the same try/null guard.
+Not a one-liner, because the two types differ (`Storage` vs `IdentityStorage |
+null`) and the signed-in path wants the same treatment.
+**Not doing yet because:** not seen on any browser this game targets; found by
+reading.
+
+### O-29 — An expired dev token offline reads "It ends within the hour"
+**Spotted:** 2026-09-18, review of stages 2.2.3–2.2.5
+**Why it matters:** `expiryHtml` in `views/account.ts` passes `expiresAt - now`
+to `timeUntil` for a dev account, and a remembered dev token that has already
+expired gives a negative number, which `timeUntil` renders as "within the hour".
+Dev only: a Google session in that state gets the "probably run out" notice
+instead, and dev tokens are never renewed so nobody relies on the line.
+**Fix, when wanted:** say "It has ended" when the difference is not positive.
+**Not doing yet because:** it only affects the local test account, offline.

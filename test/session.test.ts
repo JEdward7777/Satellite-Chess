@@ -6,6 +6,7 @@ import {
   signInFailure,
   signInFailureCause,
   signInHref,
+  signOut,
 } from '../src/client/session.js';
 
 /**
@@ -44,7 +45,38 @@ describe('loading the session', () => {
       kind: 'signed_in',
       sub: 'g-117554968855954827048',
       via: 'google',
+      // A server from before stage 2.2.3 says neither, and that must still be
+      // a live session rather than an unreadable one.
+      email: null,
+      expiresInMs: null,
     });
+  });
+
+  it('turns the server’s expiry into a duration, so the two clocks are never compared', async () => {
+    // The server's clock is a year ahead of anything this phone could believe;
+    // only the difference between its two numbers may matter (`gotchas.md`).
+    const serverNow = Date.UTC(2027, 8, 18);
+    const state = await loadSession({
+      fetch: answers(200, {
+        sub: 'alice',
+        via: 'google',
+        email: 'alice@example.com',
+        expiresAt: serverNow + 5 * 60 * 60 * 1000,
+        serverNow,
+      }),
+    });
+    expect(state).toMatchObject({
+      kind: 'signed_in',
+      email: 'alice@example.com',
+      expiresInMs: 5 * 60 * 60 * 1000,
+    });
+  });
+
+  it('reports no expiry rather than a wrong one when half the pair is missing', async () => {
+    const state = await loadSession({
+      fetch: answers(200, { sub: 'alice', via: 'google', expiresAt: 123, email: '' }),
+    });
+    expect(state).toMatchObject({ kind: 'signed_in', email: null, expiresInMs: null });
   });
 
   it('reports a dev session as dev, so a log can prove it rather than assert it', async () => {
@@ -192,5 +224,33 @@ describe('explaining a failed sign-in', () => {
     // The one failure that is the server's fault. Without this, somebody stands
     // in a field tapping a button that cannot work, assuming it is their phone.
     expect(signInFailureCause('bad_token')).toMatch(/not something you can fix/);
+  });
+});
+
+/**
+ * Signing out (stage 2.2.5).
+ *
+ * Only a 2xx is a sign-out. The dangerous mistake is the other way round —
+ * reporting success when the server did not forget the session — because the
+ * player then hands over a phone that is still signed in as them.
+ */
+describe('signing out', () => {
+  it('posts to the sign-out endpoint and reports success on a 2xx', async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method });
+      return new Response('{"ok":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await signOut({ fetch: fetcher })).toBe('signed_out');
+    expect(calls).toEqual([{ url: '/api/signout', method: 'POST' }]);
+  });
+
+  it('says offline when the request never got an answer', async () => {
+    expect(await signOut({ fetch: offline })).toBe('offline');
+  });
+
+  it('does not call a server error a sign-out', async () => {
+    expect(await signOut({ fetch: answers(500, { error: 'internal' }) })).toBe('failed');
+    expect(await signOut({ fetch: answers(403, { error: 'forbidden' }) })).toBe('failed');
   });
 });
