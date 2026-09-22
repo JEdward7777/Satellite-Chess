@@ -4,7 +4,9 @@
  * The screen answers three questions and offers one act. *Who* is this phone
  * signed in as; *how do we know* — checked just now, or remembered from the
  * last time there was a connection (2.2.4); *how long* will it stay signed in;
- * and sign out.
+ * and sign out. Since 2.3.5 it also carries the permanent record and the
+ * privacy statement (`views/record.ts`), which are the account's reason to
+ * exist at all (decision 0014).
  *
  * "Clear" was the whole of the stage line, and the thing most worth being clear
  * about is what signing out does *not* do. Fields live on the phone first
@@ -21,7 +23,9 @@ import {
   timeUntil,
   whoLabel,
 } from '../account.js';
+import type { RecordTransport } from '../record.js';
 import { type SignOutResult, signInHref } from '../session.js';
+import { mountRecord, privacyHtml, recordSectionHtml } from './record.js';
 
 export interface AccountDeps {
   identity: KnownIdentity | null;
@@ -35,6 +39,8 @@ export interface AccountDeps {
    */
   onSignOut(): Promise<SignOutResult>;
   onBack(): void;
+  /** Where the permanent record is read from (stage 2.3.5). */
+  record: RecordTransport;
 }
 
 export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
@@ -54,6 +60,8 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
              ${expiryHtml(identity, deps.confirmed, now)}`
       }
       ${sessionNoticeHtml(sessionNotice(identity, deps.confirmed, now), deps.next)}
+      ${recordSectionHtml()}
+      ${privacyHtml()}
       <h2>Sign out</h2>
       <p class="dim">
         Signing out ends this phone's session. Your games and your record stay on
@@ -85,7 +93,11 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   });
   root.querySelector<HTMLButtonElement>('[data-back]')?.addEventListener('click', deps.onBack);
 
+  const record = root.querySelector<HTMLElement>('[data-record]');
+  const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record);
+
   return () => {
+    stopRecord();
     root.innerHTML = '';
   };
 }

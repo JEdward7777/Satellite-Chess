@@ -405,8 +405,8 @@ export function withOptimism(
       return sent;
     },
 
-    offerPosition(fix: GpsFix, travelM?: number): boolean {
-      return inner.offerPosition(fix, travelM);
+    offerPosition(fix: GpsFix, travelM?: number, leg?: string): boolean {
+      return inner.offerPosition(fix, travelM, leg);
     },
 
     resync(): void {

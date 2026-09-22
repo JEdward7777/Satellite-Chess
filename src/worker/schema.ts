@@ -12,7 +12,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -110,9 +110,24 @@ const STATEMENTS = [
      last_lng       REAL,
      last_acc       REAL,
      last_pos_at    INTEGER,
-     -- Client-reported, and client-trusted by design: it is a statistic, not a
-     -- rule (decision 0019, observation O-03).
+     -- Metres walked *while this game was active*. Client-measured, and
+     -- client-trusted by design: it is a statistic, not a rule (decision 0019,
+     -- observation O-03). Since schema 4 it is credited by difference rather
+     -- than taken as reported — see travel_leg below and decision 0040.
      travel_m       REAL    NOT NULL DEFAULT 0,
+     -- Which of the phone's distance counters the last report came from, and
+     -- the largest value that counter has reported. Schema 4.
+     --
+     -- The phone's counter runs for the life of the page, not the game: it
+     -- includes calibrating, the walk to the park, and every earlier game in
+     -- the same sitting, and it restarts at zero on a reload. Taking its value
+     -- as this game's distance (the rule until schema 4) credited all of that
+     -- to whichever game happened to be open. So the game credits only what a
+     -- counter adds *between two of its own reports*, and only while active; a
+     -- counter it has not seen before (a reload, a second game) sets a baseline
+     -- and is credited nothing on its first report.
+     travel_leg     TEXT,
+     travel_seen_m  REAL    NOT NULL DEFAULT 0,
      -- Whether the server last saw this player inside their own back rank, for
      -- the start and resume handshakes (decision 0005).
      in_start_zone  INTEGER NOT NULL DEFAULT 0
@@ -198,9 +213,50 @@ function upgradeGameTable(sql: SqlStorage): void {
   }
 }
 
+/**
+ * Schema 4: the presence columns that let distance be credited per game rather
+ * than taken from a counter that runs for the life of the page.
+ *
+ * **A game still in play starts again from zero.** Whatever it had been given
+ * under the old rule is the page's whole counter — the calibration walk, the
+ * walk to the park, the last game — and stage 2.3.5 turns that number into a
+ * permanent row the moment this game ends. Keeping it would put one knowingly
+ * wrong figure into a record that is never rewritten; dropping it costs the
+ * part of this game walked before the deploy, which is the cheaper of the two
+ * losses. What it leaves behind is a game that reads as honestly measured and
+ * is short by that much — the accepted caveat in decision 0040.
+ *
+ * A **finished** game is left exactly as it is, and not because its line has
+ * already been pushed — the record ships in the same deploy as these columns,
+ * so no game has ever pushed one. It is left alone because zeroing it would
+ * look like "walked nowhere" when the truth is "nobody measured it", and
+ * `GameDO.recordLine` already tells those apart: a row with distance credited
+ * under the old rule and never reported under the new one is recorded as
+ * **unmeasured**, and sits outside every total.
+ */
+function upgradePresenceTable(sql: SqlStorage): void {
+  const columns = new Set(
+    [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('presence')`)].map(
+      (row) => row.name,
+    ),
+  );
+  if (columns.size === 0) return;
+  const adding = !columns.has('travel_leg') || !columns.has('travel_seen_m');
+  if (!columns.has('travel_leg')) sql.exec(`ALTER TABLE presence ADD COLUMN travel_leg TEXT`);
+  if (!columns.has('travel_seen_m')) {
+    sql.exec(`ALTER TABLE presence ADD COLUMN travel_seen_m REAL NOT NULL DEFAULT 0`);
+  }
+  if (!adding) return;
+  const [game] = [...sql.exec<{ status: string }>(`SELECT status FROM game WHERE id = 1`)];
+  if (game !== undefined && game.status !== 'finished') {
+    sql.exec(`UPDATE presence SET travel_m = 0`);
+  }
+}
+
 export function applySchema(sql: SqlStorage): void {
   for (const statement of STATEMENTS) sql.exec(statement);
   upgradeGameTable(sql);
+  upgradePresenceTable(sql);
   sql.exec(
     `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`,

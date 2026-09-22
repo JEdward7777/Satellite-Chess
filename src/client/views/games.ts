@@ -35,7 +35,8 @@ import type { Color } from '../../shared/squares.js';
  * Home is a way in, not an archive: the list is there so somebody can get back
  * into a game, and a season of results between them and the one they suspended
  * at lunchtime would defeat it. The permanent record (stage 2.3.5) is where
- * history is supposed to live, and it is a screen of its own for that reason.
+ * history lives, on the account screen, and it is separate for that reason —
+ * and it survives a game being forgotten from this list.
  */
 export const FINISHED_SHOWN = 3;
 
@@ -162,7 +163,7 @@ function finishedWords(game: ListedGame): string {
   return `${verdict} — ${reasonWords(reason)}`;
 }
 
-function reasonWords(reason: ResultReason): string {
+export function reasonWords(reason: ResultReason): string {
   switch (reason) {
     case 'checkmate':
       return 'checkmate';
@@ -182,6 +183,15 @@ function reasonWords(reason: ResultReason): string {
       return 'agreement';
     case 'abandoned':
       return 'nobody came back';
+    default: {
+      // A row written by an older or a newer build. The result it labels still
+      // stands, so it reads as one rather than as "Won — undefined". The
+      // assignment keeps the switch exhaustive: adding a reason to the union
+      // without a case here is a compile error, not a shrug at runtime.
+      const _never: never = reason;
+      void _never;
+      return 'a result';
+    }
   }
 }
 

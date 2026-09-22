@@ -88,7 +88,10 @@ export interface PlayerView {
   connected: boolean;
   /** Handicap: extra reach, in squares (decision 0031). */
   reachBonusSquares: number;
-  /** Client-reported metres walked. A stat, so client-trusted by design. */
+  /**
+   * Metres walked while this game was active, credited by the game from what
+   * the phone reported (decision 0040). A stat, so client-trusted by design.
+   */
   travelM: number;
   /** In their own start zone, per the server's own check. */
   inStartZone: boolean;
@@ -195,8 +198,14 @@ export interface PosMsg {
   lat: number;
   lng: number;
   acc: number;
-  /** Cumulative metres walked, piggybacked so it costs no extra message. */
+  /**
+   * The phone's running total of metres walked, piggybacked so it costs no
+   * extra message. A total for the life of the page, not for the game: the
+   * game credits only what it adds while active (decision 0040).
+   */
   travelM?: number;
+  /** Which counter {@link travelM} is from — one per page load. */
+  leg?: string;
 }
 
 /**

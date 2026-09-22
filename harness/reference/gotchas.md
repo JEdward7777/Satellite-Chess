@@ -345,4 +345,66 @@ is; this says what will bite you when you touch it.*
   account's fields off the phone as "deleted elsewhere". Emptied, they are
   adopted by whoever signs in next (O-27). A new route into a different account
   has to go through one of these three.
+- **The record's totals are derived, never stored** (decision 0040). One row per
+  finished game in `UserDO.record`, keyed by join code; `summarizeRecord` folds
+  them on every read. That is the whole of the idempotency: a game whose end is
+  reported twice — the alarm retried, a seat re-taken — lands on its own row
+  twice and is counted once. The tempting simplification is a `travel_m_total`
+  column incremented on arrival, which needs exactly-once delivery between two
+  Durable Objects and therefore silently inflates somebody's headline figure.
+  The same derivation is what lets stage 9.2 move the 4 m practice floor and
+  re-judge every game ever played, rather than half the record by each rule.
+- **A record row is not a game-index row and does not go away with one.**
+  Forgetting a game (2.3.4.2) deletes the pointer, not the walk. Nothing deletes
+  a record row, and the privacy statement says so out loud rather than implying
+  a tidy-up is a delete.
+- **`travel_m` is credited by difference, and the `leg` is what makes that
+  possible** (decision 0040, `worker/travel.ts`). The phone's distance counter
+  lives as long as its *page*, not as long as the game: it includes calibrating,
+  the walk to the park and every earlier game in the same sitting, and it
+  restarts at zero on a reload. So a relay carries the counter's `leg` id, and
+  the game credits only what that leg adds between two of its own reports, only
+  while `active`, capped at `MAX_PLAUSIBLE_SPEED_MPS` over the window since the
+  *later* of the last accepted report and the last clock start — measured from
+  the last report alone, silence through staging or a suspension banks a ceiling
+  somebody can spend in one message. Over a whole game the credit cannot exceed
+  a sprint for as long as the game was active, which is why silence during the
+  opponent's think is not a hole to close. The
+  old rule — `travel_m = MAX(travel_m, reported)` — read as obviously correct
+  and credited a game with a walk that happened before it. **Every leg is also
+  re-baselined at the transition into `active`** (`startIfBothReady` marks the
+  stored leg), because the rate cap does not subtract pre-start meters: the
+  first report after the clock starts carries everything since the last report
+  *before* it, and for the player off move that gap is long enough that the
+  ceiling never binds — measured at +12 m leaked into a 57 m game. Do not hook
+  that re-baseline on `last_clock_start_at` being newer than the last report:
+  it is re-stamped every ply, so that zeroes the credit of whoever has not
+  relayed since the last move. Known residue: a **pure under-count, and a
+  fixed cost per active period rather than a fraction of the walking** — the
+  first post-start report is a baseline, and the walking after the last report
+  before the result is never sent, each about one accumulator hop
+  (`max(4 m, 2 × claimed accuracy)`, ~16 m at the simulator's 5 m). Measured
+  with `check-record.mjs`: 15.3 and 15.6 m lost out of 58.5 m walked, and 13.0
+  and 12.2 m lost out of 400.7 and 390.5 m over the same four moves — so a real
+  game is 1–3% short. Wrong in the safe direction for a number nobody can audit
+  (O-03).
+- **`travel_m` in a record row is nullable, and null is not zero** (decision
+  0040, rule 7). A game that was already being played when the per-game rule
+  arrived holds the phone's whole counter and never reported a `leg`, so
+  `recordLine` marks it **unmeasured**: written, listed, and outside every
+  total. The predicate is `travel_leg IS NULL AND travel_m > 0` — "credited
+  under the old rule, never reported under the new one" — so there is no date to
+  keep in step. A zero with no leg counts as a measured zero — which is right
+  for a game that simply never moved, and is also what a game zeroed by the
+  schema-4 upgrade and never reported again reads as, deliberately (the caveat
+  in decision 0040). The reason
+  this matters at all is that the owner played real games on the deployed app
+  before the record existed, and `join()` re-pushes a finished game's line.
+- **There is a fourteenth driver: `scripts/check-record.mjs`.** It plays Fool's
+  mate with every piece *walked* rather than teleported — `satchess.me.walkTo`,
+  not `moveTo` — because a teleport tells the distance accumulator nothing, and
+  the distance is the thing under test. It also checks the order and size of the
+  headline on the account screen: meters walked first and largest, games played
+  in the sentence underneath (decision 0019), which is a rule about the screen
+  that no unit test can hold.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

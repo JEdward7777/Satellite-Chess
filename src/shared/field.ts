@@ -534,6 +534,26 @@ export function boardSizeM(geo: FieldGeometry): number {
 }
 
 /**
+ * Corner to corner across the playing surface, outer edges included — the
+ * longer of the two diagonals, since on a parallelogram they differ.
+ *
+ * The denominator of *board crossings* (decision 0019): metres walked divided by
+ * this is how much chess was played, independent of how big the field was.
+ */
+export function boardDiagonalM(geo: FieldGeometry): number {
+  const [a1, h1, h8, a8] = [
+    { file: -0.5, rank: -0.5 },
+    { file: 7.5, rank: -0.5 },
+    { file: 7.5, rank: 7.5 },
+    { file: -0.5, rank: 7.5 },
+  ].map((bi) => boardPointOfIndex(geo, bi));
+  return Math.max(
+    Math.hypot(h8.u - a1.u, h8.v - a1.v),
+    Math.hypot(a8.u - h1.u, a8.v - h1.v),
+  );
+}
+
+/**
  * "8.0 m squares · 64 m a side", or "10.0 x 6.0 m squares · 80 m across".
  *
  * One place, because three screens said this and each would otherwise have to
@@ -605,6 +625,19 @@ export function calibrationResiduals(
 }
 
 /**
+ * The narrowest square, in metres, at which a board stops being warned about.
+ *
+ * One number with two jobs, and they must move together (decision 0019): below
+ * it `checkCalibration` warns that GPS cannot reliably say which square you are
+ * on, and below it a finished game is a *practice* game — kept in the player's
+ * own history and left out of every total (stage 2.3.5.2). A record floor that
+ * drifted away from the warning would either count games the app itself called
+ * unreliable, or refuse to count games it had raised no objection to. Stage 9.2
+ * measures where it belongs; move it here and both follow.
+ */
+export const SMALL_SQUARE_M = 4;
+
+/**
  * Sanity-check a calibration before anyone commits to playing on it.
  *
  * The binding constraint is that one square has to be meaningfully larger than
@@ -648,7 +681,7 @@ export function checkCalibration(
       `Squares would be ${smallest.toFixed(1)} m across at the narrowest. That is smaller than ` +
         'GPS can resolve — pick a bigger field (at least 25 m corner to corner).',
     );
-  } else if (smallest < 4) {
+  } else if (smallest < SMALL_SQUARE_M) {
     warnings.push(
       `Squares are only ${smallest.toFixed(1)} m across at the narrowest. Expect ambiguity ` +
         'about which square you are on. 5 m or more plays much better.',
@@ -759,6 +792,14 @@ export interface FieldSnapshot {
   rankM: number;
   bearingDeg: number;
   snapshotAt: number;
+  /**
+   * The field's lineage key (`fieldKey` in `fieldlink.ts`), so that the
+   * permanent record can count "fields played on" by ground rather than by
+   * copy: two players' copies of one common are one field (stage 2.3.5).
+   * Stamped by the Worker at creation; absent on every game created before
+   * that, which then falls back to a digest of `fieldId`.
+   */
+  lineageKey?: string;
 }
 
 export function snapshotField(spec: FieldSpec, now = Date.now()): FieldSnapshot {

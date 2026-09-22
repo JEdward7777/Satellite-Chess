@@ -56,6 +56,7 @@ import {
   writeCachedIdentity,
 } from './account.js';
 import { homeHeaderHtml, mountAccount, sessionNoticeHtml } from './views/account.js';
+import { browserRecordTransport } from './record.js';
 import { mountSignIn } from './views/signin.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
@@ -309,6 +310,7 @@ async function boot(): Promise<void> {
         identity,
         confirmed,
         next: currentDestination(location),
+        record: browserRecordTransport(),
         onBack: () => void showHome(),
         onSignOut: async () => {
           // Anything still waiting to reach the account goes first — above all a

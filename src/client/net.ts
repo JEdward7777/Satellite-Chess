@@ -68,7 +68,7 @@ export interface GameConnection {
    *
    * This is the one method that deliberately refuses most of what it is given.
    */
-  offerPosition(fix: GpsFix, travelM?: number): boolean;
+  offerPosition(fix: GpsFix, travelM?: number, leg?: string): boolean;
   /** Ask for a fresh snapshot, after a reconnect or a suspicion of drift. */
   resync(): void;
   close(): void;
@@ -307,7 +307,7 @@ class Connection implements GameConnection {
    * `shared/protocol.ts` so both ends agree, and the server enforces its own
    * stricter backstop against a client that ignores them.
    */
-  offerPosition(fix: GpsFix, travelM = 0): boolean {
+  offerPosition(fix: GpsFix, travelM = 0, leg?: string): boolean {
     const at = this.now();
     if (at - this.lastSentAt < POS_MIN_INTERVAL_MS) return false;
     if (this.lastSentPos !== null && distanceM(this.lastSentPos, fix.pos) < POS_MIN_DELTA_M) {
@@ -322,6 +322,10 @@ class Connection implements GameConnection {
       // No timestamp: `PosMsg` deliberately has no field for one. The server
       // times everything itself, because a client clock is not evidence.
       travelM,
+      // Which counter that total came from, so the game can credit only what
+      // it adds (decision 0040). Absent from an older build, which the server
+      // reads as one unchanging counter.
+      ...(leg === undefined ? {} : { leg }),
     });
     if (sent) {
       this.lastSentPos = { ...fix.pos };

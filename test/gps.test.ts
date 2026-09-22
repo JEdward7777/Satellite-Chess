@@ -329,6 +329,23 @@ describe('GpsSimWorld', () => {
     expect(player.state.distanceM).toBeLessThanOrEqual(100);
   });
 
+  it('labels each distance counter, and keeps the label for its whole life', () => {
+    // Decision 0040: the game credits what one counter adds between two of its
+    // own reports, so a counter's label must not change under it, and two
+    // counters (two page loads) must not share one.
+    const world = new GpsSimWorld();
+    const player = world.add('white', { start: HOME, accuracyM: 5 });
+    const other = world.add('black', { start: HOME, accuracyM: 5 });
+    const leg = player.state.distanceLeg;
+    expect(leg.length).toBeGreaterThan(8);
+    player.start();
+    player.walkTo(fromLocal(HOME, { e: 40, n: 0 }));
+    world.advance(40_000);
+    expect(player.state.distanceM).toBeGreaterThan(0);
+    expect(player.state.distanceLeg).toBe(leg);
+    expect(other.state.distanceLeg).not.toBe(leg);
+  });
+
   it('wobbles identically for a given seed, and differently for another', () => {
     const track = (seed: number) => {
       const world = new GpsSimWorld();

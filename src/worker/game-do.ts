@@ -30,8 +30,15 @@ import {
   remainingMs,
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
-import { type FieldSnapshot, geometryFromSnapshot } from '../shared/field.js';
+import {
+  type FieldSnapshot,
+  boardDiagonalM,
+  boardSizeM,
+  geometryFromSnapshot,
+} from '../shared/field.js';
+import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
+import type { RecordGame } from '../shared/record.js';
 import {
   DEFAULT_REACH,
   type ReachConfig,
@@ -57,6 +64,7 @@ import {
 } from '../shared/protocol.js';
 import { type Color, isSquare } from '../shared/squares.js';
 import { Timers } from './timers.js';
+import { MAX_TRAVEL_LEG_CHARS, creditTravel } from './travel.js';
 import { applySchema, isInitialised } from './schema.js';
 
 /** What a socket needs to remember about itself across a hibernation. */
@@ -141,6 +149,17 @@ interface CarryRow {
 }
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * When a finished game cannot reach a player's account, how long before it
+ * tries again, doubling each time (stage 2.3.5). Thirty seconds, then a minute,
+ * two, four… — ten attempts span about eight and a half hours, which outlasts
+ * any outage a free-tier account is likely to see. After that the game stops
+ * spending alarms on it, and the next time either player re-opens the game
+ * (re-taking a seat) it tries once more.
+ */
+const RECORD_RETRY_BASE_MS = 30_000;
+const RECORD_MAX_ATTEMPTS = 10;
 
 /** Validate a client-supplied fix. Everything from a client is untrusted. */
 function asPosFix(value: unknown): PosFix | null {
@@ -309,6 +328,10 @@ export class GameDO extends DurableObject<Env> {
       // opening a game it has not seen for a month — and that account may have
       // no line for this game at all.
       await this.syncIndex(Date.now(), existing);
+      // And the record, for the same reason: a finished game whose push gave up
+      // gets another chance when somebody is looking at it. A no-op when both
+      // lines have already landed.
+      if (game.status === 'finished') await this.pushRecord(Date.now(), { fresh: true });
       return { ok: true, color: existing, field: this.fieldOf(game) };
     }
 
@@ -499,7 +522,10 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'pos':
-        await this.onPos(who, msg as { lat: number; lng: number; acc: number; travelM?: number });
+        await this.onPos(
+          who,
+          msg as { lat: number; lng: number; acc: number; travelM?: number; leg?: unknown },
+        );
         return;
 
       case 'ready':
@@ -550,10 +576,14 @@ export class GameDO extends DurableObject<Env> {
    * The client is supposed to send these only on meaningful movement and no more
    * than every couple of seconds. This re-checks, because a client that ignores
    * the policy would otherwise spend the whole account's request budget.
+   *
+   * It is also where distance walked is credited, since the phone piggybacks its
+   * counter here rather than spending a message of its own. What may be credited
+   * is {@link creditTravel}'s answer, not what was reported.
    */
   private async onPos(
     who: SocketAttachment,
-    msg: { lat: number; lng: number; acc: number; travelM?: number },
+    msg: { lat: number; lng: number; acc: number; travelM?: number; leg?: unknown },
   ): Promise<void> {
     if (
       !Number.isFinite(msg.lat) ||
@@ -566,8 +596,14 @@ export class GameDO extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const [row] = [...this.sql.exec<{ last_pos_at: number | null; in_start_zone: number }>(
-      `SELECT last_pos_at, in_start_zone FROM presence WHERE player_id = ?`,
+    const [row] = [...this.sql.exec<{
+      last_pos_at: number | null;
+      in_start_zone: number;
+      travel_leg: string | null;
+      travel_seen_m: number;
+    }>(
+      `SELECT last_pos_at, in_start_zone, travel_leg, travel_seen_m
+         FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
     if (row?.last_pos_at != null && now - row.last_pos_at < POS_SERVER_MIN_INTERVAL_MS) {
@@ -576,12 +612,26 @@ export class GameDO extends DurableObject<Env> {
 
     const game = this.game();
     const zone = game === null ? false : this.isInOwnStartZone(game, who.color, msg);
+    const budgetFrom = Math.max(row?.last_pos_at ?? 0, game?.last_clock_start_at ?? 0);
+    const travel = creditTravel({
+      leg: typeof msg.leg === 'string' ? msg.leg.slice(0, MAX_TRAVEL_LEG_CHARS) : '',
+      reportedM: msg.travelM,
+      storedLeg: row?.travel_leg ?? null,
+      seenM: row?.travel_seen_m ?? 0,
+      active: game?.status === 'active',
+      // Measured from the later of this player's last report and the moment the
+      // clock last started, so a silent phone banks no ceiling across staging
+      // or a suspension. Over a whole game the credit cannot exceed a sprint
+      // for as long as the game was active, which is what makes silence during
+      // the opponent's think harmless rather than a hole.
+      budgetMs: budgetFrom === 0 ? null : Math.max(0, now - budgetFrom),
+    });
 
     this.sql.exec(
       `UPDATE presence
           SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?,
               last_seen_at = ?, in_start_zone = ?,
-              travel_m = MAX(travel_m, ?)
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?
         WHERE player_id = ?`,
       msg.lat,
       msg.lng,
@@ -589,9 +639,9 @@ export class GameDO extends DurableObject<Env> {
       now,
       now,
       zone ? 1 : 0,
-      // Monotonic: distance walked only ever increases, so a client that resets
-      // or a stale message cannot reduce it.
-      Number.isFinite(msg.travelM) ? Math.max(0, msg.travelM as number) : 0,
+      travel.creditM,
+      travel.leg,
+      travel.seenM,
       who.playerId,
     );
 
@@ -713,6 +763,37 @@ export class GameDO extends DurableObject<Env> {
                        suspended_at = NULL, suspended_by = NULL, updated_at = ? WHERE id = 1`,
       now,
       now,
+    );
+    // Play starts here, so every phone's distance counter is re-baselined here
+    // (decision 0040). The rate cap alone does not do it: the first report
+    // after the clock starts carries everything the counter added since the
+    // *last report before* the start — the walk to the back rank, or the walk
+    // back from a coffee — and for the player off move that gap can be long
+    // enough that a sprint's worth of ceiling never binds. Marking each stored
+    // leg makes the next report land on `creditTravel`'s untaken-leg branch: a
+    // baseline, credited nothing.
+    //
+    // Marked rather than cleared, because NULL means "never reported under the
+    // per-game rule" and `recordLine` reads that as *unmeasured*. Stored in
+    // SQLite like everything else, since the object may hibernate between the
+    // start and the next relay.
+    //
+    // The mark is not a secret — the start instant is on the wire, in the
+    // clock — and it does not need to be. A phone that guessed it would keep
+    // its baseline across the start, and what that buys is bounded by the rate
+    // cap and, over the game, by a sprint for as long as the game was active:
+    // the same latitude O-03 already concedes to a phone willing to report a
+    // steady jog while standing still.
+    //
+    // The leg is truncated before the mark is appended, so the value cannot
+    // grow without bound. A pause and a resume with no relay in between would
+    // otherwise append every time, and that cycle is as fast as the buttons can
+    // be tapped, because `onPause` leaves `in_start_zone` set.
+    this.sql.exec(
+      `UPDATE presence SET travel_leg = substr(travel_leg, 1, ?) || '@' || ?
+        WHERE travel_leg IS NOT NULL`,
+      MAX_TRAVEL_LEG_CHARS,
+      String(now),
     );
     await this.armFlag();
     // A resume clears the suspension, so the countdown has to leave the list too.
@@ -1049,8 +1130,11 @@ export class GameDO extends DurableObject<Env> {
     await this.timers.cancel('gc');
 
     // The result is the one thing the index most needs to be right about: it is
-    // what makes the row removable, and what stage 2.3.5's record is built from.
+    // what makes the row removable.
     await this.syncIndex(now);
+    // And the permanent record (stage 2.3.5): what this game adds to each
+    // player's lifetime. Retried on a timer if an account cannot be reached.
+    await this.pushRecord(now);
   }
 
   // -------------------------------------------------------------------------
@@ -1423,6 +1507,155 @@ export class GameDO extends DurableObject<Env> {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // The permanent record (stage 2.3.5, decision 0040)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Hand each player's account its line for this finished game.
+   *
+   * The game writes the record exactly as it writes the index — over the `USER`
+   * binding, and never through a route a phone could call (decision 0040,
+   * carrying over 0033). Unlike the index, **a failure is not left for the next
+   * transition**, because a finished game has none: it is retried on the
+   * `record` timer, through the one alarm, with nothing held in memory.
+   *
+   * **Idempotent at both ends.** Here, a line already accepted is remembered by
+   * its digest in `meta` and not sent again. There, the account keys the line
+   * by join code and derives every total from its lines, so a line that *is*
+   * sent twice — the push succeeded but its answer was lost, say — overwrites
+   * itself and counts once. The line is built only from stored columns, and
+   * nothing about a finished game changes (distance stops being credited when
+   * the game stops being active), so the same game always produces the same
+   * line.
+   *
+   * `fresh` restarts the attempt count, for a player re-opening a game whose
+   * earlier attempts all failed.
+   */
+  private async pushRecord(now: number, options: { fresh?: boolean } = {}): Promise<void> {
+    const game = this.game();
+    if (game === null || game.status !== 'finished') return;
+    if (options.fresh) this.deleteMeta('record_attempts');
+
+    let pending = false;
+    for (const color of ['w', 'b'] as const) {
+      const account = color === 'w' ? game.white_account : game.black_account;
+      if (account === null) continue;
+      const line = this.recordLine(game, color);
+      if (line === null) continue;
+      const digest = JSON.stringify(line);
+      if (this.meta(`record_${color}`) === digest) continue;
+      try {
+        // A `false` is a full record refusing a new game. Nothing about a later
+        // attempt would differ, so it is settled either way.
+        await this.env.USER.getByName(account).recordResult(account, line, now);
+        this.setMeta(`record_${color}`, digest);
+      } catch (error) {
+        console.error('record push failed', error);
+        pending = true;
+      }
+    }
+
+    if (!pending) {
+      this.deleteMeta('record_attempts');
+      if (this.timers.peek('record') !== null) await this.timers.cancel('record');
+      return;
+    }
+    const attempts = Number(this.meta('record_attempts') ?? '0') + 1;
+    this.setMeta('record_attempts', String(attempts));
+    if (attempts > RECORD_MAX_ATTEMPTS) {
+      console.error(`record push abandoned after ${RECORD_MAX_ATTEMPTS} attempts`);
+      return;
+    }
+    await this.timers.schedule('record', now + RECORD_RETRY_BASE_MS * 2 ** (attempts - 1));
+  }
+
+  /**
+   * One player's line in the permanent record, out of stored columns only.
+   *
+   * Carries everything the record will ever need to say about this game,
+   * because the game may not exist later: stage 8.4 archives finished games to
+   * KV and deletes the object. No coordinates — the field is named and keyed,
+   * never located (decision 0017).
+   */
+  private recordLine(game: GameRow, color: Color): RecordGame | null {
+    const outcome = game.result_outcome as ResultOutcome | null;
+    if (outcome === null || game.result_at === null) return null;
+
+    const [moves] = [
+      ...this.sql.exec<{ plies: number; mine: number; longest: number }>(
+        `SELECT COUNT(*) AS plies,
+                COALESCE(SUM(CASE WHEN color = ? THEN 1 ELSE 0 END), 0) AS mine,
+                COALESCE(MAX(CASE WHEN color = ? THEN carried_m END), 0) AS longest
+           FROM moves`,
+        color,
+        color,
+      ),
+    ];
+    const [presence] = [
+      ...this.sql.exec<{ travel_m: number; travel_leg: string | null }>(
+        `SELECT travel_m, travel_leg FROM presence WHERE color = ? LIMIT 1`,
+        color,
+      ),
+    ];
+    // A distance credited under the old rule and never reported under the new
+    // one is not this game's distance: it is whatever the phone's counter had
+    // reached, the walk to the park included. `travel_leg` is null exactly
+    // when no report has been credited by difference, so the pair says
+    // "inherited, never measured" without a date or a flag. The record calls
+    // that unmeasured rather than inventing a number (decision 0040).
+    const travelM =
+      presence === undefined
+        ? 0
+        : presence.travel_leg === null && presence.travel_m > 0
+          ? null
+          : presence.travel_m;
+
+    let fieldName: string | null = null;
+    let fieldKey: string | null = null;
+    let squareM = 0;
+    let boardM = 0;
+    let diagonalM = 0;
+    try {
+      const snapshot = this.fieldOf(game);
+      fieldName = snapshot.name;
+      fieldKey =
+        typeof snapshot.lineageKey === 'string' && /^[0-9a-f]{16}$/.test(snapshot.lineageKey)
+          ? snapshot.lineageKey
+          : originKeyFor(snapshot.fieldId);
+      const geo = geometryFromSnapshot(snapshot);
+      // The narrower step, as `checkCalibration` judges it: a board with 12 m
+      // files and 3 m ranks is as ambiguous as a 3 m board.
+      squareM = Math.min(geo.fileM, geo.rankM);
+      boardM = boardSizeM(geo);
+      diagonalM = boardDiagonalM(geo);
+    } catch {
+      // A malformed snapshot could not have been played on; the line still
+      // records the result, and reads as a practice game.
+    }
+
+    return {
+      joinCode: game.join_code,
+      color,
+      outcome,
+      reason: game.result_reason as ResultReason,
+      finishedAt: game.result_at,
+      plies: moves?.plies ?? 0,
+      moves: moves?.mine ?? 0,
+      travelM,
+      longestCarryM: moves?.longest ?? 0,
+      fieldName,
+      fieldKey,
+      squareM,
+      boardM,
+      diagonalM,
+    };
+  }
+
+  private deleteMeta(key: string): void {
+    this.sql.exec(`DELETE FROM meta WHERE key = ?`, key);
+  }
+
   private meta(key: string): string | null {
     const [row] = [
       ...this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = ?`, key),
@@ -1455,6 +1688,9 @@ export class GameDO extends DurableObject<Env> {
           break;
         case 'flag':
           await this.onFlagFall(now);
+          break;
+        case 'record':
+          await this.pushRecord(now);
           break;
       }
     }

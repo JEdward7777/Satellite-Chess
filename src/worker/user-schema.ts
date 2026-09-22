@@ -25,7 +25,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const USER_SCHEMA_VERSION = 1;
+export const USER_SCHEMA_VERSION = 2;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one account, and the CHECK
@@ -129,6 +129,50 @@ const STATEMENTS = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS game_index_updated_at ON game_index (updated_at DESC)`,
+
+  // The permanent record (stage 2.3.5, decision 0040): one row per *finished*
+  // game, written by GameDO when the game ends and by nothing else. Schema 2.
+  //
+  // **Not the game index, and not deleted with it.** `game_index` is a list of
+  // pointers the player may tidy away (2.3.4.2); this is what they have done,
+  // and forgetting a game from a list must not un-walk the walk. Nothing
+  // deletes a row here.
+  //
+  // **No totals column, anywhere.** Totals are folded out of these rows on
+  // every read (`summarizeRecord`), which is what makes a game reported twice
+  // harmless: the second report overwrites its own row, and a sum over rows
+  // cannot count it twice. A running total would need exactly-once delivery
+  // between two Durable Objects.
+  //
+  // **No coordinates.** A field is named and keyed by lineage, never located:
+  // the record says what the walking added up to, not where it happened. The
+  // game keeps the positions (decision 0017). Like `fields`, there is no
+  // column naming the opponent — head-to-head (8.5.4) is a different, shared
+  // mechanism and is not built by adding one here.
+  `CREATE TABLE IF NOT EXISTS record (
+     join_code        TEXT    PRIMARY KEY,
+     color            TEXT    NOT NULL,
+     outcome          TEXT    NOT NULL,
+     reason           TEXT    NOT NULL,
+     finished_at      INTEGER NOT NULL,
+     -- Moves by both sides, and by this player. Zero plies is an unplayed game.
+     plies            INTEGER NOT NULL,
+     moves            INTEGER NOT NULL,
+     -- Client-reported, capped by the game at a sprint (observation O-03).
+     -- Nullable on purpose: NULL means nobody measured this game's walking,
+     -- which is not zero. Only games already in play when the per-game rule
+     -- arrived (2.3.5.3) can be NULL, and they sit outside every total.
+     travel_m         REAL,
+     longest_carry_m  REAL    NOT NULL,
+     field_name       TEXT,
+     field_key        TEXT,
+     -- The facts the standing is judged from at read time, so that moving the
+     -- small-square floor (stage 9.2) re-judges every game rather than half.
+     square_m         REAL    NOT NULL,
+     board_m          REAL    NOT NULL,
+     diagonal_m       REAL    NOT NULL,
+     recorded_at      INTEGER NOT NULL
+   )`,
 
   `CREATE TABLE IF NOT EXISTS meta (
      key   TEXT PRIMARY KEY,

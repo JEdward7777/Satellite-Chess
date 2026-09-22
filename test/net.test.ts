@@ -336,6 +336,12 @@ describe('the position relay — the client half of the request budget', () => {
     expect(latest().messages[0]).toMatchObject({ t: 'pos', acc: 4, travelM: 12 });
   });
 
+  it('carries the distance counter’s label when it is given one', () => {
+    const { connection, latest } = clocked();
+    expect(connection.offerPosition(fix(HOME), 12, 'page-a')).toBe(true);
+    expect(latest().messages[0]).toMatchObject({ t: 'pos', travelM: 12, leg: 'page-a' });
+  });
+
   it('carries no timestamp — the server times everything itself', () => {
     const { connection, latest } = clocked();
     connection.offerPosition(fix(HOME));

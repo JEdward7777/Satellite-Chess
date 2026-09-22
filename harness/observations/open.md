@@ -555,3 +555,130 @@ Dev only: a Google session in that state gets the "probably run out" notice
 instead, and dev tokens are never renewed so nobody relies on the line.
 **Fix, when wanted:** say "It has ended" when the difference is not positive.
 **Not doing yet because:** it only affects the local test account, offline.
+
+### O-30 — Piece outlines are the opponent's color, and a bishop can vanish
+**Spotted:** 2026-09-20, the owner's first complete games outdoors (stage 10.1)
+**Why it matters:** This is field evidence from real play, not a design worry.
+Each piece is drawn outlined in the *other* side's color, and players repeatedly
+had to stop and work out whose piece they were looking at. The bishop is the
+worst case: on the square color that matches its own outline color it is hard to
+see at all. Reading the board at a glance is the whole point of the board view —
+a player is looking at a phone in daylight, mid-walk, deciding where to go next.
+**Fix, when wanted:** Decide what the outline is *for* before changing it. If it
+exists to separate a piece from the square underneath, it should take its color
+from the square, not from the opposing side. Check the bishop specifically on
+every square color, and check it outdoors rather than on a desk monitor.
+**Not doing yet because:** it wants a look at the renderer and a real-daylight
+check, not a quick color swap. It belongs with the other playtest findings (10.2).
+
+### O-31 — The host's clock kept rounding up to a whole number of minutes
+**Spotted:** 2026-09-20, the owner's first complete games outdoors (stage 10.1)
+**Why it matters:** Reported as "something funny going on with the host's clock —
+it kept rounding up to an even number of minutes", so the clock looked flaky to
+the person hosting. The clock is the one part of this game that must be beyond
+suspicion, and it is also the part with the most room for a real bug: it is pure
+functions over stored timestamps, reconstructed on every wake, and ticked locally
+against a server-time offset (`src/shared/clock.ts`, `5.4.1`). A display that
+jumps to a rounder number than the truth is the visible symptom of *either* a
+harmless formatting choice *or* a recomputation landing on the wrong base.
+**Fix, when wanted:** First establish which. Reproduce against `wrangler dev`,
+watching the raw numbers in the snapshot beside what the screen shows. If the two
+agree, it is the formatter; if they diverge, it is the clock, and that is serious.
+Note the report says *host*, so the two seats may not behave the same — check
+whether it is the creating device, the white seat, or the device that has been
+connected longest.
+**Not doing yet because:** unreproduced. It needs the numbers in front of you,
+and it is the strongest candidate of the playtest findings for being a real bug.
+
+### O-32 — Two players, two different fields, one game over the internet
+**Spotted:** 2026-09-20, suggested to the owner during the first outdoor games
+**Why it matters:** This is a feature idea rather than a defect, recorded here so
+it is not lost and does not get built by accident. Today both players are on the
+same ground, which is where every rule in this project comes from. Playing from
+two separate fields would keep the walking and drop the co-presence. The fairness
+problem has an answer already: shrink the larger field to match the smaller, so
+both players walk the same distance for the same move.
+**Before building anything, settle:** what a carry means when the opponent cannot
+see you; whether the coarse opponent-position relay becomes a location leak to a
+stranger rather than atmosphere for a friend (today it is broadcast to someone
+standing next to you); what happens when one field is calibrated badly; and
+whether the clock still reads as fair when the two walks are equal in meters but
+not in terrain. The board is already not forced to be square (decision 0028), and
+reach is already measured in fractional squares (decision 0031), so the geometry
+side is less work than it sounds.
+**Not doing yet because:** the owner explicitly wants it parked for future review
+rather than confusing the current work. Phases 7–10 come first.
+
+### O-33 — Poor signal buys extra reach, and a pocket is a cheap exploit
+**Spotted:** 2026-09-20, the owner's ruling after the first outdoor games
+**Why it matters:** `effectiveReachM` in `src/shared/reach.ts` grows the reach
+circle by the amount reported accuracy exceeds `goodAccuracyM`. The owner's
+ruling is that this optimization is not needed and should go: a player whose fix
+is poor can simply stand somewhere else to get what they need, whereas today
+**degrading your own signal on purpose — phone in a pocket — earns you a longer
+reach than the opponent has**. That is an advantage handed out for a worse
+device, a worse position, or deliberate abuse, and it is invisible to the person
+it is used against. The 2026-09-06 field walk supports removing it: reported
+accuracy was about 16x pessimistic while observed scatter was 0.2 m median, so
+the compensation is paying out against a number that is nearly always wrong in
+the generous direction.
+**Fix, when wanted:** Delete the accuracy term from `effectiveReachM` and keep
+the hard refusal above `maxAccuracyM`, which is the honest half of the mechanism:
+a fix too poor to trust refuses the move rather than widening the circle. Expect
+the reach circle to stop breathing, which is itself an improvement (`10.4.3`).
+Check what `1.9.3` and decision 0031 assumed before changing the constants.
+**Related:** **O-12** is the same mechanism seen from the measurement side — the
+floor is scaled by *claimed* accuracy rather than observed scatter. This
+observation is the owner deciding the scaling should not exist at all, which
+closes O-12 by removal rather than by better measurement.
+**Not doing yet because:** it changes a game rule, so it needs its own stage, a
+decision recording the reversal, and a simulator or DO-test run — not a quiet
+edit in the middle of the record work.
+
+### O-34 — A game's code opens its field to anyone holding it, for ever
+**Spotted:** 2026-09-19, stage 2.3.5 (the privacy statement made it say so)
+**Why it matters:** `GET /api/game/:code` (`GameDO.peek`) takes no session and
+returns the field snapshot — the tapped corners, which is the place. Nothing
+deletes a played game (decision 0025), so a code shared once is a pointer to a
+piece of ground that resolves for ever, to anybody it is forwarded to. The code
+is already an invitation to a place, so this is not a leak so much as a longer
+life than an invitation needs. Since 2.3.5 the snapshot also carries the field's
+`lineageKey`, which links two games on the same ground to each other — a digest
+the field link already carries, but it is new surface on this route.
+**Fix, when wanted:** cheapest is to require a session to peek a game that is
+`finished`, which costs nothing real: a join needs one anyway. Beyond that,
+expiring the readability of a code for non-seated readers once both seats are
+taken would close it entirely.
+**Not doing yet because:** the privacy statement (2.3.5.1) states it plainly
+rather than implying otherwise, and the next change on this route should be
+made with 8.4 (archive to KV), which touches what a finished game exposes.
+
+### O-35 — One account holding both seats writes one record row, not two
+**Spotted:** 2026-09-19, stage 2.3.5 review
+**Why it matters:** The record is keyed by join code, so if one account somehow
+holds both seats of a game — two phones, one sign-in — the second seat's line
+overwrites the first, and the game counts once, with whichever color pushed last.
+Stage 2.5.1 makes this hard to reach (a seat is a `sub`, and `join` refuses a
+second seat to the same one), so it is currently unreachable rather than
+unhandled. It is worth writing down because the natural fix for it — keying rows
+by `join_code + color` — is a schema change that gets much more expensive once
+real rows exist.
+**Not doing yet because:** it cannot happen today, and inventing the composite
+key now would complicate every read for a case the seat rules already exclude.
+
+### O-36 — A relay landing just after a ply loses the meters the cap clips
+**Spotted:** 2026-09-22, stage 2.3.5 review
+**Why it matters:** `creditTravel`'s ceiling is `MAX_PLAUSIBLE_SPEED_MPS` × the
+window since the later of the player's last report and the last clock start, and
+`last_clock_start_at` is re-stamped on every move. So a report arriving a few
+hundred milliseconds after a ply is credited at most a sprint for those
+milliseconds, and the rest of what that leg had genuinely added is not carried
+forward — `seenM` moves to what was reported either way. It is small (the walking
+of one relay interval, at most), always in the under-counting direction, and it
+stacks with the two hops decision 0040 already concedes.
+**Fix, when wanted:** carry the clipped remainder forward instead of dropping it
+— keep it in the presence row and pay it out under the next window's ceiling.
+That turns the cap into a rate limiter rather than a discarder, and it should be
+done with O-03's server-side lower bound rather than on its own.
+**Not doing yet because:** the whole residue is 1–3% of a game and one way; the
+fix adds a column and a second accumulator to save a fraction of that.

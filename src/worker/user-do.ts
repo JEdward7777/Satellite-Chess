@@ -53,14 +53,20 @@
  * asymmetry is deliberate (decision 0033). A field is the phone's, pushed up by
  * its owner; an index entry is the *game's*, pushed in by `GameDO` over the
  * `USER` binding when a game changes state. There is no endpoint that lets a
- * client write one, which is what makes these rows worth building `2.3.5`'s
- * permanent record on: a result the player could POST to themselves would be a
- * record of what they felt like claiming.
+ * client write one, which is what makes a listed result worth trusting: one
+ * the player could POST to themselves would be a record of what they felt like
+ * claiming.
  *
- * ## What is not here yet
+ * ## The permanent record arrives the same way, and stays
  *
- * `2.3.5` builds the permanent record over both tables. Metres walked is the
- * headline figure there, not games played (decision 0019).
+ * `record` (stage 2.3.5, decision 0040) is written by `GameDO` when a game
+ * finishes, over the same binding and for the same reason. It is one row per
+ * finished game and **never a running total**: {@link UserDO.record} folds the
+ * rows into totals on every read, so a game whose end is reported twice — an
+ * alarm retried, a seat re-taken — lands on its own row twice and is counted
+ * once. It outlives the game index on purpose: forgetting a game from a list
+ * does not un-walk the walk. Metres walked is the headline, not games played
+ * (decision 0019).
  */
 
 import { DurableObject } from 'cloudflare:workers';
@@ -85,6 +91,14 @@ import {
   bindValuesFor as gameBindValuesFor,
   entryFromRow,
 } from './user-games.js';
+import { type RecordGame, type RecordSummary, summarizeRecord } from '../shared/record.js';
+import {
+  MAX_RECORD_GAMES,
+  RECORD_COLUMNS,
+  type RecordRow,
+  bindValuesFor as recordBindValuesFor,
+  gameFromRow,
+} from './user-record.js';
 import { applyUserSchema } from './user-schema.js';
 
 /** The account, as anything outside the object sees it. */
@@ -362,6 +376,63 @@ export class UserDO extends DurableObject<Env> {
       }
     });
     return { forgotten, kept };
+  }
+
+  // -------------------------------------------------------------------------
+  // The permanent record (stage 2.3.5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record a finished game, for the seat this account held in it.
+   *
+   * Called by `GameDO` when a game ends, and again if that push failed and its
+   * `record` timer retries — never by a route (decision 0040). **Idempotent by
+   * construction**: the row is keyed by join code and overwritten with the
+   * game's answer, and no total is incremented anywhere, so however many times
+   * one game is reported it is one row and is counted once.
+   *
+   * Returns false only when the record is full and this is a game it has never
+   * seen. The game treats that as final rather than retrying, because nothing
+   * about a later attempt would be different.
+   */
+  async recordResult(sub: string, game: RecordGame, now: number = Date.now()): Promise<boolean> {
+    let recorded = false;
+    this.ctx.storage.transactionSync(() => {
+      this.stamp(sub, now);
+      const [existing] = [
+        ...this.sql.exec<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM record WHERE join_code = ?`,
+          game.joinCode,
+        ),
+      ];
+      if (existing.n === 0 && this.recordCount() >= MAX_RECORD_GAMES) return;
+
+      const columns = RECORD_COLUMNS.join(', ');
+      const placeholders = RECORD_COLUMNS.map(() => '?').join(', ');
+      const updates = RECORD_COLUMNS.filter((c) => c !== 'join_code')
+        .map((c) => `${c} = excluded.${c}`)
+        .join(', ');
+      this.sql.exec(
+        `INSERT INTO record (${columns}, recorded_at) VALUES (${placeholders}, ?)
+           ON CONFLICT (join_code) DO UPDATE SET ${updates}, recorded_at = excluded.recorded_at`,
+        ...recordBindValuesFor(game),
+        now,
+      );
+      recorded = true;
+    });
+    return recorded;
+  }
+
+  /** The record, added up. Totals are derived here and never stored. */
+  async record(): Promise<RecordSummary> {
+    return summarizeRecord(
+      [...this.sql.exec<RecordRow>(`SELECT * FROM record`)].map(gameFromRow),
+    );
+  }
+
+  private recordCount(): number {
+    const [row] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM record`)];
+    return row.n;
   }
 
   private gameCount(): number {

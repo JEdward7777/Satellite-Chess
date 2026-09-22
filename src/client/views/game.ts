@@ -716,7 +716,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paint();
     // The one place position leaves the phone outside a move, and it refuses far
     // more often than it accepts (see `offerPosition`).
-    const relayed = state.fix ? deps.connection.offerPosition(state.fix, state.distanceM) : false;
+    const relayed = state.fix
+      ? deps.connection.offerPosition(state.fix, state.distanceM, state.distanceLeg)
+      : false;
     considerReady(relayed);
   });
   const offNet = deps.connection.subscribe((state) => {

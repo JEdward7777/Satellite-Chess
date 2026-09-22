@@ -374,8 +374,18 @@ export interface GpsState {
   quality: GpsQuality;
   /** Set whenever something is wrong, including the non-fatal cases. */
   error: GpsError | null;
-  /** Metres walked since {@link GpsProvider.start}. */
+  /** Metres walked since this page loaded — see {@link distanceLeg}. */
   distanceM: number;
+  /**
+   * Which counter `distanceM` comes from: one per page load, because that is
+   * how long the counter lives (a reload starts it again at zero).
+   *
+   * Sent beside the distance so a game can credit only what the counter adds
+   * while that game is active (stage 2.3.5.3, decision 0040). Without it the
+   * server could not tell "walked 300 m during this game" from "walked 300 m
+   * calibrating before it", nor a reload from a phone claiming less.
+   */
+  distanceLeg: string;
   /** Fixes seen — enough to answer "is this thing even running". */
   fixCount: number;
 }
@@ -388,8 +398,24 @@ export interface GpsProvider {
   subscribe(listener: (state: GpsState) => void): () => void;
 }
 
-export function idleGpsState(): GpsState {
-  return { status: 'idle', fix: null, quality: 'unusable', error: null, distanceM: 0, fixCount: 0 };
+export function idleGpsState(distanceLeg = ''): GpsState {
+  return {
+    status: 'idle',
+    fix: null,
+    quality: 'unusable',
+    error: null,
+    distanceM: 0,
+    distanceLeg,
+    fixCount: 0,
+  };
+}
+
+/** A label for one distance counter. Uniqueness matters; secrecy does not. */
+function newDistanceLeg(): string {
+  const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  return typeof cryptoApi?.randomUUID === 'function'
+    ? cryptoApi.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 /**
@@ -404,7 +430,7 @@ export class GpsCore {
   private readonly distance: DistanceAccumulator;
   private readonly listeners = new Set<(state: GpsState) => void>();
   private coarseStreak = 0;
-  private current: GpsState = idleGpsState();
+  private current: GpsState = idleGpsState(newDistanceLeg());
 
   constructor(opts: { platform?: Platform; reach?: ReachConfig } = {}) {
     this.platform = opts.platform ?? 'other';

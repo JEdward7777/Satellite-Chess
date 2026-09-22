@@ -712,3 +712,71 @@ body:has(.sim-panel) #app {
 .session-renew {
   margin-top: 0.6rem;
 }
+
+/*
+ * The permanent record (stage 2.3.5). Meters walked is the largest thing on the
+ * account screen, and games played is a clause in the sentence under it —
+ * decision 0019, drawn to scale.
+ */
+.record-headline {
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0.4rem 0 0;
+}
+
+.record-sub {
+  margin: 0 0 0.4rem;
+  color: var(--dim);
+}
+
+.record-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+
+.record-stats dt {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.record-stats dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.record h3 {
+  font-size: 1rem;
+  margin: 1.2rem 0 0.2rem;
+}
+
+.record-honesty p {
+  margin: 0.5rem 0;
+}
+
+/* The privacy statement (stage 2.3.5.1): one tap away, never hidden. */
+.privacy {
+  margin: 1.5rem 0 0;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.privacy summary {
+  cursor: pointer;
+  font-weight: 600;
+  /* The 48px thumb floor, without `display: flex`, which drops the marker. */
+  padding: 0.7rem 0;
+}
+
+.privacy ul {
+  margin: 0.4rem 0 0.4rem;
+  padding-left: 1.1rem;
+}
+
+.privacy li {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}

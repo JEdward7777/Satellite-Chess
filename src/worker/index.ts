@@ -12,6 +12,7 @@
  */
 
 import { type FieldSpec, snapshotField } from '../shared/field.js';
+import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import { isAppRoute } from '../shared/routes.js';
@@ -186,6 +187,11 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return forgetGames(request, env, url);
   }
 
+  // The permanent record (stage 2.3.5): what this account has done, added up.
+  if (path === '/api/record') {
+    return readRecord(request, env, url);
+  }
+
   if (path === '/api/game' && request.method === 'POST') {
     return createGame(request, env, url);
   }
@@ -314,6 +320,42 @@ async function listGames(request: Request, env: Env, url: URL): Promise<Response
     games: [...entries].sort(byMostWanted).map((entry) => listedGame(entry, now)),
     now,
   });
+}
+
+/**
+ * The permanent record, summarized (stage 2.3.5).
+ *
+ * A read and nothing else: there is no route that writes the record, because
+ * only a game may say what happened in it (decision 0040). One request, asked
+ * when the account screen opens and not on every launch — the record is worth
+ * a tap, not a tax on starting the app.
+ */
+async function readRecord(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'GET') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+  return json({ record: await userFor(env, identity.sub).record() });
+}
+
+/**
+ * A field's lineage key, or null for one that is not shaped like ours.
+ *
+ * The phone's own claim about where its field came from, and harmless as one:
+ * it can only decide which of the player's *own* fields a game is filed under
+ * in their record. Checked for shape so that a hand-rolled request cannot park
+ * an arbitrary string inside every game's snapshot.
+ */
+function lineageKeyOf(spec: unknown): string | null {
+  try {
+    const key = fieldKey(spec as FieldSpec);
+    return typeof key === 'string' && /^[0-9a-f]{16}$/.test(key) ? key : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -456,7 +498,12 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
   // joiner who has never calibrated anything can play immediately.
   let field;
   try {
-    field = snapshotField(body.field as Parameters<typeof snapshotField>[0]);
+    const spec = body.field as Parameters<typeof snapshotField>[0];
+    // The lineage key rides along so the permanent record can count "fields
+    // played on" by ground rather than by copy (stage 2.3.5).
+    field = snapshotField(spec);
+    const lineageKey = lineageKeyOf(spec);
+    if (lineageKey !== null) field = { ...field, lineageKey };
   } catch {
     return apiError('bad_field', 'That field is not usable. Re-calibrate and try again.', 400);
   }

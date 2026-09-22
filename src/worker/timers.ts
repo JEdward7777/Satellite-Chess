@@ -7,6 +7,8 @@
  * - `disconnect` — the grace period after which a dropped player suspends the
  *   game and freezes both clocks.
  * - `gc` — garbage collection of an unclaimed, abandoned or finished game.
+ * - `record` — a retry of a finished game's push into its players' permanent
+ *   records, when the first attempt could not reach an account (stage 2.3.5).
  *
  * A DO has one alarm. Calling `setAlarm` for one of these silently cancels
  * whichever other was pending, and the resulting bug — "the clock sometimes
@@ -18,7 +20,7 @@
  * cached in memory.
  */
 
-export type TimerKind = 'flag' | 'disconnect' | 'gc';
+export type TimerKind = 'flag' | 'disconnect' | 'gc' | 'record';
 
 // The index signature is what `sql.exec<T>()` requires of a row type: it returns
 // `Record<string, SqlStorageValue>`, so a plain interface does not satisfy it.

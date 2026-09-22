@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { deriveGeometry, makeFieldSpec, snapshotField, squareCentreLatLng } from '../../src/shared/field.js';
 import { fromLocal } from '../../src/shared/geo.js';
-import { POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
+import { POS_MIN_INTERVAL_MS, POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
 import { fromSquare } from '../../src/shared/squares.js';
 import { type WebSocketLike, connectToGame } from '../../src/client/net.js';
 import type { GameDO } from '../../src/worker/game-do.js';
@@ -94,7 +94,32 @@ function adapt(ws: WebSocket): WebSocketLike {
   return adapter;
 }
 
-async function connected(joinCode: string, playerId: string) {
+/** A clock a test drives, so the client's interval floor costs no real time. */
+function fakeClock(start = Date.now()) {
+  let t = start;
+  return { now: () => t, advance: (ms: number) => { t += ms; } };
+}
+
+/**
+ * Push this game's stored instants into the past.
+ *
+ * The server keeps its own interval floor and its own rate ceiling on distance,
+ * both measured against stored timestamps — so a test that wants a second relay
+ * accepted either sleeps through them or moves them, and sleeping leaves a real
+ * socket idle for seconds at a time, which is what made this file flaky.
+ */
+async function backdate(stub: DurableObjectStub<GameDO>, ms: number): Promise<void> {
+  await runInDurableObject(stub, (_i, state) => {
+    const now = Date.now();
+    state.storage.sql.exec(`UPDATE presence SET last_pos_at = ?`, now - ms);
+    state.storage.sql.exec(
+      `UPDATE game SET last_clock_start_at = ? WHERE id = 1 AND last_clock_start_at IS NOT NULL`,
+      now - ms,
+    );
+  });
+}
+
+async function connected(joinCode: string, playerId: string, now?: () => number) {
   const res = await SELF.fetch(`http://127.0.0.1/api/game/${joinCode}/ws`, {
     headers: { upgrade: 'websocket', cookie: await cookieFor(playerId) },
   });
@@ -107,6 +132,7 @@ async function connected(joinCode: string, playerId: string) {
     origin: 'http://127.0.0.1',
     pingIntervalMs: 60_000,
     socketFactory: () => adapt(socket),
+    ...(now === undefined ? {} : { now }),
   });
 }
 
@@ -141,7 +167,7 @@ async function untilAsync<T>(read: () => Promise<T | null | undefined>, ms = 3_0
   }
 }
 
-async function startedGame() {
+async function startedGame(opts: { whiteClock?: () => number } = {}) {
   const joinCode = nextCode();
   const stub = env.GAME.getByName(joinCode);
   await stub.create({
@@ -154,7 +180,7 @@ async function startedGame() {
   });
   await stub.join('net-black');
 
-  const white = await connected(joinCode, 'net-white');
+  const white = await connected(joinCode, 'net-white', opts.whiteClock);
   const black = await connected(joinCode, 'net-black');
   await until(() => white.state.game);
   await until(() => black.state.game);
@@ -229,19 +255,37 @@ describe('the client transport against the real GameDO', () => {
     black.close();
   });
 
-  it('records a relay that clears both limiters, mileage included', async () => {
-    const { stub, white, black } = await startedGame();
+  it('records a relay that clears both limiters, and credits what the counter adds', async () => {
+    // Both limiters are driven rather than waited out: the client's from an
+    // injected clock, the server's by moving its stored instants. A real socket
+    // left idle for seconds while a test sleeps is what made this flaky.
+    const clock = fakeClock();
+    const { stub, white, black } = await startedGame({ whiteClock: clock.now });
 
-    // Past the server's backstop, and the client has sent nothing, so the only
-    // gate left is the server's.
-    await new Promise((resolve) => setTimeout(resolve, POS_SERVER_MIN_INTERVAL_MS + 100));
-    expect(white.offerPosition(gpsFix('d4'), 42)).toBe(true);
+    await backdate(stub, POS_SERVER_MIN_INTERVAL_MS + 2_000);
+    expect(white.offerPosition(gpsFix('d4'), 42, 'page-1')).toBe(true);
 
-    const presence = await untilAsync(async () => {
+    // The first report from a counter this game has not seen sets its
+    // baseline and earns nothing (decision 0040): those 42 m were walked
+    // before the game could have seen them.
+    const first = await untilAsync(async () => {
       const row = await readPresence(stub);
-      return row.travel_m === 42 ? row : null;
+      return row.last_lat !== null && Math.abs(row.last_lat - gpsFix('d4').pos.lat) < 1e-6
+        ? row
+        : null;
     });
-    expect(presence.last_lat).toBeCloseTo(gpsFix('d4').pos.lat, 5);
+    expect(first.travel_m).toBe(0);
+
+    // The next one, past the client's own interval floor, earns the difference.
+    clock.advance(POS_MIN_INTERVAL_MS + 100);
+    await backdate(stub, POS_SERVER_MIN_INTERVAL_MS + 2_000);
+    expect(white.offerPosition(gpsFix('d6'), 60, 'page-1')).toBe(true);
+    const second = await untilAsync(async () => {
+      const row = await readPresence(stub);
+      return row.travel_m > 0 ? row : null;
+    });
+    expect(second.travel_m).toBeCloseTo(18, 6);
+    expect(second.last_lat).toBeCloseTo(gpsFix('d6').pos.lat, 5);
 
     white.close();
     black.close();

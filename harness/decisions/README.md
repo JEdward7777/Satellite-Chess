@@ -75,3 +75,4 @@ The conditions under which this should be reopened.
 | [0037](0037-the-phone-says-ready-once-and-the-evidence-ends-with-the-socket.md) | The phone says `ready` once per arrival; a back rank is forgotten when the socket goes | accepted |
 | [0038](0038-a-cold-start-finds-its-game-through-the-index.md) | A cold start finds its game through the game index, not `localStorage` | accepted |
 | [0039](0039-the-phone-remembers-who-it-is-but-never-decides-with-it.md) | The phone remembers who it is, but never decides anything with it | accepted |
+| [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted |

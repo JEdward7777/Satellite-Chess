@@ -182,7 +182,7 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
       refuse — allows only `finished` and `waiting`. A suspended game is never
       removable however long it has sat: the row is the only handle on a game that
       can still be claimed or resigned, and those are its exits.
-  - `2.3.5` todo: The permanent record — games played, results, total distance
+  - `2.3.5` done: The permanent record — games played, results, total distance
     walked, biggest field, longest carry, and fields played on. This is the reason
     accounts are mandatory, so it is a first-class feature rather than a stats
     footnote.
@@ -192,12 +192,34 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
     - Metres walked is the headline, not games played (decision 0019). Board
       crossings — distance ÷ board diagonal — beside it as the field-independent
       measure. Games and moves are recorded but never lead and never rank.
-    - `2.3.5.2` todo: Exclude games on sub-4 m squares from totals and any
+    Built 2026-09-19 to 2026-09-22 (decision **0040**). One row per finished game
+    in `UserDO.record`, written only by `GameDO` and never by a route; totals are
+    derived on every read, which is what makes a game reported twice count once.
+    Rows outlive the game index, carry no coordinates and no opponent, and a
+    `travel_m` of NULL means *unmeasured* — the games the owner played before
+    this shipped. `GET /api/record` is a read and nothing else. The screen is on
+    the account screen (`views/record.ts`), with the privacy statement beside it
+    and the O-03 / O-12 sentences under the numbers. `scripts/check-record.mjs`
+    plays Fool's mate and reads both players' records.
+    - `2.3.5.2` done: Exclude games on sub-4 m squares from totals and any
       leaderboard, marking them as practice. They still appear in the player's own
       history. Threshold tracks `checkCalibration` and moves with stage 9.2.
-    - `2.3.5.1` todo: Privacy statement in the app — what location data is stored,
+    - `2.3.5.1` done: Privacy statement in the app — what location data is stored,
       what an opponent can see, and what never leaves the account. Players are
       handing us their whereabouts; say so plainly.
+    - `2.3.5.3` done: `travel_m` is this game's distance, credited by difference.
+      The phone's counter runs for the life of the page, so a game used to be
+      credited the calibration walk, the walk to the park and the previous game.
+      Now each report carries its counter's `leg`; the game credits what one leg
+      adds between reports, only while active, capped at a sprint
+      (`worker/travel.ts`, decision 0040).
+    - `2.3.5.4` done: A finished game pushes one line per seat into the account's
+      `record` table, idempotent at both ends and retried on the `record` timer.
+      Totals are derived on read, never stored (decision 0040).
+    - `2.3.5.5` done: The record on the account screen — meters walked as the
+      headline, games as the sentence under it, results, longest carry, biggest
+      board, fields, recent games, and the O-03 / O-12 sentences.
+      `scripts/check-record.mjs` plays Fool's mate and reads both records.
   - `2.3.6` todo: "Fields near me", read-cached in KV — public discovery, as
     distinct from sending a field to one person (2.3.7)
   - `2.3.7` done: Share a field as a self-contained link (decision 0016)

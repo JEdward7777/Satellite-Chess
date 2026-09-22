@@ -16,11 +16,11 @@
  * (decision 0033). The API surface is a list and a delete.
  *
  * That is not a detail of the plumbing, it is the reason the index is worth
- * having. Stage 2.3.5 builds the permanent record over these rows, and a record
- * of results that the player could POST to themselves would be a record of what
- * they felt like claiming. Distance walked is already client-reported and
- * knowingly so (decision 0019, observation O-03); results are not, and this is
- * where that is kept true.
+ * having, and the permanent record next door (`user-record.ts`) is written the
+ * same way for the same reason: a record of results the player could POST to
+ * themselves would be a record of what they felt like claiming. Distance walked
+ * is already client-reported and knowingly so (decision 0019, observation
+ * O-03); results are not, and this is where that is kept true.
  *
  * So the functions here are a codec rather than a validator. The narrowing that
  * does happen — {@link asStatus}, {@link asColor}, {@link asOutcome} — is about
