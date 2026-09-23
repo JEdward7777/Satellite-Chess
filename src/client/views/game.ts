@@ -295,7 +295,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
           <button data-claim hidden>Claim the win</button>
-          <button data-review hidden>After the game</button>
+          <button data-review-open hidden>After the game</button>
           <button data-pause class="secondary" hidden>Pause</button>
           <button data-leave class="secondary">Leave</button>
         </p>
@@ -437,6 +437,19 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     return { lat: fix.pos.lat, lng: fix.pos.lng, acc: fix.accuracyM, ts: fix.at };
   }
 
+  /**
+   * The distance counter, for a lift or a place to carry (decision 0041). A
+   * relay goes out only every few seconds and only on movement, so the walk
+   * that ends in a move — and, for the last move, the walk that ends the game —
+   * would otherwise never reach the server.
+   */
+  function travelNow(): { travelM: number; leg?: string } {
+    return {
+      travelM: gps.distanceM,
+      ...(gps.distanceLeg === undefined ? {} : { leg: gps.distanceLeg }),
+    };
+  }
+
   function onTap(square: Square): void {
     const game = net.game;
     const fix = fixNow();
@@ -445,7 +458,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // Everything below is a *request*. The server decides, and says why not.
     const carry = guidanceNow();
     if (carry === null) {
-      deps.connection.send({ t: 'lift', from: square, pos: fix });
+      deps.connection.send({ t: 'lift', from: square, pos: fix, ...travelNow() });
       return;
     }
     if (!carry.mine) return;
@@ -468,7 +481,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       paint();
       return;
     }
-    deps.connection.send({ t: 'place', to: square, pos: fix });
+    deps.connection.send({ t: 'place', to: square, pos: fix, ...travelNow() });
   }
 
   /**
@@ -483,7 +496,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const fix = fixNow();
     pendingPromotion = null;
     if (pending && fix) {
-      deps.connection.send({ t: 'place', to: pending.to, pos: fix, promotion });
+      deps.connection.send({ t: 'place', to: pending.to, pos: fix, promotion, ...travelNow() });
     }
     paint();
   }
@@ -502,7 +515,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   canvas.addEventListener('pointerup', onPointerUp);
 
   root.querySelector<HTMLButtonElement>('[data-leave]')?.addEventListener('click', deps.onLeave);
-  root.querySelector<HTMLButtonElement>('[data-review]')?.addEventListener('click', () => {
+  root.querySelector<HTMLButtonElement>('[data-review-open]')?.addEventListener('click', () => {
     deps.onReview?.();
   });
   root.querySelector<HTMLButtonElement>('[data-drop]')?.addEventListener('click', () => {
@@ -703,7 +716,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // The way on to the post-game screen, and the only one from here. It
     // appears with the result rather than replacing anything: the board is
     // still worth looking at for a moment after a mate.
-    const reviewButton = root.querySelector<HTMLButtonElement>('[data-review]');
+    const reviewButton = root.querySelector<HTMLButtonElement>('[data-review-open]');
     if (reviewButton) {
       reviewButton.hidden = net.game?.result == null || deps.onReview === undefined;
     }

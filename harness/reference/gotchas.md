@@ -379,15 +379,28 @@ is; this says what will bite you when you touch it.*
   ceiling never binds — measured at +12 m leaked into a 57 m game. Do not hook
   that re-baseline on `last_clock_start_at` being newer than the last report:
   it is re-stamped every ply, so that zeroes the credit of whoever has not
-  relayed since the last move. Known residue: a **pure under-count, and a
-  fixed cost per active period rather than a fraction of the walking** — the
-  first post-start report is a baseline, and the walking after the last report
-  before the result is never sent, each about one accumulator hop
-  (`max(4 m, 2 × claimed accuracy)`, ~16 m at the simulator's 5 m). Measured
-  with `check-record.mjs`: 15.3 and 15.6 m lost out of 58.5 m walked, and 13.0
-  and 12.2 m lost out of 400.7 and 390.5 m over the same four moves — so a real
-  game is 1–3% short. Wrong in the safe direction for a number nobody can audit
-  (O-03).
+  relayed since the last move. **Lift and place carry the counter too**
+  (decision 0041), through the same `travelFrom` over the same leg, baseline
+  and window, and are credited *before* the message is judged — so the carry
+  that ends a game is in its record line. Until 2026-09-23 they did not, and
+  everything walked after the last `pos` before the mating place was never
+  sent. Known residue against the phone's own counter: a **pure under-count,
+  and a fixed cost per active period** — the first post-start report is a
+  baseline, and whatever the accumulator has not yet confirmed at the final
+  place is never sent, each under one accumulator hop (`max(4 m, 2 × claimed
+  accuracy)`, 10 m at the simulator's 5 m). Measured on Fool's mate over six
+  runs: a steady 12–14 m of 58–72 m counted after the change, against
+  15.3–16.4 m before (and 13.0/12.2 m of ~400 m over the same moves walked
+  seven times as far, before). **The phone's counter is itself short of the ground walked** — it
+  strands up to a hop at every stop, and a chess game is all stops: 58.5 m
+  to 71.6 m counted against ~95 m walked (O-38). The figure shown and recorded
+  is then floored by the player's own carries (decision 0041), which bounds
+  how far below the carries it can read, not how far below the ground. Wrong in the safe
+  direction for a number nobody can audit (O-03). **The "burst" test in
+  `test/worker/record.test.ts`** (a refused place claiming +1000 m earns under
+  12 m) relies on the few-millisecond window between two messages times the
+  12 m/s cap staying under 12 m; change `MAX_PLAUSIBLE_SPEED_MPS` and that bound
+  moves with it.
 - **`travel_m` in a record row is nullable, and null is not zero** (decision
   0040, rule 7). A game that was already being played when the per-game rule
   arrived holds the phone's whole counter and never reported a `leg`, so
@@ -397,7 +410,17 @@ is; this says what will bite you when you touch it.*
   keep in step. A zero with no leg counts as a measured zero — which is right
   for a game that simply never moved, and is also what a game zeroed by the
   schema-4 upgrade and never reported again reads as, deliberately (the caveat
-  in decision 0040). The reason
+  in decision 0040) — **until the floor**: since decision 0041 the record row
+  and the report are `max(measured, that player's summed carries)`, never the
+  sum, and null is never floored. So a zero now survives only for a player who
+  carried nothing, and a figure can be the carries rather than the credit. The
+  helper is `flooredTravelM` in `shared/review.ts`, fed by `carriedByColor`;
+  do not floor in one place and not the other, or the record, screen and PGN
+  disagree. **And a finished game's distance is frozen** (decision 0041, rule
+  9): `travelFrom` writes no credit, leg or baseline once `status` is
+  `finished`. Re-opening a finished board still relays, and a stored leg would
+  turn an unmeasured game — the owner's two real games of 2026-09-20 — into
+  the phone's whole counter, re-pushed into the record on the next re-join. The reason
   this matters at all is that the owner played real games on the deployed app
   before the record existed, and `join()` re-pushes a finished game's line.
 - **There is a fourteenth driver: `scripts/check-record.mjs`.** It plays Fool's

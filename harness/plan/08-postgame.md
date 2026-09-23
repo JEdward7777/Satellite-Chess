@@ -3,18 +3,29 @@
 The payoff for storing a position and accuracy with every move. Cheap to store,
 and it is both the review feature and the only cheat forensics worth having.
 
-- `8` todo: Post-game review
+- `8` active: Post-game review
 
-- `8.1` todo: PGN export
-  - `8.1.1` todo: Standard PGN with proper headers
-  - `8.1.2` todo: Positions and carry distances as move comments, so the file
+- `8.1` done: PGN export
+  - Decision 0041. One canonical file per game, built from stored rows by
+    `GameDO.report()` → `buildPgn` (`shared/pgn.ts`); served seat-only at
+    `/api/game/:code/pgn` and built again on the phone at mount.
+  - `8.1.1` done: Standard PGN with proper headers
+  - `8.1.2` done: Positions and carry distances as move comments, so the file
     stays valid in any chess program while carrying the satellite data
-- `8.2` todo: Distance travelled
-  - `8.2.1` todo: Per-player total, and per-move carry distances
-  - `8.2.2` todo: A headline summary — "you covered 2.4 km" is the thing people
+    - Positions are board space (squares from a1's centre), never lat/lng.
+  - `8.1.3` done: Remember the time control a game started with (`game.initial_ms`,
+    schema 5), so `TimeControl` has something true to say; `?` where it predates it
+  - `8.1.4` done: Share the file — share sheet with a `File`, then text, then the
+    clipboard, then a visible text and a server-answered download link. No mailto.
+- `8.2` done: Distance travelled
+  - The "After the game" screen (`client/views/review.ts`), reached from the board
+    once there is a result. Driver: `scripts/check-review.mjs`.
+  - `8.2.1` done: Per-player total, and per-move carry distances
+  - `8.2.2` done: A headline summary — "you covered 2.4 km" is the thing people
     will actually repeat to their friends
-  - `8.2.3` todo: Client-reported and therefore client-trusted, by design. It is a
+  - `8.2.3` done: Client-reported and therefore client-trusted, by design. It is a
     stat, not a rule; say so in the UI rather than pretending otherwise.
+    - The record's `DISTANCE_HONESTY` sentences, word for word.
 - `8.3` todo: Replay
   - `8.3.1` todo: Scrub the move list and watch both players' tracks over the board
   - `8.3.2` todo: Show where each piece was lifted and placed

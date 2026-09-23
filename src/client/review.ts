@@ -90,6 +90,18 @@ export function headlineWords(walk: PlayerWalk | null): string {
   return `You covered ${distanceWords(walk.travelM)}`;
 }
 
+/**
+ * The line that rides beside the file in a share sheet.
+ *
+ * The headline where there is a distance to brag about, and a plain line where
+ * there is not — "Distance was not measured playing chess" is not a sentence
+ * anybody would send.
+ */
+export function shareMessageWords(walk: PlayerWalk | null): string {
+  if (walk === null || walk.travelM === null) return 'A game of Satellite Chess. Here it is.';
+  return `${headlineWords(walk)} playing chess. Here is the game.`;
+}
+
 /** The line under it: what the distance was made of. */
 export function headlineDetailWords(walk: PlayerWalk | null): string {
   if (walk === null) return 'This game has no walk recorded against your seat.';
@@ -128,7 +140,11 @@ export function walkWords(
   const who = `${mine ? 'You' : 'Them'} · ${colorWords(walk.color)}`;
   const parts = [movesWords(walk.moves)];
   if (walk.longestCarryM > 0) parts.push(`longest carry ${distanceWords(walk.longestCarryM)}`);
-  if (walk.carriedM > 0) parts.push(`${distanceWords(walk.carriedM)} carrying`);
+  // No total of the carries here. It would repeat the floor under the distance
+  // above (decision 0041) — the walk is never less than the carries — and on a
+  // game where the floor is what set the figure, the two would read as the
+  // same number twice. The longest carry cannot exceed the distance, because
+  // the distance is floored by the carries it is one of.
   if (walk.crossings !== null && walk.crossings > 0) parts.push(crossingsWords(walk.crossings));
   return {
     who,
@@ -168,8 +184,22 @@ export function resultWords(report: GameReport, you: Color | null): string {
 
 /** "Riverside Park · a 64 m board", or the board alone for a field nobody named. */
 export function whereWords(report: GameReport): string {
-  const board = report.boardM > 0 ? `a ${Math.round(report.boardM)} m board` : null;
+  const meters = Math.round(report.boardM);
+  const board = report.boardM > 0 ? `${articleFor(meters)} ${meters} m board` : null;
   return [report.fieldName, board].filter((part) => part !== null && part !== '').join(' · ');
+}
+
+/**
+ * "a" or "an", for a number read aloud: "an 80 m board", "an 11 m board", "a
+ * 64 m board". An eight leads with a vowel sound wherever it stands first, and
+ * eleven and eighteen do when they are the leading group — 11, 18, 11,000 —
+ * but not in 110 or 1,100, which are read "one hundred…" and "one thousand…".
+ */
+export function articleFor(n: number): 'a' | 'an' {
+  const digits = String(Math.abs(Math.round(n)));
+  if (digits.startsWith('8')) return 'an';
+  if ((digits.startsWith('11') || digits.startsWith('18')) && digits.length % 3 === 2) return 'an';
+  return 'a';
 }
 
 /**

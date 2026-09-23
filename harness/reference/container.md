@@ -172,6 +172,7 @@ node scripts/check-fields.mjs                                  # a field followi
 node scripts/check-resume.mjs                                  # the handshake, and a cold start
 node scripts/check-account.mjs                                 # offline identity, sign-out, pre-flight
 node scripts/check-record.mjs                                  # a game played, then both records read
+node scripts/check-review.mjs                                  # a game played, then the review and its PGN
 node scripts/check-qr.mjs                                      # the encoder, 351 cases
 ```
 

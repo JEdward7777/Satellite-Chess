@@ -160,10 +160,13 @@ export const DISTANCE_HONESTY = [
   'Distance is measured by your phone and taken on trust. The game caps it at ' +
     'a sprint, but a phone made to lie could still pad it, so treat it as a ' +
     'record of your walking, not a referee.',
-  // O-12
-  'It leans short rather than long. So that a phone lying on a bench does not ' +
-    'clock up distance, small movements are ignored as possible GPS jitter, and ' +
-    'on a phone with very good GPS that misses around a tenth of a real walk.',
+  // O-12 and O-38. No fraction: the one this used to give (a tenth, from one
+  // good handset) was not true of stop-and-start play, and there is no figure
+  // for real phones yet that would be.
+  'It leans short rather than long. To stop a phone lying on a bench from ' +
+    'clocking up distance, small movements are ignored as possible GPS jitter. ' +
+    'That means some real walking goes uncounted, and more of it the more you ' +
+    'stop and start, which chess makes you do at every move.',
   // Decision 0040: what counts toward a game at all.
   'Only walking during play counts: not the walk to your back rank, a paused ' +
     'game, or the walk home.',

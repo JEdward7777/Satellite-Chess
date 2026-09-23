@@ -55,6 +55,11 @@ started its own `wrangler dev`, ran the browser driver, ran the flaky file five
 times, or re-measured a number the docs asserted. Tell each reviewer to run
 `npm run check` and the relevant driver *itself*, on its own port with an empty
 `--persist-to`, and never to trust the implementer's report of a green run.
+**The `--persist-to` directory must be new and uniquely named for each server
+start** (e.g. `persist-r3-review`), never a reused one: a scratchpad is shared
+across rounds, old persist directories accumulate in it, and a driver run
+against one of them fails in exactly the O-19 way — phantom regressions in
+drivers nothing touched.
 
 **Nothing is committed until a review comes back clean.** The implementer holds the
 diff uncommitted across every round. `FINALIZE` is a separate instruction and is

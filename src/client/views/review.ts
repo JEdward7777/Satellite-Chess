@@ -36,6 +36,7 @@ import {
   moveWords,
   pgnOf,
   resultWords,
+  shareMessageWords,
   walkRows,
   whereWords,
 } from '../review.js';
@@ -98,10 +99,22 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
       line.textContent = words;
       line.hidden = words === '';
     };
+    const toggle = body.querySelector<HTMLButtonElement>('[data-review-show]');
+    const text = body.querySelector<HTMLTextAreaElement>('[data-review-text]');
+    const showText = (shown: boolean): void => {
+      if (text === null) return;
+      text.hidden = !shown;
+      if (toggle !== null) toggle.textContent = shown ? 'Hide the file' : 'Show the file';
+    };
     const sayOutcome = (outcome: ShareOutcome, sent: string): void => {
       if (outcome.ok) say(outcome.tier === 'clipboard' ? 'Copied to the clipboard.' : sent);
       else if (outcome.reason === 'cancelled') say('');
-      else say('This phone would not share it. The text is below, and so is a download.');
+      else {
+        // The bottom of the ladder is a text a player can see, not one behind
+        // another tap: the sentence says it is below, so it has to be.
+        say('This phone would not share it. The text is below, and so is a download.');
+        showText(true);
+      }
     };
 
     body.querySelector<HTMLButtonElement>('[data-review-share]')?.addEventListener('click', () => {
@@ -111,7 +124,7 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
         fileName: pgn.fileName,
         text: pgn.text,
         title: `${whereWords(report) || 'Satellite Chess'} — a game of Satellite Chess`,
-        message: `${headlineWords(walksOf(report, you)[0] ?? null)} playing chess. Here is the game.`,
+        message: shareMessageWords(walksOf(report, you)[0] ?? null),
       }).then((outcome) => {
         if (live) sayOutcome(outcome, 'Sent.');
       });
@@ -123,12 +136,8 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
       });
     });
 
-    const toggle = body.querySelector<HTMLButtonElement>('[data-review-show]');
-    const text = body.querySelector<HTMLElement>('[data-review-text]');
     toggle?.addEventListener('click', () => {
-      if (text === null) return;
-      text.hidden = !text.hidden;
-      toggle.textContent = text.hidden ? 'Show the file' : 'Hide the file';
+      if (text !== null) showText(text.hidden !== false);
     });
   }
 
@@ -152,14 +161,14 @@ export function reviewHtml(
 
   return `<p class="review-result" data-review-result>${escapeHtml(resultWords(report, you))}</p>
     <p class="dim" data-review-where>${escapeHtml(whereWords(report))}</p>
-    <p class="record-headline" data-review-distance>${escapeHtml(headlineWords(mine))}</p>
+    <p class="record-headline" data-review-distance>${keepUnit(escapeHtml(headlineWords(mine)))}</p>
     <p class="dim" data-review-coverage>${escapeHtml(headlineDetailWords(mine))}</p>
     <dl class="record-stats" data-review-walks>
       ${rows
         .map(
           (row) => `<div>
             <dt>${escapeHtml(row.who)}</dt>
-            <dd><strong>${escapeHtml(row.distance)}</strong><br><span class="dim">${escapeHtml(row.detail)}</span></dd>
+            <dd><strong>${keepUnit(escapeHtml(row.distance))}</strong><br><span class="dim">${keepUnit(escapeHtml(row.detail))}</span></dd>
           </div>`,
         )
         .join('')}
@@ -174,7 +183,7 @@ export function reviewHtml(
                  (move) => `<li>
                    <span class="review-ply">${escapeHtml(move.ply)}</span>
                    <strong>${escapeHtml(move.san)}</strong>
-                   <span class="dim">${escapeHtml(move.detail)}</span>
+                   <span class="dim">${keepUnit(escapeHtml(move.detail))}</span>
                  </li>`,
                )
                .join('')}
@@ -199,6 +208,16 @@ export function reviewHtml(
     <div class="record-honesty dim" data-review-honesty>
       ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
     </div>`;
+}
+
+/**
+ * Every number held on one line with its unit. A phone's width otherwise
+ * breaks "You covered 43 m" or "longest carry 41 m" before the "m", which
+ * leaves a unit sitting alone under its number. Applied to escaped text, so the
+ * only thing it can introduce is the entity.
+ */
+function keepUnit(html: string): string {
+  return html.replace(/(\d) (km|m|min|s)\b/g, '$1&nbsp;$2');
 }
 
 function escapeHtml(text: string): string {

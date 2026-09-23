@@ -210,14 +210,17 @@ function upgradeGameTable(sql: SqlStorage): void {
   }
 
   // Schema 5: the time control the game started with (stage 8.1). A game with
-  // no move played yet still has it, untouched, in the remaining clock; one
+  // no move played yet still has it, untouched, in Black's remaining clock; one
   // already under way does not, and NULL is the honest answer there rather
-  // than whatever is left on somebody's clock.
+  // than whatever is left on somebody's clock. Black's and not White's: White's
+  // clock runs from the start, and a pause before the first move banks what it
+  // spent into White's column, so White's can be short while nothing has been
+  // played. Black's cannot run until White has moved.
   if (!columns.has('initial_ms')) {
     sql.exec(`ALTER TABLE game ADD COLUMN initial_ms INTEGER`);
     const [played] = [...sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
     if ((played?.n ?? 0) === 0) {
-      sql.exec(`UPDATE game SET initial_ms = white_ms_remaining WHERE initial_ms IS NULL`);
+      sql.exec(`UPDATE game SET initial_ms = black_ms_remaining WHERE initial_ms IS NULL`);
     }
   }
 

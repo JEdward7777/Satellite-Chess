@@ -524,10 +524,12 @@ describe('a game played before distance was measured per game', () => {
     expect(white.recent[0]).toMatchObject({ standing: 'unmeasured', travelM: null, result: 'win' });
   });
 
-  it('records a game zeroed in flight, and never reported since, as a measured zero', async () => {
+  it('records a game zeroed in flight, and never reported since, as measured', async () => {
     // The other half of the upgrade: a game in play had its inherited figure
-    // dropped, and then ended without another relay. Nobody walked anywhere
-    // this app knows of, and zero is the honest answer rather than a shrug.
+    // dropped, and then ended without another relay. It is measured — not
+    // unmeasured — and what this app knows of the walk is the carries it
+    // measured itself, which floor the figure (decision 0041): white carried
+    // 16 m and 40 m.
     const game = await activeGame();
     await runInDurableObject(game.stub, (_instance, state) => {
       state.storage.sql.exec(`UPDATE presence SET travel_m = 0, travel_leg = NULL`);
@@ -536,8 +538,125 @@ describe('a game played before distance was measured per game', () => {
 
     const white = await readRecord(game.white);
     expect(white.unmeasuredGames).toBe(0);
-    expect(white.totals).toMatchObject({ games: 1, travelM: 0, wins: 1 });
-    expect(white.recent[0]).toMatchObject({ standing: 'counted', travelM: 0 });
+    expect(white.totals).toMatchObject({ games: 1, travelM: 56, wins: 1 });
+    expect(white.recent[0]).toMatchObject({ standing: 'counted', travelM: 56 });
+  });
+});
+
+describe('a finished game’s distance is frozen at the result (decision 0041)', () => {
+  /**
+   * Re-opening a finished game's board still relays. Before this rule a relay
+   * stored its leg even while paying nothing, which turned an unmeasured game
+   * — the owner's two real games of 2026-09-20 — into a "measured" one worth
+   * the phone's whole page counter, and the next re-join re-pushed that into
+   * the permanent record.
+   */
+  async function afterSync(ws: WebSocket): Promise<void> {
+    const answered = new Promise<void>((resolve) => {
+      const onMessage = (event: Event) => {
+        const data = JSON.parse(String((event as MessageEvent).data)) as { t: string };
+        if (data.t === 'state') {
+          ws.removeEventListener('message', onMessage);
+          resolve();
+        }
+      };
+      ws.addEventListener('message', onMessage);
+    });
+    ws.send(JSON.stringify({ t: 'sync' }));
+    await answered;
+  }
+
+  async function presenceOf(game: Game, color: 'w' | 'b') {
+    return runInDurableObject(game.stub, (_instance, state) =>
+      [
+        ...state.storage.sql.exec<{ travel_m: number; travel_leg: string | null; travel_seen_m: number }>(
+          `SELECT travel_m, travel_leg, travel_seen_m FROM presence WHERE color = ?`,
+          color,
+        ),
+      ][0]!,
+    );
+  }
+
+  async function reviewTravel(game: Game, who: string) {
+    const response = await SELF.fetch(`${LOCAL}/api/game/${game.joinCode}/review`, {
+      headers: { cookie: await cookieFor(who) },
+    });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { report: { travelM: { w: number | null } } }).report.travelM;
+  }
+
+  /** An unmeasured game, over: credited under the old rule, never by leg. */
+  async function unmeasuredAndOver(): Promise<Game> {
+    const game = await activeGame();
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE presence SET travel_m = 5200, travel_leg = NULL, travel_seen_m = 0 WHERE color = 'w'`,
+      );
+    });
+    await resign(game, game.black);
+    return game;
+  }
+
+  for (const [what, leg] of [
+    ['a relay from a new page', 'new-page'],
+    ['a relay with no leg at all, as the deployed build sends', undefined],
+  ] as const) {
+    it(`keeps an unmeasured game unmeasured after ${what}, through a re-join`, async () => {
+      const game = await unmeasuredAndOver();
+      const before = await presenceOf(game, 'w');
+      const ws = await socketFor(game, game.white);
+      await backdate(game, 60_000);
+      ws.send(JSON.stringify({ t: 'pos', ...squareAt(4, 1), acc: 3, travelM: 12, ...(leg ? { leg } : {}) }));
+      await afterSync(ws);
+      ws.close();
+      expect(await presenceOf(game, 'w')).toEqual(before);
+
+      // Re-joining a finished game re-pushes its line (`pushRecord({ fresh })`).
+      expect(await game.stub.join(game.white, game.white)).toMatchObject({ ok: true });
+      expect((await reviewTravel(game, game.white)).w).toBeNull();
+      let white = await readRecord(game.white);
+      for (let i = 0; i < 20 && white.recent.length === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        white = await readRecord(game.white);
+      }
+      expect(white.recent[0]).toMatchObject({ standing: 'unmeasured', travelM: null });
+      expect(white.unmeasuredGames).toBe(1);
+      expect(white.totals.travelM).toBe(0);
+    });
+  }
+
+  it('ignores the counter on a lift or place sent after the result', async () => {
+    const game = await unmeasuredAndOver();
+    const before = await presenceOf(game, 'w');
+    const ws = await socketFor(game, game.white);
+    await backdate(game, 60_000);
+    const fix = { ...squareAt(4, 1), acc: 3, ts: 0 };
+    ws.send(JSON.stringify({ t: 'lift', from: 'e2', pos: fix, travelM: 30, leg: 'new-page' }));
+    ws.send(JSON.stringify({ t: 'place', to: 'e4', pos: fix, travelM: 60, leg: 'new-page' }));
+    await afterSync(ws);
+    ws.close();
+    expect(await presenceOf(game, 'w')).toEqual(before);
+    expect((await reviewTravel(game, game.white)).w).toBeNull();
+  });
+
+  it('keeps a measured game’s figure exactly as it ended', async () => {
+    const game = await activeGame();
+    await resign(game, game.black);
+    const before = await presenceOf(game, 'w');
+    const ws = await socketFor(game, game.white);
+    for (const [travelM, leg] of [
+      [5_000, 'w-page'],
+      [9_000, 'another-page'],
+    ] as const) {
+      await backdate(game, 60_000);
+      relay(ws, squareAt(4, 1), travelM, leg);
+      await afterSync(ws);
+    }
+    ws.close();
+    expect(await presenceOf(game, 'w')).toEqual(before);
+    expect((await reviewTravel(game, game.white)).w).toBe(420);
+    expect(await game.stub.join(game.white, game.white)).toMatchObject({ ok: true });
+    expect((await readRecord(game.white)).recent[0]).toMatchObject({ travelM: 420 });
   });
 });
 
@@ -743,5 +862,237 @@ describe('a phone that says nothing for a while', () => {
     // A sprint for the few seconds since the clock started, not for the hour.
     expect(travel).toBeGreaterThan(0);
     expect(travel).toBeLessThan(12 * 5);
+  });
+});
+
+describe('the walk a move ends (decision 0041)', () => {
+  /**
+   * `pos` relays go out every few seconds and only on movement, so the walk
+   * that ends in a lift or a place is often not relayed before it — and for
+   * the move that ends the game, never. Lift and place carry the counter too,
+   * through the same rule over the same stored state.
+   */
+  type Travel = {
+    travel_m: number;
+    travel_leg: string | null;
+    travel_seen_m: number;
+    last_pos_at: number | null;
+  };
+
+  async function travelRow(game: Game, color: 'w' | 'b'): Promise<Travel> {
+    return runInDurableObject(game.stub, (_instance, state) =>
+      [
+        ...state.storage.sql.exec<Travel>(
+          `SELECT travel_m, travel_leg, travel_seen_m, last_pos_at FROM presence WHERE color = ?`,
+          color,
+        ),
+      ][0]!,
+    );
+  }
+
+  /** Put a known counter in place, with a window of `agoMs` since the last report. */
+  async function counter(game: Game, color: 'w' | 'b', leg: string, seenM: number, agoMs: number) {
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE presence SET travel_m = 10, travel_leg = ?, travel_seen_m = ?, last_pos_at = ?
+          WHERE color = ?`,
+        leg,
+        seenM,
+        Date.now() - agoMs,
+        color,
+      );
+    });
+  }
+
+  /** Send, then wait for the server's answer to a `sync` behind it. */
+  async function sendAndSettle(ws: WebSocket, msg: object): Promise<void> {
+    const answered = new Promise<void>((resolve) => {
+      const onMessage = (event: Event) => {
+        const data = JSON.parse(String((event as MessageEvent).data)) as { t: string; sync?: boolean };
+        if (data.t === 'state') {
+          ws.removeEventListener('message', onMessage);
+          resolve();
+        }
+      };
+      ws.addEventListener('message', onMessage);
+    });
+    ws.send(JSON.stringify(msg));
+    ws.send(JSON.stringify({ t: 'sync' }));
+    await answered;
+  }
+
+  const fix = (file: number, rank: number) => ({ ...squareAt(file, rank), acc: 3, ts: 0 });
+
+  it('credits a lift and a place once each, and a stale relay after them nothing', async () => {
+    const game = await activeGame();
+    await counter(game, 'w', 'L', 100, 60_000);
+    const ws = await socketFor(game, game.white);
+
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1), travelM: 130, leg: 'L' });
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_m: 40, travel_leg: 'L', travel_seen_m: 130 });
+
+    await backdate(game, 30_000);
+    await sendAndSettle(ws, { t: 'place', to: 'e4', pos: fix(4, 3), travelM: 150, leg: 'L' });
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_m: 60, travel_seen_m: 150 });
+
+    // A relay that was already on its way, with the same total or an older one,
+    // adds nothing and takes nothing away.
+    await backdate(game, 30_000);
+    relay(ws, squareAt(4, 3), 150, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    await backdate(game, 30_000);
+    relay(ws, squareAt(4, 3), 140, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_m: 60, travel_seen_m: 150 });
+    ws.close();
+  });
+
+  it('credits a refused place, and a burst of them earns only the window they share', async () => {
+    const game = await activeGame();
+    await counter(game, 'b', 'B', 100, 20_000);
+    const ws = await socketFor(game, game.black);
+    // Not black's turn and nothing in hand: refused, but the walk was real.
+    await sendAndSettle(ws, { t: 'place', to: 'e5', pos: fix(4, 4), travelM: 130, leg: 'B' });
+    const after = await travelRow(game, 'b');
+    expect(after).toMatchObject({ travel_m: 40, travel_seen_m: 130 });
+    expect(after.last_pos_at).toBeGreaterThan(Date.now() - 5_000);
+
+    // At once, claiming a kilometre: the window since the last one is a few
+    // milliseconds, so the claim is spent without being paid.
+    await sendAndSettle(ws, { t: 'place', to: 'e5', pos: fix(4, 4), travelM: 1130, leg: 'B' });
+    const burst = await travelRow(game, 'b');
+    expect(burst.travel_m - 40).toBeLessThan(12);
+    expect(burst.travel_seen_m).toBe(1130);
+    ws.close();
+  });
+
+  it('re-baselines a reload between the lift and the place, as a relay would', async () => {
+    const game = await activeGame();
+    await counter(game, 'w', 'A', 90, 60_000);
+    const ws = await socketFor(game, game.white);
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1), travelM: 100, leg: 'A' });
+    await backdate(game, 30_000);
+    await sendAndSettle(ws, { t: 'place', to: 'e4', pos: fix(4, 3), travelM: 5, leg: 'B' });
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_m: 20, travel_leg: 'B', travel_seen_m: 5 });
+    ws.close();
+  });
+
+  it('ignores a lift or place from a build that sends no counter', async () => {
+    const game = await activeGame();
+    await counter(game, 'w', 'L', 100, 60_000);
+    const before = await travelRow(game, 'w');
+    const ws = await socketFor(game, game.white);
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1) });
+    await sendAndSettle(ws, { t: 'drop' });
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1), travelM: 'lots', leg: 'L' });
+    expect(await travelRow(game, 'w')).toEqual(before);
+    ws.close();
+  });
+
+  it('puts the mating carry in the record line the game writes as it ends', async () => {
+    const game = await activeGame();
+    const ago = Date.now() - 60_000;
+    // Fool's mate, one move from the end: black's queen already in hand at d8.
+    await runInDurableObject(game.stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      const d8 = squareAt(3, 7);
+      sql.exec(
+        `UPDATE game SET fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3 0 2',
+                         active_color = 'b', last_clock_start_at = ? WHERE id = 1`,
+        ago,
+      );
+      sql.exec(
+        `INSERT OR REPLACE INTO carry (id, color, from_sq, piece, lift_lat, lift_lng, lift_acc, lift_at)
+         VALUES (1, 'b', 'd8', 'q', ?, ?, 3, ?)`,
+        d8.lat,
+        d8.lng,
+        ago,
+      );
+    });
+    // The last relay went out at the lift; the whole carry is unreported.
+    await counter(game, 'b', 'B', 100, 60_000);
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(`UPDATE presence SET travel_m = 380 WHERE color = 'b'`);
+    });
+
+    const ws = await socketFor(game, game.black);
+    const finished = new Promise<void>((resolve) => {
+      ws.addEventListener('message', (event) => {
+        const msg = JSON.parse(String((event as MessageEvent).data)) as {
+          t: string;
+          game?: { status?: string };
+        };
+        if (msg.t === 'state' && msg.game?.status === 'finished') resolve();
+      });
+    });
+    ws.send(JSON.stringify({ t: 'place', to: 'h4', pos: fix(7, 3), travelM: 145.5, leg: 'B' }));
+    await finished;
+    ws.close();
+
+    // `detectTerminal` does not await the push, so the line lands a moment
+    // after the result is broadcast. Polled rather than slept.
+    let black = await readRecord(game.black);
+    for (let i = 0; i < 40 && black.recent.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      black = await readRecord(game.black);
+    }
+    expect(black.recent[0]).toMatchObject({ result: 'win', reason: 'checkmate' });
+    expect(black.totals.travelM).toBeCloseTo(380 + 45.5, 6);
+  });
+});
+
+describe('the walked figure is floored by the carries (decision 0041)', () => {
+  /**
+   * Found in review on exactly this game: 1. e4, Black never moves, White wins
+   * on time. White's phone had not confirmed a hop, so the review read "You
+   * covered 0 m" above "1. e4 carried 16 m". The carry is a straight line
+   * between two fixes and so a lower bound on the walk it is part of.
+   */
+  it('reads the one-move flag-fall game as at least its carry, everywhere', async () => {
+    const game = await activeGame({ moves: [{ color: 'w', carriedM: 16 }] });
+    await runInDurableObject(game.stub, async (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec(`UPDATE presence SET travel_m = 0, travel_leg = 'w-page' WHERE color = 'w'`);
+      sql.exec(`UPDATE presence SET travel_m = 0, travel_leg = 'b-page' WHERE color = 'b'`);
+      // Black on move with five milliseconds left, and the deadline due now.
+      sql.exec(
+        `UPDATE game SET active_color = 'b', black_ms_remaining = 5, last_clock_start_at = ?
+          WHERE id = 1`,
+        Date.now() - 1_000,
+      );
+      sql.exec(`INSERT OR REPLACE INTO timers (kind, due_at) VALUES ('flag', ?)`, Date.now() - 1);
+      await state.storage.setAlarm(Date.now() + 3_600_000);
+    });
+    expect(await runDurableObjectAlarm(game.stub)).toBe(true);
+
+    let white = await readRecord(game.white);
+    for (let i = 0; i < 40 && white.recent.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      white = await readRecord(game.white);
+    }
+    expect(white.recent[0]).toMatchObject({ result: 'win', reason: 'timeout', travelM: 16 });
+    expect(white.totals.longestCarryM).toBe(16);
+    expect(white.totals.longestCarryM).toBeLessThanOrEqual(white.totals.travelM);
+
+    const response = await SELF.fetch(`${LOCAL}/api/game/${game.joinCode}/review`, {
+      headers: { cookie: await cookieFor(game.white) },
+    });
+    const { report } = (await response.json()) as { report: { travelM: { w: number; b: number } } };
+    // White floored to the carry; Black, who never moved, is a measured zero.
+    expect(report.travelM).toEqual({ w: 16, b: 0 });
+
+    const pgn = await (
+      await SELF.fetch(`${LOCAL}/api/game/${game.joinCode}/pgn`, {
+        headers: { cookie: await cookieFor(game.white) },
+      })
+    ).text();
+    expect(pgn).toContain('[SatelliteWhiteWalkedM "16"]');
+  });
+
+  it('takes the larger of the two, never their sum', async () => {
+    // activeGame: white counted 420 m and carried 16 m + 40 m.
+    const game = await activeGame();
+    await resign(game, game.black);
+    expect((await readRecord(game.white)).recent[0]).toMatchObject({ travelM: 420 });
   });
 });

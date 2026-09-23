@@ -43,7 +43,8 @@ export const PGN_EVENT = 'Satellite Chess';
  */
 export const PGN_LEGEND =
   'Positions are squares from the center of a1, as files,ranks. ' +
-  "Distances are meters walked on the ground, as each player's phone measured them.";
+  "Distances are meters walked on the ground, as each player's phone measured them, " +
+  'and never less than the sum of that player\'s carries.';
 
 export interface PgnOptions {
   /** Overridden in tests. */

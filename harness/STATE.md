@@ -3,22 +3,34 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: **dirty on purpose** — `8.1`/`8.2` are half-built and uncommitted.
-`src/shared/review.ts` and `src/shared/pgn.ts` are on disk, complete and
-typechecking; **nothing is wired to them yet**. The machine was restarted
-mid-phase, so the agent building them is gone.
-**Active stage**: `8.1`/`8.2`, part-built.
-**Next action**: **read `harness/sessions/2026-09-23-01.md`** and work its
-twelve-item checklist. It carries the settled design (board-space PGN, one
-canonical file, no join code, fetch-at-mount/share-on-tap) and everything still
-missing — including **decision 0041**, which is not written.
+**Tree state**: clean — `8.1`/`8.2` are done, reviewed clean over five rounds,
+committed and pushed (`2026-09-23-02`).
+**Active stage**: none in flight. Next is **`8.4` + `3.6.2`**, phase 5 of the
+pipeline run.
+**Next action**: read `harness/sessions/2026-09-23-02.md`, then build `8.4`:
+archive a finished game to KV as its PGN (`GameDO.buildReport` → `buildPgn`,
+the path the review screen already uses) plus the track, then delete the DO —
+and answer **O-34** there.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5` and `2.3.5` all ship on the next `npm run deploy`.
-**895 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-22 every
-driver passed, including the new `check-record`. **Run drivers from an empty
-`--persist-to`** (O-19), and not with `--base=…?sim=1` on anything but
-`check-resume`, `check-account` and `check-record` (O-24).
+phase 7, `2.2.3`–`2.2.5`, `2.3.5` and `8.1`/`8.2` all ship on the next
+`npm run deploy`, which is the operator's.
+**971 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-23
+`check-review`, `check-record`, `drive-game` and `check-games` passed. **Run
+drivers from a new, uniquely named `--persist-to`** (O-19), and not with
+`--base=…?sim=1` on anything but `check-resume`, `check-account`,
+`check-record` and `check-review` (O-24).
+
+## After the game, in one paragraph
+
+The board offers **After the game** once there is a result (`client/views/review.ts`):
+"You covered 2.4 km", each player's walk, every carry, the honesty sentences, and
+the game as a PGN (decision 0041). The PGN is **one canonical file per game**, in
+**board space — never lat/lng**, with no names and no join code in it or its
+filename; the phone builds it at mount so Share has nothing to await, and the
+ladder ends in a visible text and a server-answered `/api/game/:code/pgn` link.
+Both routes are **seat-only and answer a stranger 404**. `game.initial_ms`
+(schema 5) holds the starting clock; older games write `TimeControl "?"`.
 
 ## The record, in one paragraph
 
@@ -38,14 +50,18 @@ retry is designed to deliver more than once.
 
 ## Distance, in one paragraph
 
-A phone's counter runs for the life of the *page*, so a relay carries its `leg`
-and the game credits only what that leg adds between two of its own reports,
-while `active`, capped at a sprint over a window that cannot be banked — and
-every leg is re-baselined at the transition into `active`, which is the start and
-every resume. The residue is a **pure under-count of about one accumulator hop at
-each end of an active period**: 1–3% of a real game, measured. `travel_m` is
-nullable, and NULL means *unmeasured* — the games played before this shipped are
-listed and never counted.
+A phone's counter runs for the life of the *page*, so every report carries its
+`leg` and the game credits only what that leg adds between two of its own
+reports, while `active`, capped at a sprint over a window that cannot be banked
+— and every leg is re-baselined at the transition into `active`. **Relays, lifts
+and places all carry the counter**, through one function (`GameDO.travelFrom`),
+so the carry that ends a game is counted (decision 0041). The figure stored and
+shown is **floored by the player's own carries** — the larger, never the sum —
+and **frozen once the game is finished**. `travel_m` is nullable, and NULL means
+*unmeasured*: the owner's 2026-09-20 games stay unmeasured however often they are
+re-opened. The server now loses a steady 12–14 m of what a phone counts; the
+bigger error is the phone's counter itself, which strands up to a hop at every
+stop (**O-38**).
 
 ## The handshake, in one paragraph
 
@@ -88,7 +104,7 @@ Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
 carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar `3.6.2` and the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
-built. What is left is phases 8–10.
+built. **`8.1`/`8.2` are done**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031) — but see **O-33**, which removes half of it. **The board is not forced to
@@ -106,19 +122,16 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **`8.1` and `8.2`** — PGN export, and the per-game distance summary that says
-   "you covered 2.4 km" at the end of a game. Both are the record's data seen
-   from inside one game, and `8.2.3`'s honesty sentences already exist in
-   `client/record.ts`.
-2. **Deploy.** Four sessions of work are waiting, and the deploy is what turns
-   the record on for the owner's real games — which will read as *unmeasured*,
-   by design.
-3. **O-33: drop the accuracy-based reach bonus.** The owner's ruling, it changes
-   a game rule, so it wants its own stage under phase 10 and a decision
-   recording the reversal of decision 0023's generous half. It also closes
+1. **`8.4` + `3.6.2`** — archive finished games to KV as PGN plus track, then
+   delete the DO; GC. `8.4` is also where **O-34** should be answered.
+2. **Deploy.** Five sessions of work are waiting, and the deploy is what turns on
+   the record and the review for the owner's real games — which will read as
+   *unmeasured*, by design.
+3. **O-33: drop the accuracy-based reach bonus.** The owner's ruling; its own
+   stage under phase 10 and a decision reversing 0023's generous half. Closes
    **O-12** by removal.
 4. **O-31**, the clock rounding, with the raw snapshot numbers beside the screen.
-5. **A phone test**: the record screen, sign-in and sign-out, the wake lock
-   (`1.9.2`), and the handshake on real GPS (O-25, O-17).
-6. **`8.4`** (archive a finished game to KV) and **`3.6.2`**. `8.4` is also where
-   **O-34** should be answered.
+5. **O-30**, piece outlines and the vanishing bishop — a daylight check.
+6. **A phone test**: the record and review screens, sharing a `.pgn` (Android
+   falls to the text rung), sign-in and sign-out, the wake lock (`1.9.2`), and the
+   handshake on real GPS (O-25, O-17).

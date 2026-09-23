@@ -716,3 +716,56 @@ viewing, so this wants its own stage rather than a child of either.
   player in the field by phone. Worth deciding before somebody tries it.
 **Not doing yet because:** it is a new feature with a real privacy decision in the
 middle of it, and phases 8–10 are queued ahead. Logged now so the idea survives.
+
+### O-38 — The phone's distance counter strands up to a hop at every stop, and chess is all stops
+**Spotted:** 2026-09-23, stages 8.1/8.2 (the review screen put the two numbers side by side)
+**Why it matters:** `DistanceAccumulator` (`client/gps.ts`) credits a hop only once
+the smoothed position is a floor — `max(4 m, 2 × claimed accuracy)` — from its
+anchor. When a player stops, whatever is short of the floor stays uncredited, and
+the next walk measures from the old anchor: in the same direction that is
+recovered, but a chess player turns at every lift and every place. In a
+`check-review` run of Fool's mate the review read **"You covered 46 m"** above
+**"60 m carrying"** — the carrying figure is measured by the server between the
+lift and place fixes — and over four runs the phone counted 58.5–71 m since the
+start against about 95 m walked (e8→e7→e5, e5→d8, d8→h4). Before the start, 48 m
+counted of a ~65 m walk. The server's credit is not the cause: after decision 0041
+it pays all but a steady 12–14 m of what the phone counts, and the spread between
+runs is entirely in the counter. So the headline a player repeats
+(8.2.2) is now mostly short because of the counter, and on a stop-start game the
+shortfall looks like a third.
+**Not doing yet because:** it is decision 0020's accumulator and O-12's floor, and
+the fix is a design change rather than a constant — e.g. confirming the pending
+remainder at a lift or place (a stop the game already knows is real), or measuring
+the floor from observed scatter as O-12 proposes. Either wants traces from real
+handsets, not the simulator, whose paths are straight lines with no jitter. The
+server-measured `carriedM` between fixes is an independent lower bound on part of
+the walk and could be compared against it first (O-03 wants the same).
+**Already done about it:** the review screen's per-player total of carries ("60 m
+carrying") was taken off in 8.2, because it sat under a smaller headline and read
+as impossible on the screen meant for sharing; the longest carry and the per-move
+rows stay, being single carries. The O-12 honesty sentence also lost its "around
+a tenth" and now says it counts short, more so with stopping and starting. The
+total can come back once the counter no longer runs below the straight-line sum of
+the carries on stop-and-start play — measured on real handsets, not the simulator.
+Since then the walked figure itself is floored by the player's summed carries
+(decision 0041, rule 8), so the screen, PGN and record can no longer read below a
+carry — but that hides the counter's shortfall behind the floor on stop-and-start
+games rather than fixing it. The counter is still the problem this observation is
+about.
+
+### O-39 — After a lift or a place, the next relay can be throttled and the dot goes stale
+**Spotted:** 2026-09-23, round 2 review of stages 8.1/8.2
+**Why it matters:** since decision 0041 a lift or place with a counter moves
+`last_pos_at` (so the travel windows never overlap), and `onPos` throttles against
+that same column with `POS_SERVER_MIN_INTERVAL_MS` (1.5 s). A relay arriving
+inside 1.5 s of a lift or place — including a *refused* one — is dropped whole, so
+the opponent's dot can sit a few meters stale until the player moves far enough
+to send another. The distance is not lost (the next accepted report credits the
+difference), and AutoReady at worst waits for its 3 s fallback.
+**Fix, when wanted:** throttle `onPos` against the time of the last *relay*
+rather than the last fix of any kind — a separate column, or `last_seen_at` if
+its other readers allow it — while `travelFrom` keeps measuring its window from
+`last_pos_at`.
+**Not doing yet because:** cosmetic and short-lived, and it wants a schema column
+or a careful read of `last_seen_at`'s other uses, which is more than a review
+round should carry.

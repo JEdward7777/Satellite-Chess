@@ -48,16 +48,26 @@ export const MAX_TRAVEL_LEG_CHARS = 64;
  * subtract the meters, and the gap before that first report is long enough that
  * the ceiling never binds.
  *
+ * The same rule serves every message that carries a report — `pos`, and the
+ * lift and place that begin and end each carry (decision 0041) — over the same
+ * stored leg, baseline and window, so a place and the relay after it cannot
+ * both be paid for the same meters.
+ *
  * What all of this costs an honest phone is **a fixed amount per active period,
  * not a fraction of the walking**: the first report after the start is a
- * baseline, and whatever is walked after the last report before the result is
- * never sent. Each is about one accumulator hop — `max(4 m, 2 × claimed
- * accuracy)` (decision 0020), so ~16 m at the simulator's 5 m accuracy.
- * Measured with `check-record.mjs`: 15.3 m and 15.6 m lost out of 58.5 m
- * walked, and 13.0 m and 12.2 m lost out of 400.7 m and 390.5 m walked over the
- * same four moves — a real game is 1–3% short. The error is all one way: this
- * under-counts and never over-counts, which is the side to be wrong on for a
- * number nobody can audit (O-03).
+ * baseline, and whatever the phone's accumulator has not yet confirmed when the
+ * final place is sent is never reported. Each is under one accumulator hop —
+ * `max(4 m, 2 × claimed accuracy)` (decision 0020), so 10 m at the simulator's
+ * 5 m accuracy. Measured on Fool's mate (`check-record.mjs`, `check-review.mjs`):
+ * a steady 12–14 m lost of 58–72 m counted once lift and place carried the
+ * counter, against 15.3–16.4 m before, when everything after the last relay
+ * before the mate was lost. The
+ * error is all one way: this under-counts and never over-counts, which is the
+ * side to be wrong on for a number nobody can audit (O-03). The phone's own
+ * counter is a further under-count of the ground walked, which is O-38's and
+ * not this function's. What a player is finally shown and recorded is this
+ * credit floored by their own carries (decision 0041), so on stop-and-start
+ * play the figure may be the carries rather than the credit.
  */
 export function creditTravel(input: {
   leg: string;
@@ -104,6 +114,10 @@ export function creditTravel(input: {
  * A zero with no leg is a measured zero, deliberately. It is right for a game
  * nobody moved in, and it is also what a game zeroed by the schema-4 upgrade
  * and never reported again reads as — the accepted caveat in decision 0040.
+ * Either way the record and the report then floor it by the player's own
+ * carries (`flooredTravelM`, decision 0041), so a zero survives only for a
+ * player who carried nothing. This function answers "was it measured"; the
+ * floor answers "how far, at least".
  *
  * One function rather than the predicate written out twice, because the record
  * line and the post-game report (stage 8.1) both have to call the same game

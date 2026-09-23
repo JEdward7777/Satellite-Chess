@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { type GameReport, type ReportMove, walkOf, walksOf } from '../src/shared/review.js';
+import {
+  type GameReport,
+  type ReportMove,
+  flooredTravelM,
+  walkOf,
+  walksOf,
+} from '../src/shared/review.js';
 import {
   DISTANCE_HONESTY,
   PGN_EXPLANATION,
+  articleFor,
   colorWords,
   headlineDetailWords,
   headlineWords,
@@ -11,6 +18,7 @@ import {
   pgnOf,
   resultWords,
   secondsWords,
+  shareMessageWords,
   walkRows,
   walkWords,
   whereWords,
@@ -76,10 +84,9 @@ describe('folding a report into one player’s walk', () => {
       color: 'w',
       travelM: 400,
       moves: 2,
-      carriedM: 28,
       longestCarryM: 16,
     });
-    expect(walkOf(report(), 'b')).toMatchObject({ moves: 2, carriedM: 72, longestCarryM: 48 });
+    expect(walkOf(report(), 'b')).toMatchObject({ moves: 2, longestCarryM: 48 });
   });
 
   it('divides by the board’s diagonal for crossings (decision 0019)', () => {
@@ -90,6 +97,25 @@ describe('folding a report into one player’s walk', () => {
     const walk = walkOf(report({ travelM: { w: null, b: 2_400 } }), 'w');
     expect(walk.travelM).toBeNull();
     expect(walk.crossings).toBeNull();
+  });
+
+  it('never reads a walk as less than its own carries (decision 0041)', () => {
+    // White counted nothing, but carried 16 m and 12 m.
+    const walk = walkOf(report({ travelM: { w: 0, b: 2_400 } }), 'w');
+    expect(walk.travelM).toBe(28);
+    expect(walk.longestCarryM).toBeLessThanOrEqual(walk.travelM!);
+  });
+
+  it('floors with the larger of the two, never their sum', () => {
+    expect(flooredTravelM(420, 56)).toBe(420);
+    expect(flooredTravelM(10, 56)).toBe(56);
+    expect(flooredTravelM(0, 0)).toBe(0);
+    expect(flooredTravelM(Number.NaN, 16)).toBe(16);
+  });
+
+  it('never floors a distance nobody measured into a number', () => {
+    expect(flooredTravelM(null, 56)).toBeNull();
+    expect(walkOf(report({ travelM: { w: null, b: 2_400 } }), 'w').travelM).toBeNull();
   });
 
   it('has no crossings for a board with no size', () => {
@@ -117,6 +143,21 @@ describe('the words', () => {
     expect(headlineWords(null)).toBe('Distance was not measured');
   });
 
+  it('reads the board size with the article a person would say', () => {
+    for (const n of [8, 11, 18, 80, 86, 800, 8000, 11_000, 18_500]) expect(articleFor(n)).toBe('an');
+    for (const n of [1, 7, 10, 64, 110, 180, 1100, 1800, 100_000]) expect(articleFor(n)).toBe('a');
+    expect(whereWords(report({ boardM: 80.2 }))).toContain('an 80 m board');
+  });
+
+  it('sends a sentence worth sending beside the file, measured or not', () => {
+    expect(shareMessageWords(walkOf(report(), 'b'))).toBe(
+      'You covered 2.4 km playing chess. Here is the game.',
+    );
+    const unmeasured = walkOf(report({ travelM: { w: null, b: 2_400 } }), 'w');
+    expect(shareMessageWords(unmeasured)).toBe('A game of Satellite Chess. Here it is.');
+    expect(shareMessageWords(null)).not.toContain('not measured');
+  });
+
   it('puts the move count and the crossings in the line underneath', () => {
     const detail = headlineDetailWords(walkOf(report(), 'b'));
     expect(detail).toContain('2 moves');
@@ -131,6 +172,10 @@ describe('the words', () => {
     expect(theirs!.who).toBe('Them · White');
     expect(mine!.distance).toBe('2.4 km');
     expect(theirs!.detail).toContain('longest carry 16 m');
+    // No total of the carries: it is a straight-line figure beside the phone's
+    // own count, and could read larger than the walk it is part of (O-38).
+    expect(mine!.detail).not.toContain('carrying');
+    expect(theirs!.detail).not.toContain('carrying');
     expect(colorWords('w')).toBe('White');
   });
 
@@ -187,6 +232,10 @@ describe('the words', () => {
     expect(DISTANCE_HONESTY).toBe(RECORD_HONESTY);
     expect(DISTANCE_HONESTY.join(' ')).toContain('taken on trust');
     expect(DISTANCE_HONESTY.join(' ')).toContain('leans short');
+    // No fraction the simulator cannot back (O-38 measured far more than a
+    // tenth on stop-and-start play), and the reason it matters for chess.
+    expect(DISTANCE_HONESTY.join(' ')).not.toMatch(/tenth|third|half|\d+ ?%/);
+    expect(DISTANCE_HONESTY.join(' ')).toContain('stop and start');
   });
 
   it('says what is in the file, and what is not', () => {
@@ -202,7 +251,9 @@ describe('the screen', () => {
     expect(html.indexOf('data-review-distance')).toBeLessThan(
       html.indexOf('data-review-coverage'),
     );
-    expect(html).toContain('You covered 2.4 km');
+    // The number and its unit are held together, so a narrow phone does not
+    // leave "km" alone on the line under the headline.
+    expect(html).toContain('You covered 2.4&nbsp;km');
   });
 
   it('carries the honesty sentences on the screen, not behind a tap', () => {
@@ -221,7 +272,7 @@ describe('the screen', () => {
 
   it('lists every carry', () => {
     expect(html).toContain('Qh4#');
-    expect(html).toContain('carried 48 m in 1 min 35 s');
+    expect(html).toContain('carried 48&nbsp;m in 1&nbsp;min 35&nbsp;s');
   });
 
   it('escapes a field name a player typed', () => {

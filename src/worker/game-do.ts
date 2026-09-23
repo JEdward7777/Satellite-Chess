@@ -41,7 +41,13 @@ import {
 import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
 import type { RecordGame } from '../shared/record.js';
-import type { GameReport, ReportMove, ReportPosition } from '../shared/review.js';
+import {
+  type GameReport,
+  type ReportMove,
+  type ReportPosition,
+  carriedByColor,
+  flooredTravelM,
+} from '../shared/review.js';
 import {
   DEFAULT_REACH,
   type ReachConfig,
@@ -69,6 +75,16 @@ import { type Color, isSquare } from '../shared/squares.js';
 import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
 import { applySchema, isInitialised } from './schema.js';
+
+/**
+ * The distance report a phone piggybacks on `pos`, `lift` and `place`: its
+ * page-long counter and which counter that is (decision 0040). Untrusted, and
+ * validated by {@link creditTravel}.
+ */
+interface TravelReport {
+  travelM?: unknown;
+  leg?: unknown;
+}
 
 /** What a socket needs to remember about itself across a hibernation. */
 interface SocketAttachment {
@@ -584,6 +600,7 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'lift':
+        this.creditCarry(who, msg as TravelReport);
         await this.onLift(ws, who, msg as { from: string; pos: PosFix });
         return;
 
@@ -592,6 +609,10 @@ export class GameDO extends DurableObject<Env> {
         return;
 
       case 'place':
+        // Before the move is judged, not after it: a place that ends the game
+        // writes the result, and the record line with it, inside `onPlace`, and
+        // the walk that carried the mating piece has to be in that line.
+        this.creditCarry(who, msg as TravelReport);
         await this.onPlace(ws, who, msg as { to: string; promotion?: string; pos: PosFix });
         return;
 
@@ -628,9 +649,10 @@ export class GameDO extends DurableObject<Env> {
    * than every couple of seconds. This re-checks, because a client that ignores
    * the policy would otherwise spend the whole account's request budget.
    *
-   * It is also where distance walked is credited, since the phone piggybacks its
-   * counter here rather than spending a message of its own. What may be credited
-   * is {@link creditTravel}'s answer, not what was reported.
+   * It is also one of the places distance walked is credited, since the phone
+   * piggybacks its counter here rather than spending a message of its own — the
+   * others are the lift and the place ({@link creditCarry}). What may be
+   * credited is {@link creditTravel}'s answer, not what was reported.
    */
   private async onPos(
     who: SocketAttachment,
@@ -663,20 +685,7 @@ export class GameDO extends DurableObject<Env> {
 
     const game = this.game();
     const zone = game === null ? false : this.isInOwnStartZone(game, who.color, msg);
-    const budgetFrom = Math.max(row?.last_pos_at ?? 0, game?.last_clock_start_at ?? 0);
-    const travel = creditTravel({
-      leg: typeof msg.leg === 'string' ? msg.leg.slice(0, MAX_TRAVEL_LEG_CHARS) : '',
-      reportedM: msg.travelM,
-      storedLeg: row?.travel_leg ?? null,
-      seenM: row?.travel_seen_m ?? 0,
-      active: game?.status === 'active',
-      // Measured from the later of this player's last report and the moment the
-      // clock last started, so a silent phone banks no ceiling across staging
-      // or a suspension. Over a whole game the credit cannot exceed a sprint
-      // for as long as the game was active, which is what makes silence during
-      // the opponent's think harmless rather than a hole.
-      budgetMs: budgetFrom === 0 ? null : Math.max(0, now - budgetFrom),
-    });
+    const travel = this.travelFrom(row ?? null, game, msg, now);
 
     this.sql.exec(
       `UPDATE presence
@@ -727,6 +736,107 @@ export class GameDO extends DurableObject<Env> {
       this.bumpRev();
       this.broadcastState();
     }
+  }
+
+  /**
+   * What a phone's distance report earns, by {@link creditTravel}'s rule — the
+   * one computation behind every message that carries a report, so `pos`,
+   * `lift` and `place` cannot disagree about a window or a baseline.
+   *
+   * `row` is the reporter's presence before this report. The window is
+   * measured from the later of that row's `last_pos_at` and the moment the
+   * clock last started, so a silent phone banks no ceiling across staging or a
+   * suspension. Every caller that credits also moves `last_pos_at` to now, so
+   * the windows never overlap, and over a whole game the credit cannot exceed
+   * a sprint for as long as the game was active — which is what makes silence
+   * during the opponent's think harmless rather than a hole.
+   */
+  private travelFrom(
+    row: { last_pos_at: number | null; travel_leg: string | null; travel_seen_m: number } | null,
+    game: GameRow | null,
+    report: TravelReport,
+    now: number,
+  ): { creditM: number; leg: string | null; seenM: number } {
+    // **A finished game's distance is frozen at the result** (decision 0041).
+    // Re-opening a finished game's board still relays, and `creditTravel`
+    // would store a new leg and baseline even while paying nothing — which
+    // turns a game nobody measured (0040 rule 7: no leg, a figure inherited
+    // from the old rule) into one that reads as measured, and puts the phone's
+    // whole counter into the review, the PGN and, on the next re-push, the
+    // permanent record. So nothing about distance is written once it is over.
+    // Only `finished`: staging and a suspension still need their baselines
+    // moved, which is how the walk to the back rank is kept out.
+    if (game?.status === 'finished') {
+      return { creditM: 0, leg: row?.travel_leg ?? null, seenM: row?.travel_seen_m ?? 0 };
+    }
+    const budgetFrom = Math.max(row?.last_pos_at ?? 0, game?.last_clock_start_at ?? 0);
+    return creditTravel({
+      leg: typeof report.leg === 'string' ? report.leg.slice(0, MAX_TRAVEL_LEG_CHARS) : '',
+      reportedM: report.travelM,
+      storedLeg: row?.travel_leg ?? null,
+      seenM: row?.travel_seen_m ?? 0,
+      active: game?.status === 'active',
+      budgetMs: budgetFrom === 0 ? null : Math.max(0, now - budgetFrom),
+    });
+  }
+
+  /**
+   * Credit the distance a lift or a place carries (decision 0041).
+   *
+   * The walk that matters most arrives here. `pos` relays are rate-limited and
+   * sent only on movement, so without this everything walked after the last
+   * relay before a move was never reported — and for the move that ends the
+   * game, never at all: the mating queen's carry was missing from the headline,
+   * the PGN and the permanent record. Riding on messages that are sent anyway
+   * costs no request (the budget in `reference/budget.md` counts inbound
+   * messages, not bytes).
+   *
+   * Run before the message is judged, **and whether or not it is then
+   * refused**: a place out of reach or a lift out of turn still ends a real
+   * walk, and `creditTravel` credits only while the game is active in any case.
+   * Refusals cannot launder distance, because this is the same rule as `pos`
+   * over the same state — the same leg and baseline, and a window that starts
+   * where the last accepted report left it and is moved on to now — so a burst
+   * of refused places earns no more than one `pos` at the end of it would.
+   *
+   * The message's fix is what moves `last_pos_at`, so it is written with it:
+   * the snapshot reads the pair as "where this player was, and when". A report
+   * with no usable fix, or none at all (an older build), changes nothing.
+   */
+  private creditCarry(who: SocketAttachment, msg: TravelReport & { pos?: unknown }): void {
+    const reported = msg?.travelM;
+    if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 0) return;
+    const pos = asPosFix(msg.pos);
+    if (pos === null) return;
+    const game = this.game();
+    if (game === null) return;
+    const [row] = [...this.sql.exec<{
+      last_pos_at: number | null;
+      travel_leg: string | null;
+      travel_seen_m: number;
+    }>(
+      `SELECT last_pos_at, travel_leg, travel_seen_m FROM presence WHERE player_id = ?`,
+      who.playerId,
+    )];
+    if (row === undefined) return;
+
+    const now = Date.now();
+    const travel = this.travelFrom(row, game, msg, now);
+    this.sql.exec(
+      `UPDATE presence
+          SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?, last_seen_at = ?,
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?
+        WHERE player_id = ?`,
+      pos.lat,
+      pos.lng,
+      pos.acc,
+      now,
+      now,
+      travel.creditM,
+      travel.leg,
+      travel.seenM,
+      who.playerId,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1643,6 +1753,13 @@ export class GameDO extends DurableObject<Env> {
         color,
       ),
     ];
+    // Summed in JS by the same helper the report uses, rather than by SQL, so
+    // the record and the review floor by exactly the same number.
+    const carried = carriedByColor(
+      [
+        ...this.sql.exec<{ color: Color; carried_m: number }>(`SELECT color, carried_m FROM moves`),
+      ].map((row) => ({ color: row.color, carriedM: row.carried_m })),
+    );
     const [presence] = [
       ...this.sql.exec<{ travel_m: number; travel_leg: string | null }>(
         `SELECT travel_m, travel_leg FROM presence WHERE color = ? LIMIT 1`,
@@ -1650,11 +1767,14 @@ export class GameDO extends DurableObject<Env> {
       ),
     ];
     // Unmeasured rather than zero for a distance inherited from before the
-    // per-game rule (decision 0040, rule 7). The predicate lives in
-    // `travel.ts` because the post-game report (stage 8.1) asks the same
-    // question, and the two answers have to agree.
-    const travelM =
-      presence === undefined ? 0 : measuredTravelM(presence.travel_m, presence.travel_leg);
+    // per-game rule (decision 0040, rule 7), and never less than this player's
+    // own carries (decision 0041). Both rules live outside this function
+    // because the post-game report asks the same questions, and the record,
+    // the review screen and the PGN have to give the same answer.
+    const travelM = flooredTravelM(
+      presence === undefined ? 0 : measuredTravelM(presence.travel_m, presence.travel_leg),
+      carried[color],
+    );
 
     let fieldName: string | null = null;
     let fieldKey: string | null = null;
@@ -2215,11 +2335,18 @@ export class GameDO extends DurableObject<Env> {
     }));
 
     // A seat nobody ever took has no presence row, and a measured zero is the
-    // honest answer for it: nobody who was never here walked anywhere.
-    const travelM: Record<Color, number | null> = { w: 0, b: 0 };
+    // honest answer for it: nobody who was never here walked anywhere. Each
+    // figure is floored by that player's carries, exactly as `recordLine`
+    // floors it, so the record and this report cannot disagree (decision 0041).
+    const measured: Record<Color, number | null> = { w: 0, b: 0 };
     for (const row of this.presence()) {
-      travelM[row.color] = measuredTravelM(row.travel_m, row.travel_leg ?? null);
+      measured[row.color] = measuredTravelM(row.travel_m, row.travel_leg ?? null);
     }
+    const carried = carriedByColor(moves);
+    const travelM: Record<Color, number | null> = {
+      w: flooredTravelM(measured.w, carried.w),
+      b: flooredTravelM(measured.b, carried.b),
+    };
 
     return {
       joinCode: game.join_code,

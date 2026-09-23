@@ -153,6 +153,9 @@ describe('the movetext', () => {
     // Wrapped across lines like any other comment, so it is compared unwrapped.
     expect(movetext(buildPgn(report())).replace(/\s+/g, ' ')).toContain(`{${PGN_LEGEND}}`);
     expect(PGN_LEGEND).toContain('squares from the center of a1');
+    // The walked tags are floored by the carries (decision 0041), and the
+    // legend says so rather than calling every figure the phone's own.
+    expect(PGN_LEGEND).toContain("never less than the sum of that player's carries");
   });
 
   it('numbers the moves and ends with the result token', () => {

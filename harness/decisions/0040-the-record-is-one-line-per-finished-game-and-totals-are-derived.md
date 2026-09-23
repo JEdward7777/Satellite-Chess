@@ -1,7 +1,7 @@
 # 0040 — The record is one line per finished game, pushed by the game; totals are derived
 
 - **Date:** 2026-09-19
-- **Status:** accepted
+- **Status:** accepted; rules 6 and 7 amended by [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) (lift and place carry the counter too; the figure is floored by the player's own carries)
 - **Stage:** 2.3.5 (and 2.3.5.2, 2.3.5.3, 2.3.5.4)
 - **Builds on:** [0019](0019-distance-is-the-currency-not-games.md), [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md)
 

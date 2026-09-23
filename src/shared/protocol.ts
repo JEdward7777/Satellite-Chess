@@ -220,6 +220,14 @@ export interface LiftMsg {
   t: 'lift';
   from: Square;
   pos: PosFix;
+  /**
+   * The phone's distance counter, as on {@link PosMsg}. Carried on a lift and a
+   * place as well because they end a walk, and a relay may not have gone out
+   * since it began — the carry that ends a game would otherwise never be
+   * reported at all (decision 0041). Riding here costs no extra message.
+   */
+  travelM?: number;
+  leg?: string;
 }
 
 /** Put the carried piece back. Free; you only paid clock time. */
@@ -234,6 +242,9 @@ export interface PlaceMsg {
   /** Only for promotions; a pure UI choice, no travel involved. */
   promotion?: 'q' | 'r' | 'b' | 'n';
   pos: PosFix;
+  /** As on {@link LiftMsg}: the walk this place ends. */
+  travelM?: number;
+  leg?: string;
 }
 
 /** "I am standing on my back rank" — for the start and resume handshakes. */

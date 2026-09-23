@@ -118,8 +118,6 @@ export interface PlayerWalk {
   travelM: number | null;
   /** Moves this player made. */
   moves: number;
-  /** Meters of the walk that were spent with a piece in hand. */
-  carriedM: number;
   /** The longest single carry, lift to place. */
   longestCarryM: number;
   /**
@@ -130,23 +128,61 @@ export interface PlayerWalk {
   crossings: number | null;
 }
 
+/**
+ * The distance a player walked in one game: what their phone counted, but
+ * never less than the carries the game measured for them (decision 0041).
+ *
+ * The phone's count runs short on stop-and-start walking (O-38), and a carry
+ * is a straight line between the lift and place fixes — a lower bound on the
+ * walk it is part of. Without this floor a one-move game could read "You
+ * covered 0 m" above "carried 16 m", on the screen, in the PGN and in the
+ * record alike. **The larger of the two, never their sum**: the carries are
+ * inside the walk, not beside it.
+ *
+ * This is about the numbers agreeing, not about cheating. The fixes a carry is
+ * measured between come from the same phone (O-03 stands).
+ *
+ * Null stays null. A game nobody measured (decision 0040, rule 7) is not given
+ * a figure made of its carries alone: that would be a number, and the honest
+ * answer is that there is none.
+ */
+export function flooredTravelM(travelM: number | null, carriedSumM: number): number | null {
+  if (travelM === null) return null;
+  return Math.max(positive(travelM), positive(carriedSumM));
+}
+
+/**
+ * Each color's carries, summed — the floor {@link flooredTravelM} takes.
+ *
+ * One function for every reader, because the record line (`GameDO.recordLine`)
+ * and the report (`GameDO.buildReport`, then {@link walkOf}) must floor by the
+ * same number to the last bit, or the record and the screen disagree about
+ * the same game. A carry that is not a positive finite number is not a carry.
+ */
+export function carriedByColor(
+  moves: readonly { color: Color; carriedM: number }[],
+): Record<Color, number> {
+  const sum: Record<Color, number> = { w: 0, b: 0 };
+  for (const move of moves) sum[move.color] += positive(move.carriedM);
+  return sum;
+}
+
 export function walkOf(report: GameReport, color: Color): PlayerWalk {
   let moves = 0;
-  let carriedM = 0;
   let longestCarryM = 0;
   for (const move of report.moves) {
     if (move.color !== color) continue;
     moves += 1;
-    const carried = positive(move.carriedM);
-    carriedM += carried;
-    longestCarryM = Math.max(longestCarryM, carried);
+    longestCarryM = Math.max(longestCarryM, positive(move.carriedM));
   }
-  const travelM = report.travelM[color];
+  // Already floored by the game that built the report; applied again so a
+  // report from anywhere else reads the same way. The larger of two numbers is
+  // the same however often it is taken.
+  const travelM = flooredTravelM(report.travelM[color], carriedByColor(report.moves)[color]);
   return {
     color,
     travelM,
     moves,
-    carriedM,
     longestCarryM,
     crossings:
       travelM === null || !(report.diagonalM > 0) ? null : positive(travelM) / report.diagonalM,
