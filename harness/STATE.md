@@ -3,11 +3,15 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean, pushed to `main`.
-**Active stage**: none. **`2.3.5` is closed** (2026-09-22): the permanent record,
-its privacy statement and the per-game distance rule (decision 0040).
-**Next action**: phase 8 — `8.1` PGN export and `8.2` distance summaries. See
-"What to do next".
+**Tree state**: **dirty on purpose** — `8.1`/`8.2` are half-built and uncommitted.
+`src/shared/review.ts` and `src/shared/pgn.ts` are on disk, complete and
+typechecking; **nothing is wired to them yet**. The machine was restarted
+mid-phase, so the agent building them is gone.
+**Active stage**: `8.1`/`8.2`, part-built.
+**Next action**: **read `harness/sessions/2026-09-23-01.md`** and work its
+twelve-item checklist. It carries the settled design (board-space PGN, one
+canonical file, no join code, fetch-at-mount/share-on-tap) and everything still
+missing — including **decision 0041**, which is not written.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
 phase 7, `2.2.3`–`2.2.5` and `2.3.5` all ship on the next `npm run deploy`.
