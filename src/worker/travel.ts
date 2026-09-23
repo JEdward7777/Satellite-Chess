@@ -90,3 +90,26 @@ export function creditTravel(input: {
     seenM: Math.max(input.seenM, reported),
   };
 }
+
+/**
+ * This game's distance, or null where nobody measured it (decision 0040, rule 7).
+ *
+ * The pair `travel_leg IS NULL AND travel_m > 0` means "credited under the old
+ * rule, never reported under the new one": a game already being played when
+ * stage 2.3.5.3 arrived holds whatever the phone's page-long counter had
+ * reached — the calibration walk, the walk to the park, the game before this
+ * one — and that is not a distance walked *here*. It reads as **unmeasured**,
+ * which is not the same as zero: a zero claims somebody walked nowhere.
+ *
+ * A zero with no leg is a measured zero, deliberately. It is right for a game
+ * nobody moved in, and it is also what a game zeroed by the schema-4 upgrade
+ * and never reported again reads as — the accepted caveat in decision 0040.
+ *
+ * One function rather than the predicate written out twice, because the record
+ * line and the post-game report (stage 8.1) both have to call the same game
+ * unmeasured or the PGN and the record will disagree about it.
+ */
+export function measuredTravelM(travelM: number, travelLeg: string | null): number | null {
+  if (!Number.isFinite(travelM)) return 0;
+  return travelLeg === null && travelM > 0 ? null : travelM;
+}

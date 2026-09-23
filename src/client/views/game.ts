@@ -242,6 +242,15 @@ export interface GameViewDeps {
    */
   field: FieldSnapshot;
   onLeave(): void;
+  /**
+   * Open the post-game screen (stage 8.2).
+   *
+   * Offered only once there is a result, and never instead of Leave: the two
+   * are different gestures. A player who has walked off and come back reaches
+   * the same screen the long way — home, Your games, tap the game, and the
+   * button is here, because re-joining a finished game is idempotent.
+   */
+  onReview?(): void;
   /** The simulator hooks the canvas here, exactly as the board view does. */
   onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;
 }
@@ -286,6 +295,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
           <button data-claim hidden>Claim the win</button>
+          <button data-review hidden>After the game</button>
           <button data-pause class="secondary" hidden>Pause</button>
           <button data-leave class="secondary">Leave</button>
         </p>
@@ -492,6 +502,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   canvas.addEventListener('pointerup', onPointerUp);
 
   root.querySelector<HTMLButtonElement>('[data-leave]')?.addEventListener('click', deps.onLeave);
+  root.querySelector<HTMLButtonElement>('[data-review]')?.addEventListener('click', () => {
+    deps.onReview?.();
+  });
   root.querySelector<HTMLButtonElement>('[data-drop]')?.addEventListener('click', () => {
     deps.connection.send({ t: 'drop' });
   });
@@ -686,6 +699,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     const claimButton = root.querySelector<HTMLButtonElement>('[data-claim]');
     if (claimButton) claimButton.hidden = net.game?.suspension?.canClaim !== true;
+
+    // The way on to the post-game screen, and the only one from here. It
+    // appears with the result rather than replacing anything: the board is
+    // still worth looking at for a moment after a mate.
+    const reviewButton = root.querySelector<HTMLButtonElement>('[data-review]');
+    if (reviewButton) {
+      reviewButton.hidden = net.game?.result == null || deps.onReview === undefined;
+    }
 
     const picker = root.querySelector<HTMLElement>('[data-promotion]');
     if (picker) {

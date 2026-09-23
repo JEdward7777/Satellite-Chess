@@ -780,3 +780,58 @@ body:has(.sim-panel) #app {
   margin: 0.5rem 0;
   font-size: 0.9rem;
 }
+
+/*
+ * After the game (stages 8.1, 8.2). The same shape as the record — distance
+ * largest, the sentence under it — because it is the same number seen from
+ * inside one game (decision 0019). `.record-headline` and `.record-stats` are
+ * reused rather than re-specified, so the two screens cannot drift apart.
+ */
+.review {
+  max-width: 32rem;
+}
+
+.review-result {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0.6rem 0 0.1rem;
+}
+
+.review-moves {
+  margin: 0.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-moves li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The move number, in the monospace face, so the list reads as a column. */
+.review-ply {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--dim);
+  min-width: 2.6rem;
+}
+
+.review-pgn {
+  margin: 1.5rem 0 0;
+}
+
+/*
+ * The file itself, for the phone where nothing else worked. Monospace and
+ * scrollable: it is meant to be selected and copied by hand, not read.
+ */
+.review-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre;
+  overflow-x: auto;
+}

@@ -115,7 +115,10 @@ export function resultToken(report: Pick<GameReport, 'outcome'>): string {
  * lines — it runs to its closing brace — so nothing has to overflow.
  */
 function moveText(report: GameReport): string {
-  const tokens: string[] = [`{${PGN_LEGEND}}`];
+  // The legend is one comment and many tokens: at 140-odd characters it would
+  // be a single over-long line otherwise, and a comment may be broken on
+  // whitespace because it runs to its closing brace.
+  const tokens: string[] = `{${PGN_LEGEND}}`.split(' ');
   let expected = 1;
   for (const move of report.moves) {
     const number = Math.floor((move.seq - 1) / 2) + 1;
@@ -188,8 +191,16 @@ export function termination(reason: ResultReason): string {
   return 'normal';
 }
 
-/** `600+5`, in seconds, as the standard spells a sudden-death control. */
+/**
+ * `600+5`, in seconds, as the standard spells a sudden-death control — or `?`,
+ * which is what the standard says for a control nobody recorded.
+ *
+ * A game created before the starting time had a column of its own (schema 5)
+ * is the `?` case: its clocks hold what is left rather than what they began
+ * with, so there is no honest number to write.
+ */
 function timeControl(report: Pick<GameReport, 'initialMs' | 'incrementMs'>): string {
+  if (report.initialMs === null || !Number.isFinite(report.initialMs)) return '?';
   const initial = Math.max(0, Math.round(report.initialMs / 1000));
   const increment = Math.max(0, Math.round(report.incrementMs / 1000));
   return `${initial}+${increment}`;

@@ -12,7 +12,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -47,6 +47,12 @@ const STATEMENTS = [
      white_ms_remaining  INTEGER NOT NULL,
      black_ms_remaining  INTEGER NOT NULL,
      increment_ms        INTEGER NOT NULL,
+     -- What each clock started at. The two columns above are what is *left*,
+     -- so once a move has been played nothing else remembers the time control
+     -- the game was created with — and the PGN has a tag for it (schema 5,
+     -- stage 8.1). NULL reads as "not known", which is what the standard's
+     -- TimeControl "?" says, and is honest for a game that predates this.
+     initial_ms          INTEGER,
      active_color        TEXT    NOT NULL,
      last_clock_start_at INTEGER,
      -- Handicap, in squares of extra reach (decisions 0004, 0031).
@@ -201,6 +207,18 @@ function upgradeGameTable(sql: SqlStorage): void {
   // default", which is what a pre-schema-2 game was played by anyway.
   if (!columns.has('reach_json')) {
     sql.exec(`ALTER TABLE game ADD COLUMN reach_json TEXT`);
+  }
+
+  // Schema 5: the time control the game started with (stage 8.1). A game with
+  // no move played yet still has it, untouched, in the remaining clock; one
+  // already under way does not, and NULL is the honest answer there rather
+  // than whatever is left on somebody's clock.
+  if (!columns.has('initial_ms')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN initial_ms INTEGER`);
+    const [played] = [...sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
+    if ((played?.n ?? 0) === 0) {
+      sql.exec(`UPDATE game SET initial_ms = white_ms_remaining WHERE initial_ms IS NULL`);
+    }
   }
 
   // Schema 3: which account each seat accrues to (stage 2.3.4). NULL for every

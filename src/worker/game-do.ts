@@ -31,14 +31,17 @@ import {
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
 import {
+  type FieldGeometry,
   type FieldSnapshot,
   boardDiagonalM,
   boardSizeM,
   geometryFromSnapshot,
+  toBoardIndex,
 } from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
 import type { RecordGame } from '../shared/record.js';
+import type { GameReport, ReportMove, ReportPosition } from '../shared/review.js';
 import {
   DEFAULT_REACH,
   type ReachConfig,
@@ -64,7 +67,7 @@ import {
 } from '../shared/protocol.js';
 import { type Color, isSquare } from '../shared/squares.js';
 import { Timers } from './timers.js';
-import { MAX_TRAVEL_LEG_CHARS, creditTravel } from './travel.js';
+import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
 import { applySchema, isInitialised } from './schema.js';
 
 /** What a socket needs to remember about itself across a hibernation. */
@@ -106,6 +109,8 @@ interface GameRow {
   white_ms_remaining: number;
   black_ms_remaining: number;
   increment_ms: number;
+  /** What the clocks started at, or null for a game created before schema 5. */
+  initial_ms: number | null;
   active_color: Color;
   last_clock_start_at: number | null;
   white_reach_bonus_sq: number;
@@ -133,7 +138,27 @@ interface PresenceRow {
   last_acc: number | null;
   last_pos_at: number | null;
   travel_m: number;
+  travel_leg: string | null;
   in_start_zone: number;
+  [key: string]: SqlStorageValue;
+}
+
+/** The columns a post-game report reads out of `moves` (stage 8.1). */
+interface MoveRow {
+  seq: number;
+  color: Color;
+  san: string;
+  uci: string;
+  from_sq: string;
+  to_sq: string;
+  carried_m: number;
+  carried_ms: number;
+  lift_lat: number | null;
+  lift_lng: number | null;
+  lift_acc: number | null;
+  place_lat: number | null;
+  place_lng: number | null;
+  place_acc: number | null;
   [key: string]: SqlStorageValue;
 }
 
@@ -149,6 +174,28 @@ interface CarryRow {
 }
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * A stored fix, as squares from a1's centre — or null where there is no fix.
+ *
+ * **This is where the coordinates stop.** A lift and a place are stored as
+ * latitude and longitude because the game needs them to judge reach, and a
+ * report is read by a screen and a file that both travel, so the affine
+ * inverse is applied here and the position that leaves this object is a place
+ * on the board (decision 0041). The board has no anchor in it, so nothing
+ * downstream can put it back on a map.
+ */
+function boardPositionOf(
+  geo: FieldGeometry | null,
+  lat: number | null,
+  lng: number | null,
+  acc: number | null,
+): ReportPosition | null {
+  if (geo === null || lat === null || lng === null) return null;
+  const at = toBoardIndex(geo, { lat, lng });
+  if (!Number.isFinite(at.file) || !Number.isFinite(at.rank)) return null;
+  return { file: at.file, rank: at.rank, accuracyM: acc ?? 0 };
+}
 
 /**
  * When a finished game cannot reach a player's account, how long before it
@@ -259,11 +306,11 @@ export class GameDO extends DurableObject<Env> {
       `INSERT INTO game (
          id, join_code, status, fen, field_snapshot_json,
          white_player_id, black_player_id, white_account, black_account,
-         white_ms_remaining, black_ms_remaining, increment_ms,
+         white_ms_remaining, black_ms_remaining, increment_ms, initial_ms,
          active_color, last_clock_start_at,
          white_reach_bonus_sq, black_reach_bonus_sq, reach_json,
          rev, created_at, updated_at
-       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
+       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
       options.joinCode,
       STARTING_FEN,
       JSON.stringify(options.field),
@@ -274,6 +321,10 @@ export class GameDO extends DurableObject<Env> {
       clock.whiteMs,
       clock.blackMs,
       clock.incrementMs,
+      // Kept apart from the two columns above, which are what is *left* on each
+      // clock: after one move nothing else remembers the time control this game
+      // was created with, and the PGN has a tag for it (stage 8.1).
+      options.initialMs,
       options.reachBonusSquares?.w ?? 0,
       options.reachBonusSquares?.b ?? 0,
       options.reach ? JSON.stringify(options.reach) : null,
@@ -1598,18 +1649,12 @@ export class GameDO extends DurableObject<Env> {
         color,
       ),
     ];
-    // A distance credited under the old rule and never reported under the new
-    // one is not this game's distance: it is whatever the phone's counter had
-    // reached, the walk to the park included. `travel_leg` is null exactly
-    // when no report has been credited by difference, so the pair says
-    // "inherited, never measured" without a date or a flag. The record calls
-    // that unmeasured rather than inventing a number (decision 0040).
+    // Unmeasured rather than zero for a distance inherited from before the
+    // per-game rule (decision 0040, rule 7). The predicate lives in
+    // `travel.ts` because the post-game report (stage 8.1) asks the same
+    // question, and the two answers have to agree.
     const travelM =
-      presence === undefined
-        ? 0
-        : presence.travel_leg === null && presence.travel_m > 0
-          ? null
-          : presence.travel_m;
+      presence === undefined ? 0 : measuredTravelM(presence.travel_m, presence.travel_leg);
 
     let fieldName: string | null = null;
     let fieldKey: string | null = null;
@@ -2074,6 +2119,122 @@ export class GameDO extends DurableObject<Env> {
       joinCode: game.join_code,
       seatsFree,
       field: this.fieldOf(game),
+    };
+  }
+
+
+  // -------------------------------------------------------------------------
+  // The post-game report (stages 8.1, 8.2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * This game, as the review screen and the PGN read it.
+   *
+   * **Seat-only.** The account is checked here rather than in the router
+   * because an account never leaves this object: the router knows who is
+   * asking, and only the game knows who was playing. A stranger holding the
+   * join code gets `not_a_player`, which the route answers with the same 404 a
+   * code that never existed gets — a finished game already exposes its field to
+   * anybody holding the code (O-34), and this is not the place to widen that.
+   *
+   * Works on a game still in progress: the result token is then `*`, the
+   * distances are what has been credited so far, and nothing pretends the game
+   * is over.
+   */
+  async report(
+    account: string | null,
+  ): Promise<
+    | { ok: false; reason: 'not_found' | 'not_a_player' }
+    | { ok: true; you: Color; report: GameReport }
+  > {
+    const game = this.game();
+    if (game === null) return { ok: false, reason: 'not_found' };
+    const you = this.accountSeat(game, account);
+    if (you === null) return { ok: false, reason: 'not_a_player' };
+    return { ok: true, you, report: this.buildReport(game) };
+  }
+
+  /** Which seat an account holds, or null for one that holds neither. */
+  private accountSeat(game: GameRow, account: string | null): Color | null {
+    if (account === null) return null;
+    if (game.white_account === account) return 'w';
+    if (game.black_account === account) return 'b';
+    return null;
+  }
+
+  /**
+   * The report itself, out of stored rows and nothing else.
+   *
+   * Separate from {@link report} because it has no reader: stage 8.4 archives a
+   * finished game as a PGN and then deletes this object, and it needs the same
+   * bytes with no seat to check them against. Everything it reads is a column,
+   * so a hibernating object answers exactly as a busy one does, and a game
+   * whose end was reported twice reports the same thing twice.
+   *
+   * **Positions come out in board space.** `toBoardIndex` turns each stored fix
+   * into squares from a1's centre and leaves the latitude behind (decision
+   * 0041). A malformed field snapshot loses the positions and keeps the moves,
+   * rather than taking the whole report down.
+   */
+  private buildReport(game: GameRow): GameReport {
+    let geo: FieldGeometry | null = null;
+    let fieldName: string | null = null;
+    let squareM = 0;
+    let boardM = 0;
+    let diagonalM = 0;
+    try {
+      const snapshot = this.fieldOf(game);
+      fieldName = snapshot.name;
+      geo = geometryFromSnapshot(snapshot);
+      // The narrower step, exactly as `recordLine` judges it: a board with 12 m
+      // files and 3 m ranks is as ambiguous as a 3 m board.
+      squareM = Math.min(geo.fileM, geo.rankM);
+      boardM = boardSizeM(geo);
+      diagonalM = boardDiagonalM(geo);
+    } catch {
+      // A snapshot nobody could have played on. The moves are still a game.
+    }
+
+    const moves: ReportMove[] = [
+      ...this.sql.exec<MoveRow>(
+        `SELECT seq, color, san, uci, from_sq, to_sq, carried_m, carried_ms,
+                lift_lat, lift_lng, lift_acc, place_lat, place_lng, place_acc
+           FROM moves ORDER BY seq`,
+      ),
+    ].map((row) => ({
+      seq: row.seq,
+      color: row.color,
+      san: row.san,
+      uci: row.uci,
+      from: row.from_sq,
+      to: row.to_sq,
+      carriedM: row.carried_m,
+      carriedMs: row.carried_ms,
+      lift: boardPositionOf(geo, row.lift_lat, row.lift_lng, row.lift_acc),
+      place: boardPositionOf(geo, row.place_lat, row.place_lng, row.place_acc),
+    }));
+
+    // A seat nobody ever took has no presence row, and a measured zero is the
+    // honest answer for it: nobody who was never here walked anywhere.
+    const travelM: Record<Color, number | null> = { w: 0, b: 0 };
+    for (const row of this.presence()) {
+      travelM[row.color] = measuredTravelM(row.travel_m, row.travel_leg ?? null);
+    }
+
+    return {
+      joinCode: game.join_code,
+      fieldName,
+      startedAt: game.created_at,
+      finishedAt: game.result_at,
+      outcome: game.result_outcome as ResultOutcome | null,
+      reason: game.result_reason as ResultReason | null,
+      initialMs: game.initial_ms,
+      incrementMs: game.increment_ms,
+      squareM,
+      boardM,
+      diagonalM,
+      travelM,
+      moves,
     };
   }
 

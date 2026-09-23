@@ -15,6 +15,7 @@ import { type FieldSpec, snapshotField } from '../shared/field.js';
 import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
+import { buildPgn, pgnFileName } from '../shared/pgn.js';
 import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
@@ -196,8 +197,8 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return createGame(request, env, url);
   }
 
-  // `/api/game/:code` and `/api/game/:code/ws`
-  const match = /^\/api\/game\/([^/]+)(\/ws)?$/.exec(path);
+  // `/api/game/:code`, and its `/ws`, `/review` and `/pgn` suffixes.
+  const match = /^\/api\/game\/([^/]+)(\/ws|\/review|\/pgn)?$/.exec(path);
   if (match !== null) {
     const code = normaliseJoinCode(decodeURIComponent(match[1]));
     if (code === null) {
@@ -211,6 +212,9 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
 
     if (match[2] === '/ws') {
       return openSocket(request, env, url, stub);
+    }
+    if (match[2] === '/review' || match[2] === '/pgn') {
+      return reviewGame(request, env, url, stub, match[2] === '/pgn');
     }
     if (request.method === 'GET') {
       return json(await stub.peek());
@@ -565,6 +569,52 @@ async function joinGame(
     return apiError('game_full', 'That game already has two players.', 409);
   }
   return apiError('not_found', 'No game with that code. It may have expired.', 404);
+}
+
+/**
+ * The post-game report, and the same game as a PGN file (stages 8.1, 8.2).
+ *
+ * One object call behind two routes, because they are one answer in two
+ * formats: the screen reads the JSON, the share sheet and the download take the
+ * file. Both are **seat-only** — the game checks the account, since accounts
+ * never leave the Durable Object — and a reader who is not a player gets a 404
+ * rather than a 403, so the route says nothing about whether a code names a
+ * real game to somebody who is not in it.
+ *
+ * The PGN is a raw `Response` rather than `json()`: it is a file, it is
+ * downloaded by a plain link when nothing else on the phone works (decision
+ * 0041), and `Content-Disposition` is what makes that link save rather than
+ * render. The filename carries the date and the field's name and never the
+ * join code (O-34).
+ */
+async function reviewGame(
+  request: Request,
+  env: Env,
+  url: URL,
+  stub: DurableObjectStub<GameDO>,
+  asPgn: boolean,
+): Promise<Response> {
+  if (request.method !== 'GET') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) return signInRequired();
+
+  const result = await stub.report(identity.sub);
+  if (!result.ok) {
+    return apiError('not_found', 'No game with that code that you played in.', 404);
+  }
+  if (!asPgn) return json({ you: result.you, report: result.report });
+
+  // A plain object rather than a `Headers`, for the same reason every other
+  // route here passes one: the spread of a `Headers` is `{}` (`gotchas.md`).
+  return new Response(buildPgn(result.report), {
+    headers: {
+      'content-type': 'application/x-chess-pgn; charset=utf-8',
+      'content-disposition': `attachment; filename="${pgnFileName(result.report)}"`,
+      'cache-control': 'no-store',
+    },
+  });
 }
 
 /**

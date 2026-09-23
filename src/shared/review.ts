@@ -81,8 +81,15 @@ export interface GameReport {
   finishedAt: number | null;
   outcome: ResultOutcome | null;
   reason: ResultReason | null;
-  /** The time control, as the game was created with it. */
-  initialMs: number;
+  /**
+   * The time control, as the game was created with it.
+   *
+   * `initialMs` is null for a game created before it was stored in its own
+   * column (schema 5): the clock columns hold what is *left*, so once a move
+   * has been played there is nothing left to read it off. The PGN writes the
+   * standard's `TimeControl "?"` rather than a figure nobody measured.
+   */
+  initialMs: number | null;
   incrementMs: number;
   /** The narrowest square, in meters — the one that decides a practice game. */
   squareM: number;

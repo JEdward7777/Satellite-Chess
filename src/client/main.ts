@@ -57,12 +57,14 @@ import {
 } from './account.js';
 import { homeHeaderHtml, mountAccount, sessionNoticeHtml } from './views/account.js';
 import { browserRecordTransport } from './record.js';
+import { browserReviewTransport } from './review.js';
 import { mountSignIn } from './views/signin.js';
 import { mountBoard } from './views/board.js';
 import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
+import { mountReview } from './views/review.js';
 import {
   HOME_SHOWN,
   gameItemHtml,
@@ -509,6 +511,7 @@ async function boot(): Promise<void> {
         connection,
         field,
         onLeave: () => void showHome(),
+        onReview: () => showReview(joinCode),
         onCanvas: (canvas, toLatLng) => {
           const panel = simPanel;
           if (!panel) return;
@@ -531,6 +534,25 @@ async function boot(): Promise<void> {
         connection.close();
       };
     });
+  }
+
+  /**
+   * After the game (stages 8.1, 8.2): how far you walked, and the file.
+   *
+   * Reached from the board once there is a result. The socket is closed on the
+   * way in — `swap` runs the board's teardown — because the game is over and
+   * this screen is a read of stored rows over one ordinary request. The URL is
+   * left alone, so a reload comes back to the board and the button is there
+   * again.
+   */
+  function showReview(joinCode: string): void {
+    swap(() =>
+      mountReview(root, {
+        joinCode,
+        transport: browserReviewTransport(),
+        onHome: () => void showHome(),
+      }),
+    );
   }
 
   function showBoard(field: FieldSpec): void {

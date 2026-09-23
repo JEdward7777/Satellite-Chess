@@ -53,7 +53,7 @@ export interface Invite {
   fieldName?: string;
 }
 
-export type ShareTier = 'share-sheet' | 'mailto' | 'clipboard' | 'manual';
+export type ShareTier = 'share-file' | 'share-sheet' | 'mailto' | 'clipboard' | 'manual';
 
 export type ShareOutcome =
   /** It went somewhere: the sheet accepted it, or the mail client opened. */
@@ -228,4 +228,107 @@ function defaultNavigate(href: string): void {
 
 function isAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+// ---------------------------------------------------------------------------
+// A game, as a file (stage 8.1, decision 0041)
+// ---------------------------------------------------------------------------
+
+/** The PGN, and the sentence that goes with it. */
+export interface PgnShare {
+  /** `satellite-chess-2026-09-23-riverside-park.pgn` — never the join code (O-34). */
+  fileName: string;
+  /** The file itself. Already a string: nothing may be awaited to get it. */
+  text: string;
+  title: string;
+  /** One line for a share target that shows a message beside the attachment. */
+  message: string;
+}
+
+/**
+ * Send the game somewhere, as a file if the phone can manage it.
+ *
+ * The ladder is the invitation's with one rung added at the top and one taken
+ * off the bottom (decision 0041):
+ *
+ * 1. **The share sheet with a `File`** — Web Share Level 2. This is the one
+ *    that lands a `.pgn` in Files, Drive, or a chat as an attachment, which is
+ *    what a player actually wants to do with a game.
+ * 2. **The share sheet with text**, for a phone whose sheet refuses files. A
+ *    PGN is short enough to survive being a message.
+ * 3. **The clipboard**, so it can be pasted.
+ * 4. Nothing worked, and the screen's own `<textarea>` and download link are
+ *    still there.
+ *
+ * **No `mailto:` tier.** A whole file crammed into a mail body arrives as a
+ * wall of text in somebody's inbox rather than as something a chess program can
+ * open, and the tier above it already covers every phone with a mail client.
+ *
+ * As with {@link shareLink}, **call this straight from the click handler**:
+ * every tier's decision is made by looking at `navigator`, and the `File` is
+ * constructed synchronously, so `navigator.share` is reached with nothing
+ * awaited in front of it. One `await` there and the browser has forgotten the
+ * tap, and the call fails with no visible cause.
+ */
+export function sharePgn(pgn: PgnShare, deps: ShareDeps = {}): Promise<ShareOutcome> {
+  const nav = deps.nav ?? navigator;
+  const caps = detectShareCapabilities(nav);
+
+  const file = caps.shareSheet ? pgnFile(pgn) : null;
+  if (file !== null && nav.canShare?.({ files: [file] }) === true) {
+    // No `await` above this line. Deliberately.
+    return nav
+      .share({ files: [file], title: pgn.title, text: pgn.message })
+      .then<ShareOutcome>(() => ({ ok: true, tier: 'share-file' }))
+      .catch((error: unknown): Promise<ShareOutcome> | ShareOutcome => {
+        if (isAbort(error)) return { ok: false, tier: 'share-file', reason: 'cancelled' };
+        return sharePgnAsText(pgn, caps, deps);
+      });
+  }
+  return sharePgnAsText(pgn, caps, deps);
+}
+
+function sharePgnAsText(
+  pgn: PgnShare,
+  caps: ShareCapabilities,
+  deps: ShareDeps,
+): Promise<ShareOutcome> {
+  const nav = deps.nav ?? navigator;
+  if (caps.shareSheet) {
+    return nav
+      .share({ title: pgn.title, text: `${pgn.message}\n\n${pgn.text}` })
+      .then<ShareOutcome>(() => ({ ok: true, tier: 'share-sheet' }))
+      .catch((error: unknown): Promise<ShareOutcome> | ShareOutcome => {
+        if (isAbort(error)) return { ok: false, tier: 'share-sheet', reason: 'cancelled' };
+        return copyText(pgn.text, deps);
+      });
+  }
+  return copyText(pgn.text, deps);
+}
+
+/**
+ * The PGN as a `File`, or null where this browser has no `File` constructor.
+ *
+ * `application/x-chess-pgn` is what the route serves it as, and matching them
+ * is what makes a shared file open in a chess program rather than a text
+ * editor.
+ */
+function pgnFile(pgn: PgnShare): File | null {
+  try {
+    return new File([pgn.text], pgn.fileName, { type: 'application/x-chess-pgn' });
+  } catch {
+    return null;
+  }
+}
+
+/** {@link copyLink}, for something that is not a link. */
+export function copyText(text: string, deps: ShareDeps = {}): Promise<ShareOutcome> {
+  const nav = deps.nav ?? navigator;
+  if (typeof nav.clipboard?.writeText !== 'function') {
+    return Promise.resolve<ShareOutcome>({ ok: false, tier: 'manual', reason: 'failed' });
+  }
+  return nav.clipboard
+    .writeText(text)
+    .then<ShareOutcome>(() => ({ ok: true, tier: 'clipboard' }))
+    .catch<ShareOutcome>(() => ({ ok: false, tier: 'clipboard', reason: 'failed' }));
 }
