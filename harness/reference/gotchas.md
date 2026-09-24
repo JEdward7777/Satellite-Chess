@@ -22,10 +22,14 @@ is; this says what will bite you when you touch it.*
   branches on whether `h1`/`a8` are present; the link format still writes the
   short two-corner layout whenever it is enough, so a square board's QR did not
   grow.
-- **Reach absorbs GPS error; squares scale with reach** (decision 0023). Poor
-  accuracy means a bigger circle, never a refusal — but the circle must stay
-  smaller than the square it selects, so worse GPS means *bigger squares and a
-  bigger field*, not a tighter circle. The ratio is the playability constraint.
+- **Reported accuracy never buys reach** (decision 0043, which reverses the
+  generous half of 0023). `effectiveReachM` takes no accuracy argument at all:
+  it is the dial plus the handicap, in squares (0031), and nothing else. A fix
+  worse than `maxAccuracyM` refuses the move; anything better gets the same
+  circle as a perfect one. Do not add accuracy back "to be forgiving under
+  trees": signal is the one input a player can degrade on purpose, and a phone
+  in a pocket then out-reaches the opponent's. `goodAccuracyM` survives only as
+  the GPS badge's threshold and the cue for "your position is vague" advice.
 - **Distance walked is measured, not summed** (decision 0020). A naive sum credits
   19–32 km an hour to a phone on a bench. Three mechanisms each worth a factor of
   ten. Do not simplify it back.

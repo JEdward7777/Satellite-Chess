@@ -7,6 +7,9 @@
   — point 2 below ("square size scales with reach") is reversed: the field is
   fixed by the venue, so reach is the variable and square size is the input.
   Point 1, and the whole "circle grows rather than refusing" argument, stand.
+- **Superseded by:** [0043](0043-a-poor-fix-never-buys-reach.md) — the rest. A
+  poor fix no longer grows the circle; only the hard refusal above
+  `maxAccuracyM` survives. Nothing in this decision is current any more.
 - **Stage:** 1.9.3, 9.2
 - **Constrains:** [0003](0003-reach-to-nearest-point-of-square.md),
   [0022](0022-survey-is-a-secret-gated-debug-facility.md)

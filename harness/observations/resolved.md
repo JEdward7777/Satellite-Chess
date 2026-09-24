@@ -323,3 +323,17 @@ else that there is no game. Whether a code names a game, and its status, are
 still answered to anybody. A join already says as much (`game_full`), so hiding
 it would protect nothing. The privacy statement says the new rule.
 
+### O-33 — Poor signal buys extra reach, and a pocket is a cheap exploit
+**Resolved:** 2026-09-24, stage 10.5 (decision 0043)
+**Outcome:** Fixed as the owner ruled. `effectiveReachM` takes no accuracy at
+all: reach is the dial plus the handicap, in squares. The same goes for the
+back-rank zone. A fix worse than ±25 m (`maxAccuracyM`) still refuses the move.
+Every out-of-reach refusal on a vague fix now says the position may be off,
+rather than only "walk closer". Square sizing never depended on the bonus: at
+the default 0.4 squares, the 2026-09-06 walk's worst static scatter (0.6 m) is
+far inside the 7.2 m a fix may drift before a player on a square is refused.
+**Correction:** the observation said this would close **O-12** "by removal".
+It does not. O-12 is the distance counter's floor, a different mechanism that
+guards against phantom metres, and it stays open.
+**Left for a real phone:** stage 10.5.4, whether anybody standing on a square is
+refused because the dot is off.

@@ -146,12 +146,10 @@ export function walkToBackRankM(
   game: Pick<GameSnapshot, 'reach' | 'players'>,
   color: Color,
   pos: LatLng,
-  accuracyM: number,
 ): { inZone: boolean; walkM: number } {
   const zone = inStartZone(
     geo,
     pos,
-    accuracyM,
     color,
     game.reach ?? DEFAULT_REACH,
     game.players[color]?.reachBonusSquares ?? 0,

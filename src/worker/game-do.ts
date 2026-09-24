@@ -55,6 +55,7 @@ import {
   checkCarry,
   checkReachTo,
   inStartZone,
+  outOfReachAdvice,
 } from '../shared/reach.js';
 import {
   DISCONNECT_GRACE_MS,
@@ -953,7 +954,8 @@ export class GameDO extends DurableObject<Env> {
         code: 'out_of_reach',
         message:
           `You are ${zone.nearestM.toFixed(0)} m from your back rank and your reach is ` +
-          `${zone.reachM.toFixed(1)} m. Walk to your own end of the board.`,
+          `${zone.reachM.toFixed(1)} m. ` +
+          outOfReachAdvice('Walk to your own end of the board', pos.acc, this.reachOf(game)),
       });
       return;
     }
@@ -1602,7 +1604,7 @@ export class GameDO extends DurableObject<Env> {
   ): { ok: boolean; nearestM: number; reachM: number } {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, pos.acc, color, this.reachOf(game), this.reachBonus(game, color));
+      return inStartZone(geo, pos, color, this.reachOf(game), this.reachBonus(game, color));
     } catch {
       return { ok: false, nearestM: Infinity, reachM: 0 };
     }
@@ -2405,7 +2407,7 @@ export class GameDO extends DurableObject<Env> {
   ): boolean {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, pos.acc, color, this.reachOf(game), this.reachBonus(game, color))
+      return inStartZone(geo, pos, color, this.reachOf(game), this.reachBonus(game, color))
         .ok;
     } catch {
       // A malformed snapshot must not take the object down.

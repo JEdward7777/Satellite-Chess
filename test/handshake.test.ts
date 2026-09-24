@@ -175,31 +175,30 @@ describe('awaitingHandshake', () => {
 describe('walkToBackRankM', () => {
   it('is zero, and in the zone, anywhere on your own back rank', () => {
     for (const sq of ['a1', 'e1', 'h1']) {
-      expect(walkToBackRankM(GEO, GAME, 'w', on(sq), 3)).toEqual({ inZone: true, walkM: 0 });
+      expect(walkToBackRankM(GEO, GAME, 'w', on(sq))).toEqual({ inZone: true, walkM: 0 });
     }
-    expect(walkToBackRankM(GEO, GAME, 'b', on('d8'), 3).inZone).toBe(true);
+    expect(walkToBackRankM(GEO, GAME, 'b', on('d8')).inZone).toBe(true);
   });
 
   it('agrees with the server about the wrong end', () => {
-    expect(walkToBackRankM(GEO, GAME, 'b', on('d1'), 3).inZone).toBe(false);
+    expect(walkToBackRankM(GEO, GAME, 'b', on('d1')).inZone).toBe(false);
   });
 
   it('is the distance past reach, not the distance to the square', () => {
     // e4 is three squares from e1: 24 m to walk, less whatever the circle covers.
-    const far = walkToBackRankM(GEO, GAME, 'w', on('e4'), 3);
+    const far = walkToBackRankM(GEO, GAME, 'w', on('e4'));
     expect(far.inZone).toBe(false);
     expect(far.walkM).toBeGreaterThan(0);
     expect(far.walkM).toBeLessThan(3 * SQUARE_M);
   });
 
   it('counts the handicap, as the server does', () => {
-    const plain = walkToBackRankM(GEO, GAME, 'w', on('e4'), 3);
+    const plain = walkToBackRankM(GEO, GAME, 'w', on('e4'));
     const helped = walkToBackRankM(
       GEO,
       { ...GAME, players: { ...GAME.players, w: player({ reachBonusSquares: 1 }) } },
       'w',
       on('e4'),
-      3,
     );
     expect(helped.walkM).toBeLessThan(plain.walkM);
   });

@@ -353,7 +353,6 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   /** The circle drawn on screen, which must be the one the server judges by. */
   const reachNow = () =>
     effectiveReachM(
-      gps.fix?.accuracyM ?? 0,
       geometry().meanSquareM,
       net.game?.reach ?? DEFAULT_REACH,
       myReachBonusSquares(net.game ?? null),
@@ -367,7 +366,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const myBackRank = () => {
     const fix = gps.fix;
     if (!fix || !net.game) return null;
-    return walkToBackRankM(geometry(), net.game, myColor(), fix.pos, fix.accuracyM);
+    return walkToBackRankM(geometry(), net.game, myColor(), fix.pos);
   };
 
   /**
@@ -402,7 +401,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const them = game.players[theirColor];
     const seen = net.opponent;
     const distance = seen
-      ? walkToBackRankM(geometry(), game, theirColor, { lat: seen.lat, lng: seen.lng }, seen.acc)
+      ? walkToBackRankM(geometry(), game, theirColor, { lat: seen.lat, lng: seen.lng })
       : null;
     return {
       mine: myHandshakeLine(game.players[game.you]?.inStartZone ?? false, myBackRank()),

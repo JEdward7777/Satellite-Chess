@@ -265,6 +265,34 @@ describe('the start handshake', () => {
     white.close();
   });
 
+  it('says the position may be off when a vague fix is refused at the back rank — 0043', async () => {
+    const joinCode = nextCode();
+    const stub = env.GAME.getByName(joinCode);
+    await stub.create({
+      joinCode, creatorPlayerId: WHITE, creatorColor: 'w', field: FIELD,
+      initialMs: 600_000, incrementMs: 0,
+    });
+    await stub.join(BLACK);
+    const white = await openSocket(joinCode, WHITE);
+    await white.next((m) => m.t === 'state');
+
+    // e3 is a square and a half from rank 1: out of 3.2 m of reach, and a
+    // ±20 m fix no longer widens it. The walk alone could be wrong advice.
+    white.send({ t: 'ready', pos: at('e3', 20) });
+    const vague = await white.next((m) => m.t === 'error');
+    expect(vague.code).toBe('out_of_reach');
+    expect(String(vague.message)).toMatch(
+      /Walk to your own end of the board, or if you are already there, .*±20 m/,
+    );
+
+    // A good fix gets the plain advice, as before.
+    white.clear();
+    white.send({ t: 'ready', pos: at('e3', 3) });
+    const plain = await white.next((m) => m.t === 'error');
+    expect(String(plain.message)).toMatch(/Walk to your own end of the board\.$/);
+    white.close();
+  });
+
   it('will not start on the wrong back rank', async () => {
     const joinCode = nextCode();
     const stub = env.GAME.getByName(joinCode);
@@ -364,6 +392,21 @@ describe('lifting a piece', () => {
     black.close();
   });
 
+  it('does not let a vague fix lift from a square away — decision 0043 (O-33)', async () => {
+    const { white, black } = await startedGame();
+    // On e3's centre, reaching back for e2: 4 m to its near edge, against
+    // 3.2 m of reach. Before 0043 a ±14 m fix added 9 m and this was accepted,
+    // so a pocketed phone out-reached a good one.
+    white.send({ t: 'lift', from: 'e2', pos: at('e3', 14) });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('out_of_reach');
+    expect(String(err.message)).toMatch(/your reach is 3\.2 m/);
+    // And says the dot may be wrong, rather than only "walk closer".
+    expect(String(err.message)).toMatch(/±14 m/);
+    white.close();
+    black.close();
+  });
+
   it('refuses a lift on a hopeless fix', async () => {
     const { white, black } = await startedGame();
     white.send({ t: 'lift', from: 'e2', pos: { ...at('e2'), acc: 1200 } });
@@ -453,6 +496,21 @@ describe('placing a piece', () => {
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('out_of_reach');
     expect(String(err.message)).toMatch(/from e4/);
+    white.close();
+    black.close();
+  });
+
+  it('does not let a vague fix place from a square away — decision 0043 (O-33)', async () => {
+    const { white, black } = await startedGame();
+    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+
+    // e4 is 12 m from e2's centre. A ±20 m fix is still under the refusal
+    // threshold, and before 0043 it bought 15 m of extra reach.
+    white.send({ t: 'place', to: 'e4', pos: at('e2', 20) });
+    const err = await white.next((m) => m.t === 'error');
+    expect(err.code).toBe('out_of_reach');
+    expect(String(err.message)).toMatch(/your reach is 3\.2 m/);
     white.close();
     black.close();
   });

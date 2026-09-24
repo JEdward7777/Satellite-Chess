@@ -58,7 +58,7 @@ The conditions under which this should be reopened.
 | [0020](0020-distance-is-measured-by-smoothed-anchor-hops.md) | Measure distance by smoothed anchor hops, not by summing fixes | accepted |
 | [0021](0021-split-tsconfigs-by-runtime.md) | One tsconfig per runtime, not one for the repo | accepted |
 | [0022](0022-survey-is-a-secret-gated-debug-facility.md) | The field survey is a secret-gated debug facility, off by default | accepted |
-| [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | accepted |
+| [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | superseded by 0031 and 0043 |
 | [0024](0024-own-qr-encoder-byte-mode.md) | Ship our own QR encoder, byte mode only | accepted |
 | [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted (rule 6 amended by 0042) |
 | [0026](0026-no-qr-decoder-ships-the-camera-app-is-the-fallback.md) | Ship no QR decoder; the phone's own camera app is the iOS fallback | accepted |
@@ -66,7 +66,7 @@ The conditions under which this should be reopened.
 | [0028](0028-four-corners-fitted-as-an-affine-board.md) | Four corners, fitted as an affine board | accepted (amends 0002) |
 | [0029](0029-a-dev-identity-seam-behind-two-locks.md) | A dev identity seam behind two locks | accepted |
 | [0030](0030-oauth-redirect-paths.md) | Fix the OAuth redirect path before the code that uses it | accepted |
-| [0031](0031-reach-is-the-independent-variable-measured-in-squares.md) | Reach is the independent variable, measured in squares | accepted (supersedes half of 0023) |
+| [0031](0031-reach-is-the-independent-variable-measured-in-squares.md) | Reach is the independent variable, measured in squares | accepted (supersedes half of 0023; accuracy clause superseded by 0043) |
 | [0032](0032-fields-sync-by-journal-not-by-list.md) | Sync fields against a journal of what the account has acknowledged | accepted |
 | [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md) | The game writes the index; the phone only ever reads it | accepted |
 | [0034](0034-the-google-flow-is-verified-on-the-deployed-worker.md) | Local dev signs in through the seam; Google is verified on the deployed Worker | accepted |
@@ -78,3 +78,4 @@ The conditions under which this should be reopened.
 | [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041) |
 | [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) | A game leaves as one PGN, in board space, fetched at mount and shared on tap | accepted (amends 0040 rules 6, 7) |
 | [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |
+| [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |

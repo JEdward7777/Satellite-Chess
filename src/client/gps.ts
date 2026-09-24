@@ -44,11 +44,12 @@ export type GpsQuality = 'good' | 'fair' | 'poor' | 'unusable';
  *
  * All three boundaries now come from the reach config rather than from a
  * constant here, because since decision 0031 reach is measured in squares and
- * there is no fixed metre ceiling to point at. `good` is the band where
- * accuracy costs you nothing at all (`goodAccuracyM`); `unusable` is the same
+ * there is no fixed metre ceiling to point at. `good` is at or under
+ * `goodAccuracyM`; `unusable` is the same
  * threshold the move validator refuses at, so the badge and the rules agree;
- * `fair` is the first half of the span between them, where the circle is
- * growing but has not yet given up much.
+ * `fair` is the first half of the span between them. None of the three changes
+ * the reach circle any more (decision 0043): the badge says how far to trust
+ * the dot, and only `unusable` is a rule.
  */
 export function qualityOf(accuracyM: number, cfg: ReachConfig = DEFAULT_REACH): GpsQuality {
   if (accuracyTooPoor(accuracyM, cfg)) return 'unusable';

@@ -29,16 +29,22 @@ export interface ReachConfig {
    */
   maxSquares: number;
   /**
-   * Reported accuracy at or below this costs nothing.
+   * Reported accuracy at or below this is a "good" fix — **a label, not a rule.**
    *
-   * Metres, because it is a number the device reports about itself rather than
-   * a distance on the board. The 2026-09-06 walk found reported accuracy is
-   * ~16x pessimistic — median 3.37 m claimed against 0.21 m actual, and never
-   * better than 3.00 m — so treating an ordinary fix as free is closer to the
-   * truth than adding it raw, which spent the whole reach budget on noise.
+   * It no longer touches reach (decision 0043): it only sets where the GPS badge
+   * stops saying Good, and whether a refusal adds "your fix is vague" to its
+   * advice. Until 0043 accuracy above this was added to the circle, which paid a
+   * longer reach to whoever had the worse signal — a phone in a pocket included.
+   * Kept on the config, rather than moved to the badge, because every game
+   * snapshots its `ReachConfig` and older snapshots carry it.
    */
   goodAccuracyM: number;
-  /** Above this reported accuracy we refuse to accept moves at all. */
+  /**
+   * Above this reported accuracy we refuse to accept moves at all.
+   *
+   * The only way accuracy enters the rule (decision 0043): a fix too vague to
+   * trust refuses the move. It never widens the circle.
+   */
   maxAccuracyM: number;
 }
 
@@ -104,25 +110,31 @@ export type ReachBonuses = Record<Color, number>;
 export const NO_BONUSES: ReachBonuses = { w: 0, b: 0 };
 
 /**
- * Effective reach in metres, for one fix on one board.
+ * Effective reach in metres, on one board, for one player.
  *
  * `squareM` is `FieldGeometry.meanSquareM` — the side of a square of the same
  * area as one real cell. It is the scale everything here is expressed against.
  *
- * Accuracy contributes only what it claims *in excess of* a good fix, so an
- * ordinary fix buys no slack and a genuinely bad one still grows the circle
- * rather than refusing the move (decision 0023's surviving half).
+ * **Reported accuracy plays no part in it** (decision 0043, reversing the
+ * generous half of 0023). It used to grow the circle by whatever the fix
+ * claimed beyond `goodAccuracyM`, which meant a worse signal bought a longer
+ * reach — and a signal is the one thing a player can degrade at will, by
+ * pocketing the phone, invisibly to the opponent. Both players now get the
+ * same circle for the same config and handicap, whatever their phones say. A
+ * fix too vague to trust is refused outright by {@link accuracyTooPoor}; one
+ * merely vaguer than usual is the player's to fix by standing somewhere else.
+ *
+ * The parameter is gone rather than ignored, so a caller that still thinks
+ * accuracy buys reach fails to compile instead of silently agreeing.
  */
 export function effectiveReachM(
-  accuracyM: number,
   squareM: number,
   cfg: ReachConfig = DEFAULT_REACH,
   bonusSquares = 0,
 ): number {
   const s = Math.max(0, squareM);
   const bonus = Math.max(0, bonusSquares);
-  const excessM = Math.max(0, (Number.isFinite(accuracyM) ? accuracyM : 0) - cfg.goodAccuracyM);
-  const raw = (cfg.baseSquares + bonus) * s + excessM;
+  const raw = (cfg.baseSquares + bonus) * s;
   return clamp(raw, cfg.minSquares * s, cfg.maxSquares * s);
 }
 
@@ -202,6 +214,26 @@ function accuracyVerdict(accuracyM: number, cfg: ReachConfig, reachM: number): R
 }
 
 /**
+ * What to tell a player who is out of reach, given where they should walk.
+ *
+ * Usually just the walk ("Walk closer"), which is true. But since decision 0043
+ * a vague fix no longer widens the circle, so a player standing in the right
+ * place with a vague fix can be told they are metres away — and the walk alone
+ * would then send them off it. Say what may actually be wrong as well: the
+ * position may be off, and the cure is open sky or a moment's wait.
+ *
+ * Exported because every out-of-reach refusal gets it, including the server's
+ * back-rank one (0043 point 4), and one wording is easier to keep honest.
+ */
+export function outOfReachAdvice(walk: string, accuracyM: number, cfg: ReachConfig = DEFAULT_REACH): string {
+  if (!(accuracyM > cfg.goodAccuracyM)) return `${walk}.`;
+  return (
+    `${walk}, or if you are already there, your position is only accurate to ` +
+    `±${Math.round(accuracyM)} m: hold the phone up in the open and wait for it to tighten.`
+  );
+}
+
+/**
  * Can this player reach one specific square right now?
  *
  * This is the primitive behind both halves of a move: `checkReachTo(from)` at
@@ -215,7 +247,7 @@ export function checkReachTo(
   cfg: ReachConfig = DEFAULT_REACH,
   bonusSquares = 0,
 ): ReachVerdict {
-  const reachM = effectiveReachM(accuracyM, geo.meanSquareM, cfg, bonusSquares);
+  const reachM = effectiveReachM(geo.meanSquareM, cfg, bonusSquares);
   const bad = accuracyVerdict(accuracyM, cfg, reachM);
   if (bad) return bad;
 
@@ -226,7 +258,7 @@ export function checkReachTo(
       code: 'out_of_reach',
       message:
         `You are ${sr.distanceM.toFixed(1)} m from ${square} and your reach is ` +
-        `${reachM.toFixed(1)} m. Walk closer.`,
+        `${reachM.toFixed(1)} m. ${outOfReachAdvice('Walk closer', accuracyM, cfg)}`,
       reachM,
       squares: [sr],
     };
@@ -265,12 +297,7 @@ export function checkCarry(
   cfg: ReachConfig = DEFAULT_REACH,
   bonusSquares = 0,
 ): CarryVerdict {
-  const reachM = effectiveReachM(
-    Math.max(lift.accuracyM, place.accuracyM),
-    geo.meanSquareM,
-    cfg,
-    bonusSquares,
-  );
+  const reachM = effectiveReachM(geo.meanSquareM, cfg, bonusSquares);
   const carriedM = distanceM(lift.pos, place.pos);
   const carriedMs = Math.max(0, place.at - lift.at);
 
@@ -323,12 +350,11 @@ export function checkCarry(
 export function inStartZone(
   geo: FieldGeometry,
   pos: LatLng,
-  accuracyM: number,
   color: Color,
   cfg: ReachConfig = DEFAULT_REACH,
   bonusSquares = 0,
 ): { ok: boolean; nearestM: number; reachM: number } {
-  const reachM = effectiveReachM(accuracyM, geo.meanSquareM, cfg, bonusSquares);
+  const reachM = effectiveReachM(geo.meanSquareM, cfg, bonusSquares);
   let nearestM = Infinity;
   for (const sq of startZoneSquares(color)) {
     const d = distanceToSquareM(geo, pos, fromSquare(sq));

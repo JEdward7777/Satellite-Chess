@@ -12,17 +12,18 @@
  *
  * Four things are measured, in order of how badly a bad answer would hurt:
  *
- * 1. **Does reported accuracy mean anything?** The reach rule adds reported
- *    accuracy to the circle, and the distance accumulator scales its floor by
- *    it. If the number is decorative, both are built on sand.
+ * 1. **Does reported accuracy mean anything?** The reach rule refuses a move
+ *    on it past `maxAccuracyM`, and the distance accumulator scales its floor
+ *    by it. If the number is decorative, both are built on sand. (It used to
+ *    widen the reach circle too; decision 0043 removed that.)
  * 2. **Scatter while standing still**, which is what decides whether the square
  *    under your feet is stable or flickers between neighbours.
  * 3. **Would a legitimate move have been refused?** Note that this is *not* the
- *    same question as "can the phone tell which square I am on". Reach grows
- *    with reported accuracy, so a vaguer fix buys a more forgiving circle and
- *    the rule partly compensates for its own input. Square flicker is a
- *    rendering problem; a refused move is a broken game. They are reported
- *    separately because they have different fixes.
+ *    same question as "can the phone tell which square I am on": reach extends
+ *    past the edge of the square you stand on, so a fix can be displaced by
+ *    half a square plus the reach before a legal move is refused. Square
+ *    flicker is a rendering problem; a refused move is a broken game. They are
+ *    reported separately because they have different fixes.
  * 4. **Repeatability of a marked point**, which is the error a calibrated board
  *    inherits permanently.
  */
@@ -32,6 +33,18 @@ import { readFileSync } from 'node:fs';
 const EARTH_RADIUS_M = 6378137;
 const DEG = Math.PI / 180;
 const M_PER_DEG_LAT = (EARTH_RADIUS_M * Math.PI) / 180;
+
+// `DEFAULT_REACH` in `src/shared/reach.ts`, copied because this script runs in
+// plain node and cannot import TypeScript. Keep the two in step.
+const BASE_SQUARES = 0.4;
+const MIN_SQUARES = 0.25;
+const MAX_SQUARES = 1.5;
+const MAX_ACCURACY_M = 25;
+
+/** `effectiveReachM` at the default dial, with no handicap. */
+function reachAtDefaultM(squareM) {
+  return Math.min(MAX_SQUARES * squareM, Math.max(MIN_SQUARES * squareM, BASE_SQUARES * squareM));
+}
 
 function metresBetween(a, b) {
   const mPerDegLng = M_PER_DEG_LAT * Math.cos(a.lat * DEG);
@@ -129,7 +142,7 @@ function report(trace) {
       say('    The reach rule and the distance floor are both sound.');
     } else if (within < 0.4) {
       say('  ✗ The phone is optimistic — it is claiming better than it delivers.');
-      say('    Consequences: the reach circle is too small (moves refused that should be legal),');
+      say('    Consequences: the ±25 m move refusal lets through fixes worse than it thinks,');
       say('    and DistanceAccumulator\'s floor is too low, so phantom distance accrues.');
       say('    Fix: scale reported accuracy up by the ratio below before using it.');
       say(`    Suggested multiplier: ${(err.p95 / claimed.p95).toFixed(2)}×`);
@@ -175,20 +188,21 @@ function report(trace) {
   if (staticFixes.length >= 10) {
     const truth = meanPosition(staticFixes);
     say();
-    // The rule is reach, not square identity, and reach grows with reported
-    // accuracy — a vaguer fix buys a more forgiving circle. So the question is
-    // not "does the phone know which square I am on" but "would a legitimate
-    // move have been refused". Those give very different answers, and only the
-    // second one decides whether the game works.
+    // The rule is reach, not square identity. So the question is not "does
+    // the phone know which square I am on" but "would a legitimate move have
+    // been refused". Those give very different answers, and only the second
+    // one decides whether the game works.
     for (const squareM of [6, 8, 10, 12]) {
       const half = squareM / 2;
       let refused = 0;
       let flickered = 0;
       for (const f of staticFixes) {
         const displaced = metresBetween(truth, f);
-        // Reach as `shared/reach.ts` computes it: base 5, plus the reported
-        // accuracy, clamped to [4, 15].
-        const reach = Math.min(15, Math.max(4, 5 + f.acc));
+        // Reach as `shared/reach.ts` computes it at the default dial. Reported
+        // accuracy does not widen it (decision 0043). A fix past the hard
+        // threshold is refused on accuracy instead, which is counted apart
+        // below: raising reach would not help it.
+        const reach = reachAtDefaultM(squareM);
         // Distance to the nearest point of the square you are really standing
         // on, treating the square as a disc of radius `half` — within a few per
         // cent, and conservative near the corners.
@@ -207,14 +221,19 @@ function report(trace) {
     const half8 = 4;
     const refused8 =
       staticFixes.filter(
-        (f) => Math.max(0, metresBetween(truth, f) - half8) > Math.min(15, Math.max(4, 5 + f.acc)),
+        (f) => Math.max(0, metresBetween(truth, f) - half8) > reachAtDefaultM(8),
       ).length / staticFixes.length;
+    const tooVague = staticFixes.filter((f) => f.acc > MAX_ACCURACY_M).length / staticFixes.length;
+    say(
+      `  Fixes too vague to move on at all (over ±${MAX_ACCURACY_M} m), whatever the square: ` +
+        `${(tooVague * 100).toFixed(1)}%`,
+    );
+    say();
     const flicker8 =
       staticFixes.filter((f) => metresBetween(truth, f) > half8).length / staticFixes.length;
 
     if (refused8 < 0.02) {
-      say('  ✓ 8 m squares play fine. The reach rule absorbs this much noise —');
-      say('    a vaguer fix buys a bigger circle, which is exactly what it is for.');
+      say('  ✓ 8 m squares play fine. The default reach absorbs this much noise.');
       if (flicker8 > 0.2) {
         say();
         say(`    But the highlighted square is wrong ${(flicker8 * 100).toFixed(0)}% of the time, which will`);

@@ -1,7 +1,12 @@
 # 0031 — Reach is the independent variable, and it is measured in squares
 
 - **Date:** 2026-09-07
-- **Status:** accepted
+- **Status:** accepted; the accuracy clause superseded by
+  [0043](0043-a-poor-fix-never-buys-reach.md)
+- **Superseded in part by:** [0043](0043-a-poor-fix-never-buys-reach.md) —
+  "reported accuracy contributes only its excess over `goodAccuracyM`" is gone:
+  accuracy contributes nothing to reach. Squares, floor, ceiling and handicap
+  stand.
 - **Stage:** 1.9.3.5
 - **Supersedes:** the second half of
   [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md)

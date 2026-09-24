@@ -3,19 +3,21 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. `8.4` and `3.6.2` are done, reviewed clean over two rounds,
-committed and pushed (`2026-09-24-01`). All five phases of the pipeline run
-have landed.
-**Active stage**: none in flight.
-**Next action**: the deploy, which is the operator's. Then **O-33**: drop the
-accuracy-based reach bonus.
+**Tree state**: clean. **O-33 is done** (`10.5.1`–`10.5.3`, decision 0043):
+a poor GPS fix no longer buys reach. Reviewed clean in one round, committed and
+pushed (`2026-09-24-02`). This is phase 1 of a four-phase run: O-33, O-31 (the
+clock), O-30 (piece look plus a last-move highlight), pinch zoom.
+**Active stage**: `10.5`, waiting only on `10.5.4` (a real-phone check).
+**Next action**: phase 2 of this run, **O-31**, the host's clock rounding up.
+The deploy is still the operator's.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2` and `8.4`/`3.6.2` all ship on the
-next `npm run deploy`. That deploy **creates the `ARCHIVE` KV namespace**
+phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2` and `10.5` all ship
+on the next `npm run deploy`. That deploy **creates the `ARCHIVE` KV namespace**
 (no `id` in `wrangler.jsonc`). Pin its id there afterwards (`reference/budget.md`).
-**1016 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
-`check-review`, `check-record`, `check-games`, `check-resume` and `drive-game`
+**1021 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
+`check-review`, `check-record`, `check-games`, `check-resume`, `check-invite`,
+`check-clock` and `drive-game`
 passed. **Run drivers from a new, uniquely named `--persist-to`** (O-19), and
 not with `--base=…?sim=1` on anything but `check-resume`, `check-account`,
 `check-record` and `check-review` (O-24).
@@ -126,8 +128,9 @@ is complete bar the standing `3.7`. **Phase 2 is closed apart from
 built. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
-0031) — but see **O-33**, which removes half of it. **The board is not forced to
-be square** (decision 0028).
+0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
+than ±25 m refuses the move, and anything better gets the same circle as a
+perfect one. **The board is not forced to be square** (decision 0028).
 
 ## The game has now been played outdoors, twice
 
@@ -136,24 +139,25 @@ evidence from outside this repository. It produced **O-30** (piece outlines take
 the *opponent's* color; a bishop can vanish), **O-31** (the host's clock appeared
 to round up — unreproduced, and the best candidate for a real bug), **O-32** (a
 parked feature idea: two players on two fields), and **O-33** (the owner's
-ruling: poor signal must stop buying extra reach). Read all four before planning
+ruling: poor signal must stop buying extra reach, now done). Read all four before planning
 game-rule work.
 
 ## What to do next, concretely
 
-1. **Deploy** (the operator's). Six sessions of work are waiting. Afterwards,
-   pin the `ARCHIVE` namespace id in `wrangler.jsonc`. Finished games from before
-   8.4, including the owner's two real games, are archived only once someone
-   re-opens them.
-2. **O-33: drop the accuracy-based reach bonus.** The owner's ruling. It needs
-   its own stage under phase 10 and a decision reversing 0023's generous half.
-   It closes **O-12** by removal.
-3. **O-31**, the clock rounding, with the raw snapshot numbers beside the screen.
-4. **O-30**, piece outlines and the vanishing bishop. This is a daylight check.
+1. **O-31**, the clock rounding, with the raw snapshot numbers beside the
+   screen. Phase 2 of this run.
+2. **O-30**, piece outlines and the vanishing bishop, plus a last-move
+   highlight. Phase 3.
+3. **Pinch zoom** on the board. Phase 4.
+4. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
+   `wrangler.jsonc`. Finished games from before 8.4, including the owner's two
+   real games, are archived only once someone re-opens them.
 5. **O-38**, the distance accumulator, once there are real-handset traces.
+   **O-12** is still open too: 0043 did not close it.
 6. **A phone test** covering:
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
-   - the handshake on real GPS (O-25, O-17).
+   - the handshake on real GPS (O-25, O-17);
+   - `10.5.4`: is anybody standing on a square refused because the dot is off?

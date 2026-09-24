@@ -151,6 +151,11 @@ exists for bad ones. The real fix is to scale the floor by *observed* scatter �
 the accumulator already keeps a smoothing window it could measure from — which is
 a design change needing traces from more than one handset. Pairs with **O-03**,
 which wants a server-side lower bound on the same number.
+**Still open after O-33 (2026-09-24):** O-33's text said removing the reach
+bonus would close this "by removal". It does not. Decision 0043 took accuracy
+out of *reach*. This is the *distance counter's* floor, which guards against
+phantom metres, and removing it would credit a phone on a bench ~1525 m an
+hour. It still needs the observed-scatter design above.
 
 ### O-13 — A field the server refuses is re-pushed on every sync, for ever
 **Spotted:** 2026-09-07, stage 2.3.3.2
@@ -609,32 +614,6 @@ side is less work than it sounds.
 **Not doing yet because:** the owner explicitly wants it parked for future review
 rather than confusing the current work. Phases 7–10 come first.
 
-### O-33 — Poor signal buys extra reach, and a pocket is a cheap exploit
-**Spotted:** 2026-09-20, the owner's ruling after the first outdoor games
-**Why it matters:** `effectiveReachM` in `src/shared/reach.ts` grows the reach
-circle by the amount reported accuracy exceeds `goodAccuracyM`. The owner's
-ruling is that this optimization is not needed and should go: a player whose fix
-is poor can simply stand somewhere else to get what they need, whereas today
-**degrading your own signal on purpose — phone in a pocket — earns you a longer
-reach than the opponent has**. That is an advantage handed out for a worse
-device, a worse position, or deliberate abuse, and it is invisible to the person
-it is used against. The 2026-09-06 field walk supports removing it: reported
-accuracy was about 16x pessimistic while observed scatter was 0.2 m median, so
-the compensation is paying out against a number that is nearly always wrong in
-the generous direction.
-**Fix, when wanted:** Delete the accuracy term from `effectiveReachM` and keep
-the hard refusal above `maxAccuracyM`, which is the honest half of the mechanism:
-a fix too poor to trust refuses the move rather than widening the circle. Expect
-the reach circle to stop breathing, which is itself an improvement (`10.4.3`).
-Check what `1.9.3` and decision 0031 assumed before changing the constants.
-**Related:** **O-12** is the same mechanism seen from the measurement side — the
-floor is scaled by *claimed* accuracy rather than observed scatter. This
-observation is the owner deciding the scaling should not exist at all, which
-closes O-12 by removal rather than by better measurement.
-**Not doing yet because:** it changes a game rule, so it needs its own stage, a
-decision recording the reversal, and a simulator or DO-test run — not a quiet
-edit in the middle of the record work.
-
 ### O-35 — One account holding both seats writes one record row, not two
 **Spotted:** 2026-09-19, stage 2.3.5 review
 **Why it matters:** The record is keyed by join code, so if one account somehow
@@ -790,3 +769,39 @@ finished games may be.
 answers "not found".
 **Not doing yet because:** it needs an account outage at the exact moment of a
 monthly collection of a game nobody played.
+
+### O-43 — A 3D first-person board, as an option you can switch off (parked idea)
+**Spotted:** 2026-09-24, the owner's idea
+**Why it matters:** a fully virtual 3D board and pieces, scaled so the pieces
+look taller than the viewer, which you appear to walk on, with the view driven
+by the phone's GPS and motion sensors. Not a camera overlay (AR): the player
+looks around the phone at the real world. Worth a try later as a switchable
+view; if it doesn't work well, it stays off.
+**Feasibility:** three.js, with freely usable models (Kenney's board-game pack
+is CC0, and there are Sketchfab Staunton sets) or pieces built in code.
+- **The hard part is heading.** The phone's combined compass, gyroscope and
+  tilt reading is typically only 5–15° accurate, and worse near metal. 5° at
+  20 m is about 1.7 m, nearly a square. Plan: the gyroscope for quick turns,
+  the compass for slow correction, heading from GPS walking direction to
+  correct drift, and a "face your king and tap" realignment as the fallback.
+- iPhones need a tap to grant motion-sensor permission. There is a battery cost.
+- The opponent's position is only the coarse relay. Never stream GPS for it.
+**Not doing yet because:** behind the current work.
+
+### O-44 — The carried piece should travel with the dot on the 2D board (idea, later phase)
+**Spotted:** 2026-09-24, the owner's idea
+**Why it matters:** while a piece is lifted, draw it on the carrier's dot and
+dim its origin square, so the carry is visible as a carry. This applies to your
+own carry (known locally) and to the opponent's (the server knows the lift, so
+show it on their relayed dot). No new traffic.
+**Not doing yet because:** a later phase; behind the current run.
+
+### O-45 — `game-do.test.ts` "repeats the last relayed position in the snapshot" is flaky
+**Spotted:** 2026-09-24, the O-33 review
+**Why it matters:** the test at `test/worker/game-do.test.ts:478` does not wait
+for the `pos` message to be handled before black connects, so it races. It
+failed once in two runs in review. It predates O-33. A flaky test teaches
+people to ignore red.
+**Fix, when wanted:** wait for evidence the relay was stored (the opponent's
+`opp` frame, or a read of the presence row) before connecting black.
+**Not doing yet because:** out of O-33's scope.

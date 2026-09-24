@@ -32,10 +32,12 @@ those two points the app derives the square size and which way the board faces.
 Eight-metre squares make a 64-metre board, which is about a football pitch and
 plays well.
 
-Your **reach** is a circle around you, five metres plus whatever error your GPS is
-reporting. It is drawn on screen so you can see it breathe as the fix tightens and
-loosens. You can lift a piece whose square your circle touches, and place it on a
-square your circle touches — which for anything longer than a step means walking.
+Your **reach** is a circle around you, a fraction of a square across (0.4 squares
+by default, set when the game is created, plus any handicap). It is the same for
+both players whatever their phones report: a poor GPS fix never buys a longer
+reach, and a fix too vague to trust (worse than ±25 m) refuses the move instead.
+You can lift a piece whose square your circle touches, and place it on a square
+your circle touches — which for anything longer than a step means walking.
 
 Since reach is measured to the nearest edge of a square, standing anywhere on a
 square always reaches it. But playing `e2-e4` still requires stepping out onto e3,

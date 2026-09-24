@@ -278,11 +278,9 @@ try {
 
   await page.click('[data-open]');
   await page.waitForSelector('[data-board]', { timeout: 15_000 });
-  // Reach is base (5 m) + reported accuracy (5 m in the simulator) + the 2 m
-  // handicap. The simulator reports 5 m accuracy, which is exactly
-  // `goodAccuracyM`, so accuracy contributes nothing and reach is purely
-  // `(base 0.4 + bonus 0.25) * 8 m` = 5.2 m. Without the bonus it reads 3.2 m,
-  // so the number *is* the test.
+  // Reach is `(base 0.4 + bonus 0.25) * 8 m` = 5.2 m. Reported accuracy plays
+  // no part in it (decision 0043). Without the bonus it reads 3.2 m, so the
+  // number *is* the test.
   // Wait for the **snapshot**, not merely for a number, and the difference is
   // why this assertion had never once passed. `reachNow()` in `views/game.ts`
   // renders from the GPS fix whether or not a snapshot has arrived, and with no
