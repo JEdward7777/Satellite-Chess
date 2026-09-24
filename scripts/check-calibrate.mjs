@@ -32,8 +32,10 @@ import { signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
-    const [k, v = 'true'] = a.replace(/^--/, '').split('=');
-    return [k, v];
+    // Split on the first `=` only: `--base=…/?sim=1` would otherwise lose its
+    // `=1` and silently turn the simulator off (O-24).
+    const [k, ...rest] = a.replace(/^--/, '').split('=');
+    return [k, rest.length > 0 ? rest.join('=') : 'true'];
   }),
 );
 const ORIGIN = args.get('origin') ?? 'http://127.0.0.1:8799';

@@ -39,6 +39,7 @@ import {
   createClockAlerts,
   nextAlert,
 } from '../clock.js';
+import { clockDebugText, readClockDebug, writeClockDebug } from '../clock-debug.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import {
   AutoReady,
@@ -251,6 +252,11 @@ export interface GameViewDeps {
    * button is here, because re-joining a finished game is idempotent.
    */
   onReview?(): void;
+  /**
+   * The server's own view, before any optimistic prediction, for the clock's
+   * debug readout (O-31). Omitted, the readout shows the decorated view.
+   */
+  serverState?(): NetState;
   /** The simulator hooks the canvas here, exactly as the board view does. */
   onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;
 }
@@ -282,6 +288,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
             <span class="clock-time" data-clock-theirs>—</span>
           </div>
         </div>
+        <pre class="clock-debug" data-clock-debug hidden></pre>
         <dl class="readout">
           <dt>On</dt><dd data-square>—</dd>
           <dt>Reach</dt><dd data-reach>—</dd>
@@ -341,6 +348,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    */
   let alertedAt: AlertLevel = 'none';
   const alerts = createClockAlerts(browserClockAlertOptions());
+  /** The clock's field instrument (`clock-debug.ts`), off unless switched on. */
+  let clockDebug = readClockDebug(browserFlagStorage());
   /** Says "I am on my back rank" once per arrival, unasked (stage 7.2.1). */
   const autoReady = new AutoReady();
 
@@ -592,15 +601,25 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     // Nothing to show before the first snapshot, and nothing worth showing once
     // the game is over — the result line says everything at that point.
+    const debug = root.querySelector<HTMLElement>('[data-clock-debug]');
     if (!game || net.gameAt === null || game.result !== null) {
       clocks.hidden = true;
+      if (debug) debug.hidden = true;
       return;
     }
     clocks.hidden = false;
 
-    const readout = clockReadout(game, net.gameAt, Date.now());
+    const localNow = Date.now();
+    const readout = clockReadout(game, net.gameAt, localNow);
     set('[data-clock-mine]', readout.mine);
     set('[data-clock-theirs]', readout.theirs);
+    if (debug) {
+      debug.hidden = !clockDebug;
+      // Built only while shown: off, it costs one boolean per frame.
+      if (clockDebug) {
+        debug.textContent = clockDebugText(deps.serverState?.() ?? net, readout, localNow);
+      }
+    }
 
     // Which clock is running is the thing read at a glance from arm's length,
     // so it is a visual state rather than a label to parse.
@@ -796,6 +815,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const ticker = setInterval(paint, 1_000);
   // The clock gets its own, faster one. See `paintClock`.
   const clockTicker = setInterval(paintClock, CLOCK_FRAME_MS);
+  // Tapping either clock switches the debug readout (O-31). Nothing else is
+  // bound to the clocks, so a stray tap shows five lines and another hides them.
+  const onClocksTap = () => {
+    clockDebug = writeClockDebug(browserFlagStorage(), !clockDebug);
+    paintClock();
+  };
+  root.querySelector('[data-clocks]')?.addEventListener('click', onClocksTap);
   const onResize = () => paint();
   addEventListener('resize', onResize);
 
@@ -816,4 +842,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     void screenLock.release();
     root.innerHTML = '';
   };
+}
+
+/** `localStorage`, or null where touching it throws (some private modes do). */
+function browserFlagStorage(): Storage | null {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
 }

@@ -111,6 +111,29 @@ describe('formatClock', () => {
   it('shows hours past an hour', () => {
     expect(formatClock(3_725_000)).toBe('1:02:05');
   });
+
+  /**
+   * Decision 0044, from O-31: the screen never shows more time than there is.
+   * A whole minute is shown only while that exact balance remains.
+   */
+  it('always rounds down, so a whole minute is never shown early', () => {
+    expect(formatClock(1_800_000)).toBe('30:00');
+    expect(formatClock(1_799_999)).toBe('29:59');
+    expect(formatClock(1_799_001)).toBe('29:59');
+    expect(formatClock(60_999)).toBe('1:00');
+    expect(formatClock(59_999)).toBe('0:59');
+    expect(formatClock(10_999)).toBe('0:10');
+  });
+
+  it('truncates the tenths too, rather than rounding them', () => {
+    // `toFixed(1)` alone would say "10.0" here, a format this clock never uses.
+    expect(formatClock(9_999)).toBe('9.9');
+    expect(formatClock(9_960)).toBe('9.9');
+    expect(formatClock(9_900)).toBe('9.9');
+    expect(formatClock(9_899)).toBe('9.8');
+    expect(formatClock(99)).toBe('0.0');
+    expect(formatClock(100)).toBe('0.1');
+  });
 });
 
 describe('join codes', () => {

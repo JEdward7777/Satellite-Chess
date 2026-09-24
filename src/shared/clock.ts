@@ -106,11 +106,22 @@ export function snapshot(state: ClockState, now: number): { w: number; b: number
   };
 }
 
-/** mm:ss, or h:mm:ss past an hour, or tenths under ten seconds. */
+/**
+ * mm:ss, or h:mm:ss past an hour, or tenths under ten seconds.
+ *
+ * **Always rounded down** (decision 0044): the screen never shows more time
+ * than the player has. So 30:00 lasts only until the clock starts, reading
+ * 29:59 a moment later, and the tenths are truncated rather than rounded —
+ * `toFixed` alone rounds to nearest, so 9.96 s read "10.0" (a format this
+ * clock otherwise never shows) and every tenth appeared 50 ms early. Rounding up
+ * (which many countdown timers do, so that 0:00 means expired) would hold
+ * every whole minute on screen for a second, which is exactly the "rounding
+ * up to whole minutes" O-31 was reported as.
+ */
 export function formatClock(ms: number): string {
   const clamped = Math.max(0, ms);
   const totalSeconds = clamped / 1000;
-  if (clamped < 10_000) return totalSeconds.toFixed(1);
+  if (clamped < 10_000) return (Math.floor(clamped / 100) / 10).toFixed(1);
   const s = Math.floor(totalSeconds);
   const hours = Math.floor(s / 3600);
   const minutes = Math.floor((s % 3600) / 60);

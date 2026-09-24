@@ -306,14 +306,16 @@ describe('the clock a player actually sees during a move', () => {
    */
   it('does not charge the opponent for the mover\'s thinking', () => {
     const serverNow = 200_000;
-    // White has been thinking for three minutes: their clock started at 20,000.
+    // White has been thinking for three minutes: their clock started at 20,000,
+    // and the prediction banked those three minutes at the tap (O-31) — see
+    // `test/optimistic.test.ts` for the arithmetic that produces this view.
     const optimistic = view({
-      clock: { whiteMs: 600_000, blackMs: 600_000, incrementMs: 10_000, active: 'b', startedAt: null },
+      clock: { whiteMs: 420_000, blackMs: 600_000, incrementMs: 10_000, active: 'b', startedAt: null },
       serverNow,
     });
     const readout = clockReadout(optimistic, 0, 500);
     expect(readout.theirsMs).toBe(600_000);
-    expect(readout.mineMs).toBe(600_000);
+    expect(readout.mineMs).toBe(420_000);
     expect(readout.running).toBe(false);
   });
 

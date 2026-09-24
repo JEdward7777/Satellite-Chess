@@ -337,3 +337,17 @@ It does not. O-12 is the distance counter's floor, a different mechanism that
 guards against phantom metres, and it stays open.
 **Left for a real phone:** stage 10.5.4, whether anybody standing on a square is
 refused because the dot is off.
+
+### O-24 — Every driver but one drops `=1` from `--base=…?sim=1`
+**Resolved:** 2026-09-24, stage 10.6
+**Outcome:** Fixed. `check-clock` and the nine drivers with the identical
+argument line (`drive-game`, `check-calibrate`, `check-deeplink`, `check-field`,
+`check-fields`, `check-games`, `check-invite`, `check-join`, `check-scan`) now
+split on the first `=` only, as `check-resume` already did, so
+`--base=http://127.0.0.1:<port>/?sim=1` keeps its `=1` and the simulator starts.
+`drive-game` was run unmodified that way on port 8831. Every driver now takes
+`--base` with `?sim=1`; no port-edited copies are needed any more. **O-19 still
+applies:** start each server from a new, empty `--persist-to`.
+**Original report:** each driver kept only the second piece of
+`split('=')`, so `…/?sim=1` became `…/?sim`, the simulator never started, and
+the driver timed out on a selector, which read as a broken game screen.

@@ -511,7 +511,8 @@ async function boot(): Promise<void> {
   function enterGame(joinCode: string, field: FieldSnapshot, colour: Color): void {
     // Wrapped so the three acts of a carry land on screen the moment they are
     // tapped. The messages on the wire are identical; only the wait is gone.
-    const connection = withOptimism(connectToGame({ joinCode }));
+    const server = connectToGame({ joinCode });
+    const connection = withOptimism(server);
     swap(() => {
       let detachDrag: (() => void) | null = null;
       const teardown = mountGame(root, {
@@ -520,6 +521,7 @@ async function boot(): Promise<void> {
         field,
         onLeave: () => void showHome(),
         onReview: () => showReview(joinCode),
+        serverState: () => server.state,
         onCanvas: (canvas, toLatLng) => {
           const panel = simPanel;
           if (!panel) return;

@@ -454,22 +454,6 @@ then the living harness docs. Then **re-run all eleven drivers from an empty
 `.wrangler`** (O-19) — `check-invite.mjs` is the one that would catch a broken
 `data-colour`.
 
-### O-24 — Every driver but one drops `=1` from `--base=…?sim=1`
-**Spotted:** 2026-09-18, running drivers on a port other than 8799 (phase 7)
-**Why it matters:** Each driver parses its arguments with
-`a.replace(/^--/, '').split('=')` and keeps only the second piece, so
-`--base=http://127.0.0.1:8811/?sim=1` becomes `…/?sim`. `simRequested` wants
-`sim=1`, the simulator never starts, and the driver times out on `satchess.me`
-or on a square readout that never changes. That reads as a broken game screen
-rather than a bad argument. The only thing keeping this hidden is that the
-default base is right, so any run on another port (a peer server is already on
-8799, a reviewer picks 8844) fails for no visible reason.
-`scripts/check-resume.mjs` splits on the first `=` only and is the pattern to
-copy. That fix is one line in each of the ten other drivers.
-**Not doing yet because:** out of phase 7's scope, and the phase 7 session ran
-`drive-game` and `check-clock` from scratch copies with the port edited instead.
-Cheap enough to do in the next session that touches drivers.
-
 ### O-25 — A deferred automatic `ready` waits for the next GPS fix, not for the clock
 **Spotted:** 2026-09-18, review of phase 7 (optional note)
 **Why it matters:** `considerReady` in `views/game.ts` runs on a GPS fix or a
@@ -594,6 +578,40 @@ whether it is the creating device, the white seat, or the device that has been
 connected longest.
 **Not doing yet because:** unreproduced. It needs the numbers in front of you,
 and it is the strongest candidate of the playtest findings for being a real bug.
+**Update 2026-09-24 (stage `10.6`, decision 0044): a cause found and fixed.
+Kept open until an outdoor game confirms it (`10.6.4`).** Reproduced in
+`wrangler dev` by holding the server's answer to a place for two seconds.
+While a place was predicted, the mover's clock jumped *up* to the balance
+their turn began with. On a first move that is exactly the time control
+(29:55 → 30:00 → 30:15). The prediction nulled `startedAt` without banking the
+think; it now banks it at the tap. It hits whoever is moving, on either seat,
+and shows only while the answer is in flight, which is seconds on one bar.
+That fits "the host", who is White by default and moves first. It is a whole
+number of minutes only on a first move, so "kept" is not fully explained.
+
+Ruled out, by reading and by tests:
+- **The server's arithmetic.** A DO test pins the balance on the wire after a
+  move to the millisecond (`carry.test.ts`, "exact, unrounded balance").
+  Reconstruction on wake and the pause and resume paths all bank exact
+  milliseconds from stored columns.
+- **Time control setup.** The presets are exact and the server takes
+  `initialMs` as given. `initial_ms` (schema 5) feeds only the PGN.
+- **The offset.** `estimateServerNow` adds locally measured elapsed time to
+  `serverNow` and applies no offset. A snapshot arriving mid-tick simply
+  rebases it.
+- **The seat.** Nothing in the clock path depends on who created the game or
+  how long a socket has been open.
+- **The formatter** always rounded mm:ss down and could not round up a whole
+  minute. The tenths rounded to nearest; they now truncate too (0044).
+- **The frozen clock before the first move and during the handshake** shows
+  the full time control. That is correct, and it may have contributed to the
+  impression.
+
+**For the next outdoor game:** tap either clock to show the debug readout. It
+lists the server's raw balances, whose turn it is, the start instant,
+`serverNow`, the offset and the age of the snapshot, beside what the screen
+shows. It stays on across reloads until tapped again. A screenshot of it at
+the moment the clock looks wrong settles whether anything is left.
 
 ### O-32 — Two players, two different fields, one game over the internet
 **Spotted:** 2026-09-20, suggested to the owner during the first outdoor games

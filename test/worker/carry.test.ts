@@ -561,6 +561,37 @@ describe('placing a piece', () => {
     black.close();
   });
 
+  /**
+   * O-31: the host's clock was reported "rounding up to whole minutes". The
+   * server's half of that question: the snapshot after a move carries the exact
+   * millisecond balance — the start of the turn to the place, plus the
+   * increment — with nothing rounded anywhere between SQLite and the wire.
+   */
+  it('puts the exact, unrounded balance on the wire after a move', async () => {
+    const { white, black, stub } = await startedGame({ initialMs: 1_800_000, incrementMs: 20_000 });
+    // As though white had been thinking for 83.456 s.
+    const turnStart = await runInDurableObject(stub, (_i, state) => {
+      state.storage.sql.exec(`UPDATE game SET last_clock_start_at = last_clock_start_at - 83456`);
+      return [...state.storage.sql.exec<{ t: number }>(`SELECT last_clock_start_at AS t FROM game`)][0].t;
+    });
+
+    white.send({ t: 'lift', from: 'e2', pos: at('e2') });
+    await white.next((m) => m.t === 'state' && (m.game as Msg).carry !== null);
+    await walked(stub);
+    white.send({ t: 'place', to: 'e4', pos: at('e4') });
+    const moved = await white.next(
+      (m) => m.t === 'state' && ((m.game as Msg).lastMove as Msg | null) !== null,
+    );
+
+    const clock = (moved.game as Msg).clock as { whiteMs: number; blackMs: number; startedAt: number };
+    const placedAt = clock.startedAt;
+    expect(clock.whiteMs).toBe(1_800_000 + 20_000 - (placedAt - turnStart));
+    expect(clock.blackMs).toBe(1_800_000);
+
+    white.close();
+    black.close();
+  });
+
   it('moves the flag deadline to the other player after a move', async () => {
     const { white, black, stub } = await startedGame({ initialMs: 600_000, incrementMs: 0 });
     const before = await runInDurableObject(stub, (_i, state) =>

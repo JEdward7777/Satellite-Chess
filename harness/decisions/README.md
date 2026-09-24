@@ -79,3 +79,4 @@ The conditions under which this should be reopened.
 | [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) | A game leaves as one PGN, in board space, fetched at mount and shared on tap | accepted (amends 0040 rules 6, 7) |
 | [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |
 | [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |
+| [0044](0044-the-clock-never-shows-more-time-than-the-player-has.md) | The clock never shows more time than the player has | accepted |

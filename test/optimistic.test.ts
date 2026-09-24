@@ -5,6 +5,7 @@ import { fromLocal } from '../src/shared/geo.js';
 import type { GameSnapshot, PosFix } from '../src/shared/protocol.js';
 import { DEFAULT_REACH } from '../src/shared/reach.js';
 import type { GameConnection, NetState } from '../src/client/net.js';
+import { clockReadout } from '../src/client/clock.js';
 import {
   applyMoveToFen,
   formatPlacement,
@@ -220,6 +221,70 @@ describe('predict', () => {
     });
     const out = predict(carrying, { t: 'place', to: 'e4', pos: standingOn(4, 3) }, 2_000);
     expect(out?.clock.startedAt).toBeNull();
+  });
+
+  /**
+   * O-31, the host's clock "rounding up to a whole number of minutes". Nulling
+   * `startedAt` alone showed the mover the balance their turn *began* with, for
+   * as long as the server took to answer — on a first move, exactly the time
+   * control. The prediction banks the think at the tap instead.
+   */
+  describe('the mover\'s clock through a predicted place (O-31)', () => {
+    // A 30-minute game. White's clock started at server time 10,000 and white
+    // has thought for 5 s: the snapshot was stamped at 12,000 and arrived at
+    // local 50,000; the tap is at local 53,000, i.e. server time 15,000.
+    const firstMove = () =>
+      snapshot({
+        clock: { whiteMs: 1_800_000, blackMs: 1_800_000, incrementMs: 20_000, active: 'w', startedAt: 10_000 },
+        serverNow: 12_000,
+        carry: { color: 'w', from: 'e2', piece: 'p', at: 1, destinations: ['e3', 'e4'] },
+      });
+    const place = { t: 'place', to: 'e4', pos: standingOn(4, 3) } as const;
+
+    it('banks the think at the tap, on the server\'s clock', () => {
+      const out = predict(firstMove(), place, 53_000, 50_000);
+      expect(out?.clock.whiteMs).toBe(1_795_000);
+      expect(out?.clock.blackMs).toBe(1_800_000);
+      expect(out?.clock.startedAt).toBeNull();
+      expect(out?.clock.active).toBe('b');
+    });
+
+    it('never shows the mover more time than the instant before the tap', () => {
+      const game = firstMove();
+      const before = clockReadout(game, 50_000, 53_000);
+      const after = clockReadout(predict(game, place, 53_000, 50_000)!, 50_000, 53_000);
+      expect(after.mineMs).toBe(before.mineMs);
+      expect(after.mine).toBe('29:55');
+      // What the owner saw: the time control, a whole number of minutes.
+      expect(after.mine).not.toBe('30:00');
+    });
+
+    it('stays stopped at the tap however long the answer takes', () => {
+      const game = firstMove();
+      const later = clockReadout(predict(game, place, 53_000, 50_000)!, 50_000, 58_000);
+      expect(later.mineMs).toBe(1_795_000);
+      expect(later.running).toBe(false);
+    });
+
+    it('never banks below zero', () => {
+      const game = snapshot({
+        clock: { whiteMs: 3_000, blackMs: 1_800_000, incrementMs: 0, active: 'w', startedAt: 10_000 },
+        serverNow: 20_000,
+        carry: { color: 'w', from: 'e2', piece: 'p', at: 1, destinations: ['e4'] },
+      });
+      expect(predict(game, place, 1_000, 1_000)?.clock.whiteMs).toBe(0);
+    });
+
+    it('is fixed at the send, not at each later repaint of the decorated view', () => {
+      let clockNow = 53_000;
+      const inner = fakeConnection(firstMove());
+      inner.connection.state.gameAt = 50_000;
+      const optimistic = withOptimism(inner.connection, { now: () => clockNow });
+      optimistic.send(place);
+      expect(optimistic.state.game?.clock.whiteMs).toBe(1_795_000);
+      clockNow = 57_000;
+      expect(optimistic.state.game?.clock.whiteMs).toBe(1_795_000);
+    });
   });
 
   it('refuses a place on a square the server did not list', () => {

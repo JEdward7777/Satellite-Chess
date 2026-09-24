@@ -40,6 +40,7 @@
  * removing is tap-to-acknowledgement, not tap-to-complete-information.
  */
 
+import { freeze } from '../shared/clock.js';
 import { deriveGeometry } from '../shared/field.js';
 import type {
   ClientMsg,
@@ -50,6 +51,7 @@ import type {
 } from '../shared/protocol.js';
 import { checkReachTo } from '../shared/reach.js';
 import { type Color, type Square, fromSquare, toSquare } from '../shared/squares.js';
+import { estimateServerNow } from './clock.js';
 import type { GpsFix } from './gps.js';
 import type { GameConnection, NetState } from './net.js';
 
@@ -205,11 +207,17 @@ function canReach(game: GameSnapshot, pos: PosFix, square: Square): boolean {
  * important half of the contract. A prediction that gets refused shows the player
  * something false and then snatches it back, which is worse than the wait it was
  * trying to hide — so anything less than certain is left to the server.
+ *
+ * `now` is the local instant of the tap, and `receivedAt` the local instant
+ * `game` arrived (`NetState.gameAt`). Together they place the tap on the
+ * server's clock, which is what a place needs to stop the mover's clock at the
+ * right reading. Omitted, the snapshot is taken to be fresh.
  */
 export function predict(
   game: GameSnapshot,
   msg: PredictableMsg,
   now: number,
+  receivedAt: number = now,
 ): GameSnapshot | null {
   if (game.status !== 'active' || game.result !== null) return null;
 
@@ -262,21 +270,28 @@ export function predict(
         fen: applyMoveToFen(game.fen, carry.from, msg.to, msg.promotion),
         carry: null,
         // Whose turn it is drives the prompt, so it has to flip with the move.
-        // The remaining times are left alone: they are the server's arithmetic
-        // over server timestamps (`shared/clock.ts`), and guessing at them here
-        // would put a second clock in the world.
         //
-        // `startedAt` goes to null with it, which is what stops the displayed
-        // clock (`client/clock.ts`) from lying during the one round trip this
-        // prediction covers. Flipping `active` while leaving the old start
-        // instant in place would have the opponent's clock ticking *from the
-        // moment the mover's turn began* — so it would appear to lose the whole
-        // of their think time in a single jump, which reads as the game stealing
-        // time from them. Shown frozen instead: the handover instant belongs to
-        // the server and the client cannot name it in server time, and a clock
-        // that pauses for a few hundred milliseconds is invisible where one that
-        // jumps by two minutes is not.
-        clock: { ...game.clock, active: other(game.you), startedAt: null },
+        // Both clocks are shown *stopped* until the server answers. Flipping
+        // `active` while leaving the old start instant in place would have the
+        // opponent's clock ticking *from the moment the mover's turn began* — so
+        // it would appear to lose the whole of their think time in a single
+        // jump. The handover instant belongs to the server, and a clock that
+        // pauses for the round trip is invisible where one that jumps is not.
+        //
+        // Stopped means *banked at the tap*, not merely `startedAt: null`
+        // (O-31). Nulling the start alone shows the mover the balance their
+        // turn **began** with, because the server banks think time only when a
+        // move lands: their clock jumps *up* by the whole think for as long as
+        // the answer takes — seconds on one bar — and on a first move it reads
+        // exactly the time control, a whole number of minutes. That is what
+        // the owner saw outdoors as the host's clock "rounding up". `freeze`
+        // is the server's own banking arithmetic, at the tap's estimated server
+        // time; the increment is still the server's to add, and lands with its
+        // answer.
+        clock: {
+          ...freeze(game.clock, estimateServerNow(game, receivedAt, now)),
+          active: other(game.you),
+        },
       };
     }
   }
@@ -333,6 +348,8 @@ export function withOptimism(
 
   const listeners = new Set<(state: NetState) => void>();
   let pending: PredictableMsg | null = null;
+  /** The local instant `pending` was sent, which is when a place stops the clock. */
+  let sentAt = 0;
   let expiry: unknown = null;
   let base: NetState = inner.state;
 
@@ -349,7 +366,7 @@ export function withOptimism(
   /** The base snapshot with the pending action applied, if it still applies. */
   const view = (): NetState => {
     if (pending === null || base.game === null) return base;
-    const predicted = predict(base.game, pending, now());
+    const predicted = predict(base.game, pending, sentAt, base.gameAt ?? sentAt);
     if (predicted === null) return base;
     return { ...base, game: predicted };
   };
@@ -393,10 +410,12 @@ export function withOptimism(
       // socket is down must not move the board — that is precisely the moment a
       // false confirmation would be most damaging.
       if (!sent || !isPredictable(msg)) return sent;
-      if (base.game === null || predict(base.game, msg, now()) === null) return sent;
+      const at = now();
+      if (base.game === null || predict(base.game, msg, at, base.gameAt ?? at) === null) return sent;
 
       clearExpiry();
       pending = msg;
+      sentAt = at;
       expiry = setTimer(() => {
         forget();
         publish();

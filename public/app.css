@@ -381,6 +381,22 @@ h2 {
   color: var(--poor);
 }
 
+/*
+ * The clock's debug readout (O-31), off unless a clock is tapped. Small and
+ * monospaced: it is five lines of raw numbers for a screenshot, not for play.
+ */
+.clock-debug {
+  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed #30363d;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .fields li[role="button"],
 .games li[role="button"] {
   cursor: pointer;

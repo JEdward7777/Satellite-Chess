@@ -44,3 +44,22 @@ file. Expect most of it to be written after the first real game.
   - `10.5.4` todo: Outdoors, on real phones: is anybody standing on a square
     refused because the dot is off? Decision 0043's revisit condition. Needs a
     real game, and ideally a second handset (see O-12 and `1.9.3.6`).
+
+- `10.6` active: The host's clock "rounding up to whole minutes" (O-31, decision 0044)
+  - Reported after the 2026-09-20 games. Reproduced in `wrangler dev`: during
+    a predicted place, the mover's clock jumped *up* to the balance their turn
+    began with, until the server answered — on a first move, exactly the time
+    control. The server's arithmetic was never wrong.
+  - `10.6.1` done: A predicted place banks the mover's think at the tap, on the
+    server's clock (`client/optimistic.ts`, via `freeze` and
+    `estimateServerNow`), instead of only nulling `startedAt`. Unit tests, and
+    `check-clock.mjs` step 5 holds the server's answer for two seconds and
+    asserts the clock never rises until the increment lands.
+  - `10.6.2` done: The formatter always rounds down, tenths included
+    (decision 0044): the screen never shows more time than the player has.
+  - `10.6.3` done: A debug readout, off by default and switched by tapping a
+    clock, showing the server's raw clock numbers, the timebase and the offset
+    beside the displayed clock (`client/clock-debug.ts`). Reads only what
+    snapshots already carry; sends nothing.
+  - `10.6.4` todo: Outdoors, on real phones, with the readout on: does the
+    host's clock still appear to round? Needs a real game.
