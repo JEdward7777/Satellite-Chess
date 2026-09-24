@@ -635,24 +635,6 @@ closes O-12 by removal rather than by better measurement.
 decision recording the reversal, and a simulator or DO-test run — not a quiet
 edit in the middle of the record work.
 
-### O-34 — A game's code opens its field to anyone holding it, for ever
-**Spotted:** 2026-09-19, stage 2.3.5 (the privacy statement made it say so)
-**Why it matters:** `GET /api/game/:code` (`GameDO.peek`) takes no session and
-returns the field snapshot — the tapped corners, which is the place. Nothing
-deletes a played game (decision 0025), so a code shared once is a pointer to a
-piece of ground that resolves for ever, to anybody it is forwarded to. The code
-is already an invitation to a place, so this is not a leak so much as a longer
-life than an invitation needs. Since 2.3.5 the snapshot also carries the field's
-`lineageKey`, which links two games on the same ground to each other — a digest
-the field link already carries, but it is new surface on this route.
-**Fix, when wanted:** cheapest is to require a session to peek a game that is
-`finished`, which costs nothing real: a join needs one anyway. Beyond that,
-expiring the readability of a code for non-seated readers once both seats are
-taken would close it entirely.
-**Not doing yet because:** the privacy statement (2.3.5.1) states it plainly
-rather than implying otherwise, and the next change on this route should be
-made with 8.4 (archive to KV), which touches what a finished game exposes.
-
 ### O-35 — One account holding both seats writes one record row, not two
 **Spotted:** 2026-09-19, stage 2.3.5 review
 **Why it matters:** The record is keyed by join code, so if one account somehow
@@ -769,3 +751,42 @@ its other readers allow it — while `travelFrom` keeps measuring its window fro
 **Not doing yet because:** cosmetic and short-lived, and it wants a schema column
 or a careful read of `last_seen_at`'s other uses, which is more than a review
 round should carry.
+
+### O-40 — Empty Durable Objects that the code before 8.4 left behind still exist
+**Spotted:** 2026-09-23, stage 8.4 (decision 0042)
+**Why it matters:** until 8.4, `GameDO` applied its schema on every wake, and
+collection re-created the empty schema after `deleteAll`. So every code ever
+peeked, typed wrong, or collected as unclaimed on the deployed Worker left an
+object holding empty tables and a `meta` row, and that object will never go
+away by itself. 8.4 stops new ones being made. It cannot find the old ones: a
+Durable Object namespace cannot be listed.
+**Fix, when wanted:** none needed for storage (a few dozen bytes each). If one is
+ever woken by a `gc` alarm, `onCollect` already destroys a table-only object.
+A sweep would need a list of codes, which the platform does not give us.
+**Not doing yet because:** harmless, and not reachable.
+
+### O-41 — Forgetting a game does not delete its archive, and a player cannot delete one
+**Spotted:** 2026-09-23, stage 8.4 (decision 0042)
+**Why it matters:** a finished game's archive (PGN plus board-space report, no
+coordinates, no accounts) is kept with no expiry. Forgetting it from "Your
+games" (2.3.4.2) only removes the pointer, and the review stays reachable by URL
+for the two players. The privacy statement says deleting a finished game's moves
+is "not possible yet". That is true, and it is the gap.
+**Fix, when wanted:** a player-initiated delete. It needs a rule for the other
+seat, since the archive is shared by two people. Probably: delete only when
+both have forgotten it, or keep one copy per seat.
+**Not doing yet because:** out of 8.4's scope, and the archive holds nothing
+locating.
+
+### O-42 — An unplayed game's index row survives if one player's account cannot be reached at collection
+**Spotted:** 2026-09-23, stage 3.6.2 review
+**Why it matters:** `dropIndex` swallows a failed `dropGame` and the object then
+deletes itself. So a player whose account was unreachable at that moment keeps
+a row in "Your games" that points at nothing. Tapping it gives "No game with
+that code", and the row (status `staging`) cannot be forgotten, because only
+finished games may be.
+**Fix, when wanted:** retry the drop through the `gc` timer before deleting, as
+`retire` does for record lines. Or let `forgetGames` remove a row whose game
+answers "not found".
+**Not doing yet because:** it needs an account outage at the exact moment of a
+monthly collection of a game nobody played.

@@ -27,8 +27,19 @@
   // expiry are a delete and a TTL rather than a promise the token makes about
   // itself. KV rather than a Durable Object because this is read on every
   // authenticated request and a DO read would wake an object to answer it.
+  //
+  // Finished games (stage 8.4, decision 0042). One value per game, written once
+  // by the game's own Durable Object just before it deletes itself, and read
+  // only by the Worker when that object is gone. A namespace of its own rather
+  // than a prefix inside SESSIONS, so that a session sweep can never touch a
+  // game and a game can never be listed beside a session token.
+  //
+  // No `id` on purpose: wrangler 4 provisions the namespace on the first
+  // `wrangler deploy` and records it on the Worker, and `wrangler dev` needs
+  // none. Once it exists, its id may be pinned here like SESSIONS'.
   "kv_namespaces": [
-    { "binding": "SESSIONS", "id": "5054a97ed81e4475ae7ef4b48d1b1fbc" }
+    { "binding": "SESSIONS", "id": "5054a97ed81e4475ae7ef4b48d1b1fbc" },
+    { "binding": "ARCHIVE" }
   ],
   // The free plan requires the SQLite storage backend. `new_classes` (the legacy
   // key-value backend) fails to deploy with error 10097.

@@ -74,12 +74,40 @@ is; this says what will bite you when you touch it.*
   walked off could open the app and claim against the one who stayed. `suspended_by`
   is written at the moment of suspension precisely so that they can be excluded.
   If both vanished at once, neither may claim.
-- **Nothing deletes a played game any more** (decision 0025). `FINISHED_GAME_TTL_MS`
-  and `ABANDONED_GAME_TTL_MS` are gone, and the `gc` timer is *cancelled* when a
-  game finishes rather than scheduled. A fourteen-day TTL and a thirty-day claim
-  window cannot both exist: the game would be destroyed a fortnight before the
-  button appeared. The only thing that still expires is an unclaimed join code, at
-  30 minutes, because nobody has played anything yet.
+- **A game with moves and no result is never deleted** (decision 0025, kept by
+  0042). A fourteen-day TTL and a thirty-day claim window cannot both exist:
+  the game would be destroyed a fortnight before the button appeared. What
+  *is* collected, all through the one `gc` timer (`worker/collection.ts`): an
+  unclaimed code at 30 minutes, an **unplayed** game (two seats, no move, and
+  not a pause somebody could claim) after a month of nothing, and a **finished** game a day after anybody last looked —
+  archived to KV first, then deleted (decision 0042). The finished case is the
+  one to be careful with: the review, the PGN, re-joining from "Your games" and
+  `GET /api/game/:code` all fall back to the archive when the object answers
+  "no game", and deletion waits until the record and index lines have landed.
+  The `gc` handler **re-derives its deadline from stored columns** every time it
+  fires, so a test that only moves `timers.due_at` sees the timer re-armed, not
+  the game collected — move `created_at`/`updated_at`/`result_at` too.
+- **Nothing may create a table in an empty `GameDO`** (decision 0042). Storage is
+  existence: any request can address any code, and until stage 8.4 the
+  constructor applied the schema on every wake, so every typo — and every
+  deleted game somebody re-opened — became a permanent object with empty
+  tables. The schema is now applied only by `create` and on the wake of an
+  object that already has a `game` table (`hasGameTables`), `game()` returns
+  null for an object with none, and the alarm, message and close handlers
+  return early. A new method that reads a table before calling `game()` needs
+  the same guard, or it throws on a collected object — and a new method that
+  *writes* before calling it brings the object back.
+- **A board can outlive its game.** A phone asleep with the board up wakes to a
+  game that has been archived and deleted, and every upgrade is refused. The
+  browser is told nothing about why. So `net.ts` asks `GET /api/game/:code`
+  after three sockets in a row close without opening. `archived` opens the
+  review, `exists:false` says the game is gone, and both stop the retries for
+  good. Anything else goes back to the backoff. Never ask over the socket: it is
+  the thing that is failing, and an inbound message is billed.
+- **An archived code is never handed out again.** `create` reads the archive key
+  before anything else, because the archive, both record lines and both index
+  rows are filed under the code. A collected *unclaimed* or *unplayed* code has
+  no archive and is free again, which is right: nothing is filed under it.
 - **Chess legality is checked before the carry verdict**, and the order matters.
   Legality does not depend on where anyone stands, so it is the cheaper and the
   honest check — the other way round, an illegal move is reported as

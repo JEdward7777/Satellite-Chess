@@ -29,8 +29,24 @@ and it is both the review feature and the only cheat forensics worth having.
 - `8.3` todo: Replay
   - `8.3.1` todo: Scrub the move list and watch both players' tracks over the board
   - `8.3.2` todo: Show where each piece was lifted and placed
-- `8.4` todo: Archive finished games to KV as PGN plus track, then delete the DO
+- `8.4` done: Archive finished games to KV as PGN plus track, then delete the DO
   storage so the object ceases to exist
+  - Decision 0042. `worker/archive.ts` (the value), `worker/collection.ts` (when),
+    `GameDO.retire` (the steps). Driver: the archive steps of
+    `scripts/check-review.mjs`, through `POST /api/dev/game/:code/collect`.
+  - `8.4.1` done: One KV value per finished game — the PGN and the report, in
+    board space, with no coordinates, no account and no join code in it
+  - `8.4.2` done: Everything reads the archive when the object has gone —
+    `/review`, `/pgn`, a re-join (straight to the review) and `GET` — seat-only,
+    checked against the player's own record or index line
+  - `8.4.3` done: Delete only when it is safe: a day after the last look, no
+    board open, record and index lines landed, the archive settled and read back
+  - `8.4.4` done: Nothing brings a deleted object back — the schema is created
+    only by `create`, every path checks for tables first, and an archived code
+    is never handed out again
+  - `8.4.5` done: O-34 — the field goes to anybody only while a seat is free,
+    then only to the two players; an archived game shows its players nothing
+    but that it is archived
 
 - `8.5` todo: The social layer — bragging without broadcasting location
   - All four rules of decision 0018 are load-bearing. Read it before building any

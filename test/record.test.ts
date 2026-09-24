@@ -271,7 +271,13 @@ describe('the privacy statement (stage 2.3.5.1)', () => {
     const text = privacyHtml();
     expect(text).toContain('Your opponent sees where you are');
     expect(text).toContain('no coordinates');
-    expect(text).toContain('Anyone with a game');
+    // O-34, decision 0042: the field is readable by a code only while it is an
+    // invitation, and a finished game keeps no coordinates past its first day.
+    expect(text).toContain('Until someone joins, anyone with a game');
+    expect(text).toContain('only the two players can');
+    expect(text.replace(/\s+/g, ' ')).toContain(
+      "Once a finished game has gone unopened for at least a day, its field's corners and those positions are deleted",
+    );
     expect(text).toContain('Not possible yet');
     expect(text).toContain('no place names worked out from your');
   });

@@ -408,6 +408,14 @@ async function boot(): Promise<void> {
         showJoinFailed(code, outcome);
         return;
       }
+      if ('archived' in outcome) {
+        // Finished and archived (decision 0042): no board, straight to the
+        // review, which reads the archive. Remembered like any other game, so
+        // a reload comes back here rather than to home.
+        rememberGame(outcome.code);
+        showReview(outcome.code);
+        return;
+      }
       // Whichever way this game was reached, the address bar now describes it, so
       // a reload — or a phone that ran out of battery and came back — resumes
       // instead of landing on the home screen. The join is idempotent at the far

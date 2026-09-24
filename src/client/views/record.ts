@@ -149,9 +149,13 @@ function honestyHtml(): string {
  * leaves their account (stage 2.3.5.1, decisions 0017 and 0018).
  *
  * Every sentence here is a claim about the code, so each is worth re-reading
- * whenever what is stored changes. The two uncomfortable ones — a game's code
- * opens its field, and nothing can be deleted yet — are stated rather than left
- * out, because a privacy statement that is only reassuring is not one.
+ * whenever what is stored changes. The uncomfortable ones — a code opens its
+ * field until the game is joined, and a player cannot delete anything yet —
+ * are stated rather than left out, because a privacy statement that is only
+ * reassuring is not one. Since stage 8.4 (decision 0042) a finished game's
+ * field and fixes are deleted once it has gone unopened for a day — "at least",
+ * because the delete waits for the record and can give up and keep the game —
+ * and what stays is on the board, plus the field's name (the PGN's Site tag).
  */
 export function privacyHtml(): string {
   return `<details class="privacy" data-privacy>
@@ -167,8 +171,13 @@ export function privacyHtml(): string {
         opponent can see you on the board. Your opponent sees where you are while
         the game is open, and your last position after that.</li>
       <li><strong>Kept with each game.</strong> The field, and where and when each
-        piece was lifted and placed. Anyone with a game's code can see which field
-        it was played on, so share a code the way you would share the place.</li>
+        piece was lifted and placed. Until someone joins, anyone with a game's code
+        can see which field it is on, so share a code the way you would share the
+        place. After that, only the two players can. Once a finished game has
+        gone unopened for at least a day, its field's corners and those
+        positions are deleted. What stays is the field's name, the moves, and
+        each walk as squares on the board, with no coordinates. Only its two
+        players can open it.</li>
       <li><strong>On your account, seen only by you.</strong> Your saved fields,
         your list of games, and this record, which holds distances, field names
         and board sizes but no coordinates. Signing in stores your Google account
@@ -178,8 +187,8 @@ export function privacyHtml(): string {
         position. A field link carries the field's corners and name, and nothing
         about you.</li>
       <li><strong>Not possible yet.</strong> Deleting your account, your record
-        or a finished game. Forgetting a game takes it off your list, not off the
-        server.</li>
+        or a finished game's moves. Forgetting a game takes it off your list, not
+        off the server.</li>
     </ul>
   </details>`;
 }

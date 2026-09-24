@@ -72,7 +72,19 @@ export interface JoinRejection {
   hint: string;
 }
 
-export type JoinOutcome = JoinSuccess | JoinRejection;
+/**
+ * A game this player played, which has finished and been archived (decision
+ * 0042). There is no board to open — the game's object, and the field with it,
+ * are gone — so the phone goes to "After the game", which reads the archive.
+ */
+export interface JoinArchived {
+  ok: true;
+  archived: true;
+  code: string;
+  colour: Color;
+}
+
+export type JoinOutcome = JoinSuccess | JoinArchived | JoinRejection;
 
 /** The fallback wording, for the failures the server never gets to describe. */
 const DEFAULT_MESSAGE: Record<JoinFailure, string> = {
@@ -148,7 +160,13 @@ export async function joinGame(
     return reject('offline');
   }
 
-  let body: { color?: Color; field?: FieldSnapshot; error?: string; message?: string };
+  let body: {
+    color?: Color;
+    field?: FieldSnapshot;
+    archived?: boolean;
+    error?: string;
+    message?: string;
+  };
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -159,6 +177,10 @@ export async function joinGame(
 
   if (!response.ok) {
     return reject(failureFor(response.status, body.error), body.message);
+  }
+  // Checked before the field, which an archived game never has.
+  if (body.archived === true && (body.color === 'w' || body.color === 'b')) {
+    return { ok: true, archived: true, code, colour: body.color };
   }
   if (!body.color || !body.field) {
     // A 200 that did not carry a seat and a field is a server we do not

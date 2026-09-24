@@ -670,10 +670,10 @@ describe('checkmate', () => {
       [...state.storage.sql.exec<{ kind: string }>(`SELECT kind FROM timers`)].map((r) => r.kind),
     );
     expect(timers).not.toContain('flag');
-    // No `gc` either. Decision 0025: once two people have played, the game is
-    // theirs to keep until one of them clears it — a timer that deletes it
-    // saves a few kilobytes and costs the only record of an afternoon.
-    expect(timers).not.toContain('gc');
+    // And `gc`, a day out: a finished game is archived to KV and its object
+    // deleted (decision 0042, amending 0025). The review, the file and the
+    // record all outlive the object, so nothing of the afternoon goes with it.
+    expect(timers).toContain('gc');
 
     white.close();
     black.close();

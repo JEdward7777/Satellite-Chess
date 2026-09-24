@@ -556,6 +556,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   /** What the player should do next, in one line. */
   function prompt(): string {
     const game = net.game;
+    // The game has been archived or collected since this board was drawn
+    // (decision 0042): say so, rather than "Reconnecting…" for ever.
+    if (net.gone === 'archived') return 'This game is over and has been archived. Open "After the game" to see it.';
+    // "Missing" is also what a signed-out phone is told about an archived game,
+    // since only a player may see that it was archived.
+    if (net.gone === 'missing') return "This game isn't on the server, or you're signed out. Tap Leave to go home.";
     if (net.status !== 'open' && net.status !== 'idle') return 'Reconnecting…';
     if (!game) return 'Connecting…';
     if (game.result) {
@@ -755,8 +761,15 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       : false;
     considerReady(relayed);
   });
+  let leftForReview = false;
   const offNet = deps.connection.subscribe((state) => {
     net = state;
+    // Archived while this board was up: the review is where the game lives now.
+    // Once, and after this subscriber returns, since it replaces this screen.
+    if (state.gone === 'archived' && deps.onReview !== undefined && !leftForReview) {
+      leftForReview = true;
+      queueMicrotask(() => deps.onReview?.());
+    }
     // Fed here rather than in `net.ts`, which deliberately knows nothing about
     // how anything is drawn. The track ignores a fix it has already seen, so a
     // snapshot repeating the last relay does not restart the glide.

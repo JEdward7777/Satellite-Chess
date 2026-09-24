@@ -40,6 +40,7 @@ import {
 } from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
+import { buildPgn } from '../shared/pgn.js';
 import type { RecordGame } from '../shared/record.js';
 import {
   type GameReport,
@@ -69,12 +70,23 @@ import {
   type ResultOutcome,
   type ResultReason,
   type ServerMsg,
-  UNCLAIMED_GAME_TTL_MS,
 } from '../shared/protocol.js';
 import { type Color, isSquare } from '../shared/squares.js';
+import { isArchived, readArchive, toArchive, writeArchive } from './archive.js';
+import {
+  ARCHIVE_MAX_ATTEMPTS,
+  ARCHIVE_RETRY_BASE_MS,
+  type CollectionFacts,
+  type CollectionTimes,
+  DEFAULT_COLLECTION_TIMES,
+  DELIVERY_MAX_DEFERRALS,
+  MIN_OVERRIDE_MS,
+  collectionDue,
+  collectionKind,
+} from './collection.js';
 import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
-import { applySchema, isInitialised } from './schema.js';
+import { applySchema, hasGameTables, isInitialised } from './schema.js';
 
 /**
  * The distance report a phone piggybacks on `pos`, `lift` and `place`: its
@@ -285,8 +297,15 @@ export class GameDO extends DurableObject<Env> {
 
     // Idempotent, and cheap enough to run on every wake. `blockConcurrencyWhile`
     // so no request can observe a half-created schema.
+    //
+    // **Only for an object that already holds a game** (decision 0042). The
+    // tables are storage, and an object with anything in storage exists: any
+    // request can address any code, and creating the schema here resurrected
+    // every deleted game — and gave every typo a permanent object — the moment
+    // anybody asked about it. An empty object stays empty; `create` is the one
+    // place that brings the schema into being.
     ctx.blockConcurrencyWhile(async () => {
-      applySchema(this.sql);
+      if (hasGameTables(this.sql)) applySchema(this.sql);
     });
 
     this.timers = new Timers(ctx, this.sql);
@@ -310,6 +329,17 @@ export class GameDO extends DurableObject<Env> {
    */
   async create(options: CreateGameOptions): Promise<boolean> {
     if (isInitialised(this.sql)) return false;
+    // A code whose game has been archived and deleted looks exactly like a free
+    // one from in here, since the object is empty again. It is not free: the
+    // archive, both players' record lines and their game-index rows are all
+    // filed under it, and a new game on the same code would answer for the old
+    // one (decision 0042). One KV read per game created, which is nothing.
+    if (await isArchived(this.env.ARCHIVE, options.joinCode)) return false;
+    // Asked again after the await, because another request could have been
+    // let in while the read was outstanding. From here to the INSERT nothing is
+    // awaited, so nothing can interleave.
+    if (isInitialised(this.sql)) return false;
+    applySchema(this.sql);
 
     const now = Date.now();
     const clock = newClock(options.initialMs, options.incrementMs, 'w');
@@ -356,7 +386,7 @@ export class GameDO extends DurableObject<Env> {
 
     // An unclaimed code must not linger. If nobody joins, this object deletes
     // itself and stops existing, which frees the code and keeps the account tidy.
-    await this.timers.schedule('gc', now + UNCLAIMED_GAME_TTL_MS);
+    await this.armCollection();
 
     // Indexed from the moment it exists, before anybody has joined. That is the
     // case the index is most needed for: a code created, shared, and then lost
@@ -390,15 +420,27 @@ export class GameDO extends DurableObject<Env> {
 
     const existing = this.colorOf(game, playerId);
     if (existing !== null) {
+      const now = Date.now();
+      // Somebody is looking at this game, which puts off collecting it: a
+      // finished board re-opened this evening stays a board until a day after
+      // that, and an unplayed one gets its month again (decision 0042). The
+      // give-up counters start over too, so a game that stopped trying to reach
+      // an account, or to write its archive, tries again.
+      this.setMeta('seen_at', String(now));
+      this.deleteMeta('delivery_deferrals');
+      this.deleteMeta('archive_attempts');
       // Re-entering a seat this player already holds. The line is re-sent rather
       // than skipped, because the commonest way to arrive here is a phone
       // opening a game it has not seen for a month — and that account may have
       // no line for this game at all.
-      await this.syncIndex(Date.now(), existing);
+      await this.syncIndex(now, existing);
       // And the record, for the same reason: a finished game whose push gave up
       // gets another chance when somebody is looking at it. A no-op when both
       // lines have already landed.
-      if (game.status === 'finished') await this.pushRecord(Date.now(), { fresh: true });
+      if (game.status === 'finished') await this.pushRecord(now, { fresh: true });
+      // A game that finished before stage 8.4 has no `gc` timer at all; this
+      // is where it gets one.
+      await this.armCollection(now);
       return { ok: true, color: existing, field: this.fieldOf(game) };
     }
 
@@ -422,7 +464,9 @@ export class GameDO extends DurableObject<Env> {
     // start uses the same handshake as a resume, so there is one code path and one
     // rule to explain.
     this.setStatus('staging');
-    await this.timers.cancel('gc');
+    // No longer an unclaimed code, and not yet a played game: the month an
+    // unplayed game may sit replaces the half hour an unclaimed one gets.
+    await this.armCollection(now);
     this.bumpRev();
     this.broadcastState();
     // Both seats now have lines: the joiner's is new, and the creator's says
@@ -511,6 +555,13 @@ export class GameDO extends DurableObject<Env> {
       ws.close(1011, 'no attachment');
       return;
     }
+    // A socket that outlived its game. Collection closes every socket before it
+    // deletes anything, so this is a message already in flight at that moment;
+    // answering it would mean reading tables that are gone.
+    if (!hasGameTables(this.sql)) {
+      ws.close(1001, 'game over');
+      return;
+    }
 
     if (typeof raw !== 'string') {
       this.send(ws, { t: 'error', code: 'bad_message', message: 'Binary frames are not used.' });
@@ -539,6 +590,10 @@ export class GameDO extends DurableObject<Env> {
   private async onDisconnect(ws: WebSocket): Promise<void> {
     const attachment = ws.deserializeAttachment() as SocketAttachment | null;
     if (attachment === null) return;
+    // The close that collection itself caused, arriving after the tables went.
+    // There is no presence left to mark, and writing one would bring the object
+    // back (decision 0042).
+    if (!hasGameTables(this.sql)) return;
 
     const now = Date.now();
     // A player may have more than one socket briefly, mid-reconnect, so only mark
@@ -957,6 +1012,8 @@ export class GameDO extends DurableObject<Env> {
       String(now),
     );
     await this.armFlag();
+    // Being played: nothing may collect it now (decision 0042).
+    await this.armCollection(now);
     // A resume clears the suspension, so the countdown has to leave the list too.
     await this.syncIndex(now);
   }
@@ -1284,11 +1341,12 @@ export class GameDO extends DurableObject<Env> {
     this.clearCarry();
     await this.timers.cancel('flag');
     await this.timers.cancel('disconnect');
-    // Deliberately no `gc` timer. Decision 0025: once two people have played,
-    // the game persists until a player clears it. A finished game is a few
-    // kilobytes, so a timer that deletes someone's history saves nothing and
-    // costs them the only record of an afternoon.
-    await this.timers.cancel('gc');
+    // A day from now, the game is archived to KV and this object deleted
+    // (decision 0042, amending 0025 rule 6). Nothing of the afternoon is lost —
+    // the review, the file and the record all read from somewhere that is not
+    // this object — and the day is for the evening after, when somebody is
+    // likeliest to open the board again.
+    await this.armCollection(now);
 
     // The result is the one thing the index most needs to be right about: it is
     // what makes the row removable.
@@ -1346,6 +1404,9 @@ export class GameDO extends DurableObject<Env> {
     // (decision 0009), because whoever resumes will be standing somewhere else.
     await this.timers.cancel('flag');
     this.clearCarry();
+    // Paused before anybody moved is still an unplayed game, and may be
+    // collected in a month; paused after is decision 0025's, and may not.
+    await this.armCollection(now);
     this.bumpRev();
     this.broadcastState();
     // The transition the index exists for: from here the game may sit for a
@@ -1650,10 +1711,11 @@ export class GameDO extends DurableObject<Env> {
    * Take this game out of both players' lists, because it is about to stop
    * existing.
    *
-   * Only garbage collection calls this, and garbage collection only ever
-   * reaches a game nobody joined: a played game is never deleted server-side
-   * (decision 0025). Leaving the row would leave a code in somebody's list that
-   * resolves to nothing, which is worse than a short list.
+   * Only garbage collection calls this, and only for a game nobody played — an
+   * unclaimed code, or two seats and not one move (decision 0042). Leaving the
+   * row would leave a code in somebody's list that resolves to nothing, which
+   * is worse than a short list. A *finished* game keeps its rows when its
+   * object goes: they resolve to its archive.
    */
   private async dropIndex(): Promise<void> {
     const game = this.game();
@@ -1842,12 +1904,17 @@ export class GameDO extends DurableObject<Env> {
   // -------------------------------------------------------------------------
 
   override async alarm(): Promise<void> {
+    // An alarm on an object with no tables is one that outlived a deletion —
+    // `deleteAll` clears the alarm, but not one already being delivered. There
+    // is nothing to run, and the timers table is not there to ask.
+    if (!hasGameTables(this.sql)) return;
     const now = Date.now();
     for (const kind of this.timers.claimDue(now)) {
       switch (kind) {
         case 'gc':
-          await this.collect();
-          return; // Nothing left to reschedule against.
+          // Nothing left to reschedule against once it has gone.
+          if (await this.onCollect(now)) return;
+          break;
         case 'disconnect':
           await this.suspendForDisconnect(now);
           break;
@@ -1927,6 +1994,8 @@ export class GameDO extends DurableObject<Env> {
 
     // No clock is running, so no flag can fall.
     await this.timers.cancel('flag');
+    // As for a pause: collectable only if nobody had moved yet.
+    await this.armCollection(now);
 
     // Decision 0009: a carried piece goes back. Body position is part of the
     // game state and cannot be serialised — whoever resumes will be standing
@@ -1940,30 +2009,295 @@ export class GameDO extends DurableObject<Env> {
     await this.syncIndex(now);
   }
 
+  // -------------------------------------------------------------------------
+  // Collection: archive, then cease to exist (stages 8.4, 3.6.2, decision 0042)
+  // -------------------------------------------------------------------------
+
   /**
-   * Delete everything, so the object stops taking up space and the join code is
-   * free again.
+   * Point the `gc` timer at whenever {@link collectionDue} says, or take it
+   * away when nothing may collect this game.
    *
-   * Re-applying the schema afterwards is not tidiness, it is required.
-   * `deleteAll()` drops the tables, but this instance stays resident in memory, so
-   * the next call would run `SELECT … FROM game` against a table that no longer
-   * exists and fail with SQLITE_ERROR. Recreating the empty schema means every
-   * read keeps working and simply finds no game.
-   *
-   * `ctx.abort()` would also solve it, by discarding the instance — but it breaks
-   * the output gate for the request that called it, so the alarm invocation
-   * itself fails. Recreating the schema is quieter.
-   *
-   * The cost is that a collected game leaves a single `meta` row rather than
-   * literally zero bytes, so the object does not strictly "cease to exist". That
-   * is a few dozen bytes against the 5 GB budget, and the thing garbage collection
-   * is really for — abandoned games accumulating moves and position tracks — is
-   * gone.
+   * Called at every change of status, and when a player re-takes a seat. The
+   * timer is a hint rather than a verdict: {@link onCollect} asks the same
+   * question again when it fires, so a deadline that moved since — a board
+   * re-opened, a socket closed — is honoured rather than acted on early.
    */
-  private async collect(): Promise<void> {
-    // Before `deleteAll`, because after it there is no game row to read the
-    // accounts out of.
-    await this.dropIndex();
+  private async armCollection(now: number = Date.now()): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    const due = collectionDue(this.collectionFacts(game), this.collectionTimes());
+    if (due === null) {
+      if (this.timers.peek('gc') !== null) await this.timers.cancel('gc');
+      return;
+    }
+    await this.timers.schedule('gc', Math.max(due, now));
+  }
+
+  private collectionFacts(game: GameRow): CollectionFacts {
+    const [plies] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
+    const seen = this.meta('seen_at');
+    return {
+      status: game.status,
+      createdAt: game.created_at,
+      updatedAt: game.updated_at,
+      resultAt: game.result_at,
+      seenAt: seen === null ? null : Number(seen),
+      plies: plies?.n ?? 0,
+      suspendedBy: game.status === 'suspended' ? game.suspended_by : null,
+    };
+  }
+
+  /**
+   * The collection durations: the real ones, or — on a local server only —
+   * whatever a driver asked for through {@link hastenCollection}.
+   */
+  private collectionTimes(): CollectionTimes {
+    const override = this.meta('dev_collect_ms');
+    if (override === null) return DEFAULT_COLLECTION_TIMES;
+    const ms = Math.max(MIN_OVERRIDE_MS, Number(override) || 0);
+    return { unclaimedMs: ms, unplayedMs: ms, graceMs: ms, settleMs: ms };
+  }
+
+  /**
+   * The `gc` timer has fired. Returns true once this object has deleted itself.
+   *
+   * Re-derives everything, because the timer only says *when to look*: a game
+   * that has been started since is kept, a deadline that has moved is followed,
+   * and a board somebody has open is not pulled out from under them.
+   */
+  private async onCollect(now: number): Promise<boolean> {
+    const game = this.game();
+    if (game === null) {
+      // Tables and no game: an object the code before stage 8.4 left behind
+      // when it collected an unclaimed code (it re-created the empty schema
+      // afterwards). Nothing here belongs to anybody.
+      await this.destroy();
+      return true;
+    }
+    const times = this.collectionTimes();
+    const facts = this.collectionFacts(game);
+    const kind = collectionKind(facts);
+    const due = collectionDue(facts, times);
+    if (kind === null || due === null) return false;
+    if (due > now) {
+      await this.timers.schedule('gc', due);
+      return false;
+    }
+
+    if (kind === 'unclaimed') {
+      // As since stage 3.6.1: half an hour and it goes, whoever is still
+      // looking at the QR, because nobody has sat down.
+      await this.dropIndex();
+      if (!this.stillDue('unclaimed', now, times, { sockets: false })) {
+        await this.collectionCalledOff(now, times);
+        return false;
+      }
+      await this.destroy();
+      return true;
+    }
+
+    // Somebody has this board open. Not now; the day starts again from here.
+    if (this.openSockets() > 0) {
+      await this.timers.schedule('gc', now + (kind === 'finished' ? times.graceMs : times.unplayedMs));
+      return false;
+    }
+
+    if (kind === 'unplayed') {
+      await this.dropIndex();
+      if (!this.stillDue('unplayed', now, times, { sockets: true })) {
+        await this.collectionCalledOff(now, times);
+        return false;
+      }
+      await this.destroy();
+      return true;
+    }
+    return this.retire(game, now, times);
+  }
+
+  /**
+   * Asked again after an await and immediately before `destroy()`, with nothing
+   * awaited between the answer and the delete — true only if this game still
+   * qualifies as `kind`, is still due, and (when `sockets`) nobody has a board
+   * open. `dropIndex` talks to two accounts, and in that gap a second player can
+   * join an unclaimed code, a player can re-take a seat, or a handshake can start
+   * play; any of those means the game lives. Synchronous on purpose: the answer
+   * is only worth anything if nothing can happen between it and the delete.
+   */
+  private stillDue(
+    kind: 'unclaimed' | 'unplayed',
+    now: number,
+    times: CollectionTimes,
+    opts: { sockets: boolean },
+  ): boolean {
+    const current = this.game();
+    if (current === null) return false;
+    const facts = this.collectionFacts(current);
+    const due = collectionDue(facts, times);
+    if (opts.sockets && this.openSockets() > 0) return false;
+    return collectionKind(facts) === kind && due !== null && due <= now;
+  }
+
+  /**
+   * A collection called off by {@link stillDue}: re-arm from the new facts. A
+   * board somebody opened gets the same deferral as before the await. (A
+   * re-join re-added the index row just dropped, which is right: the game lives.)
+   */
+  private async collectionCalledOff(now: number, times: CollectionTimes): Promise<void> {
+    if (this.openSockets() > 0) {
+      await this.timers.schedule('gc', now + times.unplayedMs);
+      return;
+    }
+    await this.armCollection(now);
+  }
+
+  /**
+   * A finished game's last steps, one per firing of the `gc` timer, in order:
+   *
+   * 1. **Everything owed to the players' accounts has landed** — the record line
+   *    and the index line for each seat. A game deleted with its record line
+   *    undelivered would take that line with it, and the row in "Your games"
+   *    could never be made to say *finished*. So this waits, retrying a day at
+   *    a time, and gives up (staying alive) after {@link DELIVERY_MAX_DEFERRALS}.
+   * 2. **The archive is written** to KV — the PGN and the report, in board
+   *    space, with no account and no join code in the value (`archive.ts`).
+   * 3. **The archive has had time to reach everywhere** (`ARCHIVE_SETTLE_MS`)
+   *    and reads back as the same file, from here.
+   * 4. **Then this object deletes itself.** Everything, alarm included, so it
+   *    ceases to exist.
+   *
+   * Each step that cannot finish reschedules the timer and returns false.
+   */
+  private async retire(game: GameRow, now: number, times: CollectionTimes): Promise<boolean> {
+    // 1. Delivery. Both are no-ops when their digests already match.
+    await this.syncIndex(now);
+    if (this.recordPending(game)) await this.pushRecord(now, { fresh: true });
+    if (this.recordPending(game) || this.indexPending(game)) {
+      const deferrals = Number(this.meta('delivery_deferrals') ?? '0') + 1;
+      this.setMeta('delivery_deferrals', String(deferrals));
+      if (deferrals > DELIVERY_MAX_DEFERRALS) {
+        // Kept, whole, until a player re-opens it — which restarts all of this.
+        console.error('finished game kept: its record or index lines never landed');
+        return false;
+      }
+      await this.timers.schedule('gc', now + times.graceMs);
+      return false;
+    }
+
+    // 2. The archive. Built by the same path the review screen reads, so the
+    // file a player downloads tomorrow is the one they could download today.
+    const report = this.buildReport(game);
+    const pgn = buildPgn(report);
+    const digest = await sha256Hex(JSON.stringify(toArchive(report, pgn, 0)));
+    const archivedAt = this.meta('archive_digest') === digest ? Number(this.meta('archived_at')) : null;
+    if (archivedAt === null) {
+      try {
+        await writeArchive(this.env.ARCHIVE, game.join_code, toArchive(report, pgn, now));
+      } catch (error) {
+        console.error('archive write failed', error);
+        const attempts = Number(this.meta('archive_attempts') ?? '0') + 1;
+        this.setMeta('archive_attempts', String(attempts));
+        if (attempts < ARCHIVE_MAX_ATTEMPTS) {
+          await this.timers.schedule('gc', now + ARCHIVE_RETRY_BASE_MS * 2 ** (attempts - 1));
+        }
+        return false;
+      }
+      this.setMeta('archive_digest', digest);
+      this.setMeta('archived_at', String(now));
+      // `archive_attempts` is deliberately not reset by a successful write: a
+      // read-back that keeps disagreeing would otherwise write, fail, and write
+      // again for ever. Only a player re-taking a seat starts the count over.
+      await this.timers.schedule('gc', now + times.settleMs);
+      return false;
+    }
+
+    // 3. Settled, and readable as the same file.
+    if (now < archivedAt + times.settleMs) {
+      await this.timers.schedule('gc', archivedAt + times.settleMs);
+      return false;
+    }
+    let readBack: string | null = null;
+    try {
+      readBack = (await readArchive(this.env.ARCHIVE, game.join_code))?.pgn ?? null;
+    } catch (error) {
+      console.error('archive read-back failed', error);
+    }
+    if (readBack !== pgn) {
+      // Written again next time, from the start: this object is still the only
+      // copy that is known to be whole. Counted with the failed writes, so a
+      // mismatch that is not going away cannot spend a KV write every few
+      // minutes for ever.
+      this.deleteMeta('archive_digest');
+      const attempts = Number(this.meta('archive_attempts') ?? '0') + 1;
+      this.setMeta('archive_attempts', String(attempts));
+      if (attempts < ARCHIVE_MAX_ATTEMPTS) {
+        await this.timers.schedule('gc', now + ARCHIVE_RETRY_BASE_MS * 2 ** (attempts - 1));
+      } else {
+        console.error('finished game kept: its archive never read back whole');
+      }
+      return false;
+    }
+
+    // 4. Gone. Asked once more with nothing awaited since the answer, because a
+    // player could have opened the board — or re-taken a seat, which moves the
+    // deadline — while the read-back was in flight.
+    if (this.openSockets() > 0) {
+      await this.timers.schedule('gc', now + times.graceMs);
+      return false;
+    }
+    const current = this.game();
+    const due = current === null ? null : collectionDue(this.collectionFacts(current), times);
+    if (current === null || due === null || due > now) {
+      if (due !== null) await this.timers.schedule('gc', due);
+      return false;
+    }
+    await this.destroy();
+    return true;
+  }
+
+  /**
+   * Sockets still open. A closed one can linger in `getWebSockets()` for a
+   * moment after its close event, and a board nobody has open must not keep
+   * the game alive.
+   */
+  private openSockets(): number {
+    return this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN).length;
+  }
+
+  /** Whether a seat's record line differs from the last one its account accepted. */
+  private recordPending(game: GameRow): boolean {
+    for (const color of ['w', 'b'] as const) {
+      const account = color === 'w' ? game.white_account : game.black_account;
+      if (account === null) continue;
+      const line = this.recordLine(game, color);
+      if (line !== null && this.meta(`record_${color}`) !== JSON.stringify(line)) return true;
+    }
+    return false;
+  }
+
+  /** The same, for each seat's line in the game index. */
+  private indexPending(game: GameRow): boolean {
+    for (const color of ['w', 'b'] as const) {
+      const account = color === 'w' ? game.white_account : game.black_account;
+      if (account === null) continue;
+      if (this.meta(`index_${color}`) !== JSON.stringify(this.indexUpdate(game, color))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Delete everything, so that the object ceases to exist.
+   *
+   * **The schema is not re-created afterwards**, which it used to be. That kept
+   * a resident instance's reads working, at the price of a `meta` row that kept
+   * the object alive for ever — and it was the same mistake as creating the
+   * schema on every wake: storage that exists makes an object that exists.
+   * Every read now asks {@link hasGameTables} first and finds no game, so the
+   * instance still answers "no such game", and nothing it does can write.
+   *
+   * `ctx.abort()` would discard the instance instead, but it breaks the output
+   * gate of the request that called it, so the alarm invocation itself fails.
+   */
+  private async destroy(): Promise<void> {
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.close(1001, 'game expired');
@@ -1973,14 +2307,39 @@ export class GameDO extends DurableObject<Env> {
     }
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
-    applySchema(this.sql);
+  }
+
+  /**
+   * Bring a game's collection forward, for a browser driver (stage 8.4).
+   *
+   * Every duration in `collection.ts` becomes `afterMs` for this game (floored
+   * at `MIN_OVERRIDE_MS`, so an open board cannot turn it into a hot loop), and the
+   * timer is re-armed, so the real alarm runs the real steps — the archive, the
+   * settle, the read-back, the delete — in seconds rather than a day. Reachable
+   * only through `POST /api/dev/game/:code/collect`, which answers 404 unless
+   * the dev seam's two locks are both open (decision 0029): a secret no
+   * deployed Worker has, and a loopback hostname. Refuses, and writes nothing,
+   * where there is no game.
+   */
+  async hastenCollection(afterMs: number): Promise<boolean> {
+    const game = this.game();
+    if (game === null) return false;
+    this.setMeta('dev_collect_ms', String(Math.max(0, Math.floor(afterMs))));
+    await this.armCollection();
+    return true;
   }
 
   // -------------------------------------------------------------------------
   // Reads
   // -------------------------------------------------------------------------
 
+  /**
+   * The game, or null — including for an object with no tables at all, which
+   * is what any code that never held a game, and every collected one, is. No
+   * read here may create anything (decision 0042).
+   */
   private game(): GameRow | null {
+    if (!hasGameTables(this.sql)) return null;
     const [row] = [...this.sql.exec<GameRow>(`SELECT * FROM game WHERE id = 1`)];
     return row ?? null;
   }
@@ -2221,8 +2580,18 @@ export class GameDO extends DurableObject<Env> {
   // Read-only accessors used by the router and by tests
   // -------------------------------------------------------------------------
 
-  /** Enough to render a join screen without opening a socket. */
-  async peek(): Promise<{
+  /**
+   * Enough to render a join screen without opening a socket.
+   *
+   * **The field only goes to somebody it is still an invitation for** (O-34,
+   * decision 0042): anybody at all while a seat is free, since that is what a
+   * shared code is for, and afterwards only the two accounts in the game. The
+   * field is the place — its tapped corners — and a code forwarded once used to
+   * resolve to it for ever. Whether a game exists, and its status, still come
+   * back to anybody: a join already says as much (`game_full`), and hiding it
+   * here would protect nothing.
+   */
+  async peek(account: string | null = null): Promise<{
     exists: boolean;
     status?: GameStatus;
     joinCode?: string;
@@ -2233,12 +2602,14 @@ export class GameDO extends DurableObject<Env> {
     if (game === null) return { exists: false };
     const seatsFree =
       (game.white_player_id === null ? 1 : 0) + (game.black_player_id === null ? 1 : 0);
+    const invitation = game.status === 'waiting' && seatsFree > 0;
+    const seated = this.accountSeat(game, account) !== null;
     return {
       exists: true,
       status: game.status,
       joinCode: game.join_code,
       seatsFree,
-      field: this.fieldOf(game),
+      ...(invitation || seated ? { field: this.fieldOf(game) } : {}),
     };
   }
 
@@ -2254,8 +2625,9 @@ export class GameDO extends DurableObject<Env> {
    * because an account never leaves this object: the router knows who is
    * asking, and only the game knows who was playing. A stranger holding the
    * join code gets `not_a_player`, which the route answers with the same 404 a
-   * code that never existed gets — a finished game already exposes its field to
-   * anybody holding the code (O-34), and this is not the place to widen that.
+   * code that never existed gets. Once this object has been archived and
+   * deleted, the route asks the archive instead, with the same seat rule
+   * checked against the player's own account (decision 0042).
    *
    * Works on a game still in progress: the result token is then `*`, the
    * distances are what has been credited so far, and nothing pretends the game
@@ -2379,4 +2751,10 @@ export class GameDO extends DurableObject<Env> {
     if (game === null) return 0;
     return remainingMs(this.clockOf(game), color, Date.now());
   }
+}
+
+/** A SHA-256 digest as hex, for telling one archive from another without keeping it. */
+async function sha256Hex(text: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

@@ -307,6 +307,7 @@ function fakeConnection(initial: GameSnapshot | null = snapshot()) {
     lastError: null,
     opponent: null,
     reconnects: 0,
+    gone: null,
   };
   const sent: unknown[] = [];
   let accepting = true;

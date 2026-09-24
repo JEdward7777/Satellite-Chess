@@ -69,6 +69,9 @@ function harness(opts: { now?: () => number } = {}) {
     origin: 'https://example.com',
     pingIntervalMs: 1_000,
     now: opts.now,
+    // Never the network from a unit test. "Don't know" keeps the ordinary
+    // backoff, which is what every test here but the last block is about.
+    probe: async () => 'unknown',
     socketFactory: (url) => {
       const socket = new FakeSocket(url);
       sockets.push(socket);
@@ -278,16 +281,17 @@ describe('reconnection', () => {
     }
   });
 
-  it('backs off, but starts fast enough to beat the disconnect grace', () => {
+  it('backs off, but starts fast enough to beat the disconnect grace', async () => {
     vi.useFakeTimers();
     try {
       const { sockets, latest } = harness();
       latest().open();
 
-      // Four failed attempts in a row.
+      // Four failed attempts in a row. Async, because the third asks the
+      // server whether the game is still there before trying again.
       for (let i = 0; i < 4; i++) {
         latest().drop();
-        vi.advanceTimersByTime(10_000);
+        await vi.advanceTimersByTimeAsync(10_000);
       }
       // The first retry must land well inside DISCONNECT_GRACE_MS (20 s), or a
       // walk past a building costs both players the back-rank handshake.
@@ -402,5 +406,76 @@ describe('the position relay — the client half of the request budget', () => {
     // And the refusal did not count as "sent", so the next real chance is taken.
     advance(POS_MIN_INTERVAL_MS + 1);
     expect(connection.state.status).toBe('reconnecting');
+  });
+});
+
+describe('a game that has gone while the board was up (decision 0042)', () => {
+  function gone(answer: 'archived' | 'missing' | 'live' | 'unknown') {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const probes: number[] = [];
+    const connection = connectToGame({
+      joinCode: 'A1B2C3',
+      origin: 'https://example.com',
+      pingIntervalMs: 1_000,
+      socketFactory: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      probe: async () => {
+        probes.push(sockets.length);
+        return answer;
+      },
+    });
+    /** Every upgrade refused: closed without ever opening, as a 404 does. */
+    const refuseNext = async () => {
+      sockets[sockets.length - 1]!.drop();
+      await vi.advanceTimersByTimeAsync(10_000);
+    };
+    return { connection, sockets, probes, refuseNext };
+  }
+
+  it('asks once three upgrades in a row are refused, and stops for good on "archived"', async () => {
+    const { connection, sockets, probes, refuseNext } = gone('archived');
+    await refuseNext();
+    await refuseNext();
+    expect(probes).toEqual([]);
+    await refuseNext();
+    expect(probes).toEqual([3]);
+    expect(connection.state).toMatchObject({ status: 'gone', gone: 'archived' });
+    // And it has stopped: no more sockets, however long the tab stays open.
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(sockets).toHaveLength(3);
+    vi.useRealTimers();
+  });
+
+  it('stops on "missing" too, with nothing left to retry', async () => {
+    const { connection, sockets, refuseNext } = gone('missing');
+    for (let i = 0; i < 3; i++) await refuseNext();
+    expect(connection.state).toMatchObject({ status: 'gone', gone: 'missing' });
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(sockets).toHaveLength(3);
+    vi.useRealTimers();
+  });
+
+  it('keeps trying on anything short of a definite no, asking again only after as many more', async () => {
+    const { connection, probes, refuseNext } = gone('unknown');
+    for (let i = 0; i < 6; i++) await refuseNext();
+    expect(probes).toEqual([3, 6]);
+    expect(connection.state.status).not.toBe('gone');
+    expect(connection.state.gone).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('never asks about a socket that dropped after it had opened — that is the network', async () => {
+    const { probes, sockets } = gone('archived');
+    for (let i = 0; i < 5; i++) {
+      sockets[sockets.length - 1]!.open();
+      sockets[sockets.length - 1]!.drop();
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    expect(probes).toEqual([]);
+    vi.useRealTimers();
   });
 });

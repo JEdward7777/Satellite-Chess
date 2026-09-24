@@ -310,3 +310,16 @@ The audit is small and worth doing deliberately: read phase 7 against the code
 stage by stage, mark what is done, and drop `7.3.1` if the game index covers it.
 Until then the honest statement is "phase 7 is partly built and the plan does not
 know it", not a corrected percentage.
+
+### O-34 — A game's code opens its field to anyone holding it, for ever
+**Resolved:** 2026-09-24, stage 8.4 (decision 0042, rule 9)
+**Outcome:** Fixed. `GET /api/game/:code` returns the field only while the
+code is still an invitation. That means a `waiting` game with a free seat, for
+anybody. After that, only the two players' sessions get it. A finished game
+loses the field altogether a day after it was last opened, when it is archived
+and its object deleted. The archive holds no field and no coordinates. An
+archived game shows its players only that it was archived, and shows everyone
+else that there is no game. Whether a code names a game, and its status, are
+still answered to anybody. A join already says as much (`game_full`), so hiding
+it would protect nothing. The privacy statement says the new rule.
+

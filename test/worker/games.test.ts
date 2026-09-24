@@ -265,6 +265,9 @@ describe('a game writes itself into its players’ indexes', () => {
 
     const stub = env.GAME.getByName(joinCode) as DurableObjectStub<GameDO>;
     await runInDurableObject(stub, async (_instance, state) => {
+      // The handler re-derives the deadline from the game's creation, so that
+      // moves back too (decision 0042).
+      state.storage.sql.exec(`UPDATE game SET created_at = ?`, Date.now() - 3_600_000);
       state.storage.sql.exec(`UPDATE timers SET due_at = ? WHERE kind = 'gc'`, Date.now() - 1);
       await state.storage.setAlarm(Date.now() + 3_600_000);
     });

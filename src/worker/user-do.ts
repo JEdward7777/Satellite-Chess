@@ -92,6 +92,7 @@ import {
   entryFromRow,
 } from './user-games.js';
 import { type RecordGame, type RecordSummary, summarizeRecord } from '../shared/record.js';
+import type { Color } from '../shared/squares.js';
 import {
   MAX_RECORD_GAMES,
   RECORD_COLUMNS,
@@ -325,10 +326,12 @@ export class UserDO extends DurableObject<Env> {
   /**
    * The game itself has ceased to exist, so the pointer to it should too.
    *
-   * Only `GameDO.collect` calls this, and only for a code nobody ever joined —
-   * a played game is never deleted server-side (decision 0025). Unconditional,
-   * because unlike {@link forgetGames} this is not a player choosing to lose a
-   * row: the row is already pointing at nothing.
+   * Only `GameDO`'s collection calls this, and only for a game nobody played —
+   * a code nobody joined, or two seats and not one move (decision 0042). A
+   * finished game is archived rather than dropped, and its row stays and
+   * resolves to the archive. Unconditional, because unlike {@link forgetGames}
+   * this is not a player choosing to lose a row: the row is already pointing
+   * at nothing.
    */
   async dropGame(joinCode: string): Promise<void> {
     this.sql.exec(`DELETE FROM game_index WHERE join_code = ?`, joinCode);
@@ -421,6 +424,31 @@ export class UserDO extends DurableObject<Env> {
       recorded = true;
     });
     return recorded;
+  }
+
+  /**
+   * Which seat this account held in a game, by its own lines — or null for a
+   * game it has no line for.
+   *
+   * This is the seat check for a game that has been archived and deleted
+   * (decision 0042). The archive deliberately holds no account, so the only
+   * thing left that knows who played is each player's own account: its record
+   * line, which nothing deletes and which the game made sure had landed before
+   * it deleted itself, or failing that its game-index row (a full record, say).
+   * Asked only of the account the session names, so it can answer for nobody
+   * else.
+   */
+  async seatIn(joinCode: string): Promise<Color | null> {
+    for (const table of ['record', 'game_index'] as const) {
+      const [row] = [
+        ...this.sql.exec<{ color: string }>(
+          `SELECT color FROM ${table} WHERE join_code = ? LIMIT 1`,
+          joinCode,
+        ),
+      ];
+      if (row !== undefined) return row.color === 'b' ? 'b' : 'w';
+    }
+    return null;
   }
 
   /** The record, added up. Totals are derived here and never stored. */

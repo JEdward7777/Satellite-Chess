@@ -1,11 +1,19 @@
 /**
  * GameDO's SQLite schema.
  *
- * Applied on every construction rather than through a migration framework. The
- * statements are all `IF NOT EXISTS`, the object is single-tenant, and a DO wakes
- * far more often than the schema changes — so idempotent DDL is cheaper and
- * harder to get wrong than versioned migrations would be. When a column does need
- * adding, add it here *and* handle the upgrade in {@link applySchema}.
+ * Applied when a game is created, and on every wake of an object that already
+ * holds one, rather than through a migration framework. The statements are all
+ * `IF NOT EXISTS`, the object is single-tenant, and a DO wakes far more often
+ * than the schema changes — so idempotent DDL is cheaper and harder to get
+ * wrong than versioned migrations would be. When a column does need adding,
+ * add it here *and* handle the upgrade in {@link applySchema}.
+ *
+ * **Never on the wake of an empty object** (decision 0042). Creating the tables
+ * writes to storage, and a Durable Object with anything in storage exists. Any
+ * request can address any code — a typo, a stranger, a phone re-opening a game
+ * that has been archived and deleted — and until stage 8.4 every one of them
+ * left a set of empty tables behind, so a deleted game came straight back as an
+ * object that would never go away. {@link hasGameTables} is the check.
  */
 
 /**
@@ -285,8 +293,26 @@ export function applySchema(sql: SqlStorage): void {
   );
 }
 
-/** True once {@link initGame} has run — i.e. this join code names a real game. */
+/**
+ * Whether this object has ever been given the schema — i.e. whether it is a
+ * game, or was one that has not been collected.
+ *
+ * A read of `sqlite_master` and nothing else, so asking it of an empty object
+ * leaves the object empty. Every path into `GameDO` that could arrive at a code
+ * holding nothing asks this before it touches a table (decision 0042).
+ */
+export function hasGameTables(sql: SqlStorage): boolean {
+  const [row] = [
+    ...sql.exec<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'game'`,
+    ),
+  ];
+  return (row?.n ?? 0) > 0;
+}
+
+/** True once a game has been created here — i.e. this join code names a real game. */
 export function isInitialised(sql: SqlStorage): boolean {
+  if (!hasGameTables(sql)) return false;
   const [row] = [...sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM game`)];
   return (row?.n ?? 0) > 0;
 }

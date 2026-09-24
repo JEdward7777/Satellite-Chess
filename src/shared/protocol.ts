@@ -357,8 +357,10 @@ export const DISCONNECT_GRACE_MS = 20_000;
 /**
  * Unjoined games evaporate, so stale join codes don't linger.
  *
- * The one timer that still deletes anything. Nobody has played, nobody will miss
- * it, and dead codes would eventually collide with live ones (decision 0025).
+ * Nobody has played, nobody will miss it, and dead codes would eventually
+ * collide with live ones (decision 0025). The server's other collection rules —
+ * an unplayed game after a month, a finished one archived after a day — live
+ * with the object that applies them, in `worker/collection.ts` (decision 0042).
  */
 export const UNCLAIMED_GAME_TTL_MS = 30 * 60_000;
 

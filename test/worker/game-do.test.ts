@@ -7,6 +7,7 @@ import { fromSquare } from '../../src/shared/squares.js';
 import { DISCONNECT_GRACE_MS, UNCLAIMED_GAME_TTL_MS } from '../../src/shared/protocol.js';
 import type { GameDO } from '../../src/worker/game-do.js';
 import { Timers } from '../../src/worker/timers.js';
+import { UNPLAYED_GAME_TTL_MS } from '../../src/worker/collection.js';
 
 /** An 8 m-square field laid out due east/north, as in the model tests. */
 const A1 = { lat: 51.4779, lng: -0.0015 };
@@ -633,13 +634,16 @@ describe('the timer scheduler', () => {
     expect(timers[0].due_at - Date.now()).toBeGreaterThan(UNCLAIMED_GAME_TTL_MS - 5_000);
   });
 
-  it('cancels garbage collection once someone joins', async () => {
+  it('trades the unclaimed half hour for the unplayed month once someone joins', async () => {
     const stub = await createGame(nextCode());
     await stub.join(BLACK);
     const timers = await runInDurableObject(stub, (_i, state) =>
-      [...state.storage.sql.exec(`SELECT kind FROM timers`)],
+      [...state.storage.sql.exec<{ kind: string; due_at: number }>(`SELECT kind, due_at FROM timers`)],
     );
-    expect(timers).toHaveLength(0);
+    // Two seats and no move: collectable only after a month of nothing
+    // (decision 0042), never on the half hour an unclaimed code gets.
+    expect(timers.map((t) => t.kind)).toEqual(['gc']);
+    expect(timers[0]!.due_at - Date.now()).toBeGreaterThan(UNPLAYED_GAME_TTL_MS - 5_000);
   });
 
   it('points the single alarm at the earliest of several deadlines', async () => {
@@ -697,10 +701,13 @@ describe('the timer scheduler', () => {
     const joinCode = nextCode();
     const stub = await createGame(joinCode);
 
-    // Bring the deadline forward rather than waiting half an hour. The alarm
-    // itself is left in the future: setting it in the past makes the runtime fire
-    // it immediately, and then `runDurableObjectAlarm` finds nothing to run.
+    // Bring the deadline forward rather than waiting half an hour. The game's
+    // own creation time moves too, because the handler re-derives the deadline
+    // from it rather than trusting the timer. The alarm itself is left in the
+    // future: setting it in the past makes the runtime fire it immediately, and
+    // then `runDurableObjectAlarm` finds nothing to run.
     await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(`UPDATE game SET created_at = ?`, Date.now() - UNCLAIMED_GAME_TTL_MS - 1);
       state.storage.sql.exec(`UPDATE timers SET due_at = ? WHERE kind = 'gc'`, Date.now() - 1);
       await state.storage.setAlarm(Date.now() + 3_600_000);
     });
@@ -709,6 +716,13 @@ describe('the timer scheduler', () => {
 
     // An object with entirely empty storage ceases to exist, which frees the code.
     expect(await stub.peek()).toEqual({ exists: false });
+    const left = await runInDurableObject(stub, async (_i, state) => ({
+      tables: [...state.storage.sql.exec<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\_cf\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\_%' ESCAPE '\\'`,
+      )].map((r) => r.name),
+      alarm: await state.storage.getAlarm(),
+    }));
+    expect(left).toEqual({ tables: [], alarm: null });
   });
 
   it('suspends an active game when the disconnect grace period expires', async () => {

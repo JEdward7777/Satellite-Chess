@@ -16,6 +16,7 @@ import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import { buildPgn, pgnFileName } from '../shared/pgn.js';
+import type { GameReport } from '../shared/review.js';
 import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
@@ -36,6 +37,9 @@ import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
 import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
 import { byMostWanted, listedGame } from '../shared/game-index.js';
 import { apiError, json } from './http.js';
+import { type Archived, readArchive } from './archive.js';
+import { timingSafeEqual } from './crypto.js';
+import type { EnvWithSecrets } from './secrets.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
 export { GameDO, UserDO, SurveyDO };
@@ -197,6 +201,13 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return createGame(request, env, url);
   }
 
+  // A driver's way to watch a finished game be archived without waiting a day
+  // (stage 8.4). Behind both of the dev seam's locks, like `/api/dev/session`.
+  const hasten = /^\/api\/dev\/game\/([^/]+)\/collect$/.exec(path);
+  if (hasten !== null) {
+    return hastenCollection(request, env, url, hasten[1]);
+  }
+
   // `/api/game/:code`, and its `/ws`, `/review` and `/pgn` suffixes.
   const match = /^\/api\/game\/([^/]+)(\/ws|\/review|\/pgn)?$/.exec(path);
   if (match !== null) {
@@ -214,13 +225,13 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
       return openSocket(request, env, url, stub);
     }
     if (match[2] === '/review' || match[2] === '/pgn') {
-      return reviewGame(request, env, url, stub, match[2] === '/pgn');
+      return reviewGame(request, env, url, stub, code, match[2] === '/pgn');
     }
     if (request.method === 'GET') {
-      return json(await stub.peek());
+      return peekGame(request, env, url, stub, code);
     }
     if (request.method === 'POST') {
-      return joinGame(request, env, url, stub);
+      return joinGame(request, env, url, stub, code);
     }
     return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
   }
@@ -552,6 +563,7 @@ async function joinGame(
   env: Env,
   url: URL,
   stub: DurableObjectStub<GameDO>,
+  code: string,
 ): Promise<Response> {
   const identity = await identityOf(request, env, url);
   if (identity === null) return signInRequired();
@@ -568,7 +580,95 @@ async function joinGame(
   if (result.reason === 'full') {
     return apiError('game_full', 'That game already has two players.', 409);
   }
+  // A game that has finished and been archived (decision 0042). There is no
+  // board to sit down at any more — the object, and the field with it, are
+  // gone — so a player of it is told so and sent to the review, which reads
+  // the archive. A 200, because re-opening your own old game is not an error;
+  // and no field, because the archive has none to give.
+  const archived = await archivedFor(env, code, identity.sub);
+  if (archived !== null) {
+    return json({ archived: true, color: archived.you });
+  }
   return apiError('not_found', 'No game with that code. It may have expired.', 404);
+}
+
+/**
+ * A finished game whose object has gone, if this account played in it.
+ *
+ * The archive first, because it is one KV read and it settles most codes (a
+ * typo has none). Then the seat, asked of the player's *own* account, because
+ * the archive holds no account at all (decision 0042): its record line, or its
+ * game-index row. Null for a code with no archive and for a player with no line
+ * for it alike, so no caller can tell the two apart to somebody who was not
+ * there.
+ */
+async function archivedFor(
+  env: Env,
+  code: string,
+  sub: string,
+): Promise<{ archive: Archived; you: Color } | null> {
+  const archive = await readArchive(env.ARCHIVE, code);
+  if (archive === null) return null;
+  const you = await userFor(env, sub).seatIn(code);
+  return you === null ? null : { archive, you };
+}
+
+/**
+ * `GET /api/game/:code` — enough to describe a game without opening a socket.
+ *
+ * The session is optional here, as it always has been, but it now decides what
+ * comes back (O-34, decision 0042): the field goes to anybody only while a seat
+ * is free, and to the two players after that. A game that has been archived
+ * reads as finished and `archived` to a player of it, and as no game at all to
+ * anybody else — it is not there to join, and its field is not archived to be
+ * shown.
+ */
+async function peekGame(
+  request: Request,
+  env: Env,
+  url: URL,
+  stub: DurableObjectStub<GameDO>,
+  code: string,
+): Promise<Response> {
+  const identity = await identityOf(request, env, url);
+  const sub = identity?.sub ?? null;
+  const live = await stub.peek(sub);
+  if (live.exists || sub === null) return json(live);
+  const archived = await archivedFor(env, code, sub);
+  if (archived === null) return json({ exists: false });
+  return json({ exists: true, status: 'finished', joinCode: code, seatsFree: 0, archived: true });
+}
+
+/**
+ * Run a game's collection in seconds, for a browser driver (stage 8.4).
+ *
+ * The dev seam's rules exactly (decision 0029): a 404 unless `DEV_AUTH_SECRET`
+ * is set *and* the hostname is loopback, and a 401 without the secret itself.
+ * No deployed Worker has the secret, so on one this endpoint does not exist.
+ * What it changes is only *when* — the object runs its own collection steps
+ * through its own alarm, so a driver sees what a real day would do.
+ */
+async function hastenCollection(
+  request: Request,
+  env: EnvWithSecrets,
+  url: URL,
+  rawCode: string,
+): Promise<Response> {
+  if (!devSeamEnabled(env, url)) return apiError('not_found', 'No such endpoint.', 404);
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const given = request.headers.get('x-dev-auth-secret');
+  if (!timingSafeEqual(given, env.DEV_AUTH_SECRET as string)) {
+    return apiError('unauthorised', 'Bad or missing dev auth secret.', 401);
+  }
+  const code = normaliseJoinCode(decodeURIComponent(rawCode));
+  if (code === null) return apiError('bad_code', 'That is not a game code.', 400);
+  const body = await readJson(request);
+  const afterMs = asNonNegativeInt(body?.afterMs) ?? 0;
+  const done = await env.GAME.getByName(code).hastenCollection(afterMs);
+  if (!done) return apiError('not_found', 'No game with that code.', 404);
+  return json({ ok: true, afterMs });
 }
 
 /**
@@ -592,6 +692,7 @@ async function reviewGame(
   env: Env,
   url: URL,
   stub: DurableObjectStub<GameDO>,
+  code: string,
   asPgn: boolean,
 ): Promise<Response> {
   if (request.method !== 'GET') {
@@ -600,18 +701,30 @@ async function reviewGame(
   const identity = await identityOf(request, env, url);
   if (identity === null) return signInRequired();
 
+  const refused = () => apiError('not_found', 'No game with that code that you played in.', 404);
+  let read: { you: Color; report: GameReport; pgn: string };
   const result = await stub.report(identity.sub);
-  if (!result.ok) {
-    return apiError('not_found', 'No game with that code that you played in.', 404);
+  if (result.ok) {
+    read = { you: result.you, report: result.report, pgn: buildPgn(result.report) };
+  } else if (result.reason === 'not_a_player') {
+    return refused();
+  } else {
+    // No object: archived and deleted, or never a game (decision 0042). The
+    // archive answers with the same seat rule, and with the file exactly as it
+    // was served while the game was alive — stored, not rebuilt, so a later
+    // change to the PGN writer cannot rewrite an old game's file.
+    const archived = await archivedFor(env, code, identity.sub);
+    if (archived === null) return refused();
+    read = { you: archived.you, report: archived.archive.report, pgn: archived.archive.pgn };
   }
-  if (!asPgn) return json({ you: result.you, report: result.report });
+  if (!asPgn) return json({ you: read.you, report: read.report });
 
   // A plain object rather than a `Headers`, for the same reason every other
   // route here passes one: the spread of a `Headers` is `{}` (`gotchas.md`).
-  return new Response(buildPgn(result.report), {
+  return new Response(read.pgn, {
     headers: {
       'content-type': 'application/x-chess-pgn; charset=utf-8',
-      'content-disposition': `attachment; filename="${pgnFileName(result.report)}"`,
+      'content-disposition': `attachment; filename="${pgnFileName(read.report)}"`,
       'cache-control': 'no-store',
     },
   });

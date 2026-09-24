@@ -44,6 +44,20 @@ describe('joining a game', () => {
     expect(outcome).toEqual({ ok: true, code: 'ABC123', colour: 'b', field: FIELD });
   });
 
+  it('reads a finished, archived game as a way to its review, not a board', async () => {
+    // Decision 0042: the object and its field are gone, so there is nothing to
+    // sit down at — and a 200 with no field must not read as a broken server.
+    const outcome = await joinGame('abc123', {
+      fetch: answers(200, { archived: true, color: 'w' }),
+    });
+    expect(outcome).toEqual({ ok: true, archived: true, code: 'ABC123', colour: 'w' });
+  });
+
+  it('does not take an archived answer without a seat in it', async () => {
+    const outcome = await joinGame('abc123', { fetch: answers(200, { archived: true }) });
+    expect(outcome).toMatchObject({ ok: false, reason: 'server' });
+  });
+
   it('folds a code the way the typed entry and the deep link both do', async () => {
     // One normaliser for all three, so a code read aloud across a field — "O for
     // zero" — resolves identically however it was entered.

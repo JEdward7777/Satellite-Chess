@@ -1,7 +1,7 @@
 # 0025 — A suspended game waits a month, then the other player may claim the win
 
 - **Date:** 2026-08-02
-- **Status:** accepted
+- **Status:** accepted; rule 6 amended by [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) (a finished game's object is archived and deleted; an unplayed game is collected after a month — a game with moves and no result still never is)
 - **Stage:** 5.3.4, resolves O-04
 - **Builds on:** [0005](0005-back-rank-resume-handshake.md),
   [0009](0009-suspension-cancels-a-carry.md),

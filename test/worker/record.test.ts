@@ -368,7 +368,9 @@ describe('an account that cannot be reached', () => {
       attempts: [...state.storage.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'record_attempts'`)][0]
         ?.value,
     }));
-    expect(scheduled.timer).toEqual(['record']);
+    // The retry, beside the finished game's own collection (decision 0042),
+    // which waits for this line to land before anything is deleted.
+    expect(scheduled.timer.sort()).toEqual(['gc', 'record']);
     expect(scheduled.attempts).toBe('1');
     expect((await readRecord(game.white)).totals.games).toBe(0);
 
@@ -382,10 +384,11 @@ describe('an account that cannot be reached', () => {
     expect((await readRecord(game.black)).totals).toMatchObject({ games: 1, losses: 1 });
 
     const after = await runInDurableObject(game.stub, (_instance, state) => ({
-      timers: [...state.storage.sql.exec(`SELECT kind FROM timers`)].length,
+      timers: [...state.storage.sql.exec<{ kind: string }>(`SELECT kind FROM timers`)].map((r) => r.kind),
       attempts: [...state.storage.sql.exec(`SELECT value FROM meta WHERE key = 'record_attempts'`)].length,
     }));
-    expect(after).toEqual({ timers: 0, attempts: 0 });
+    // No retry left; only the game's own collection, a day out.
+    expect(after).toEqual({ timers: ['gc'], attempts: 0 });
   });
 });
 

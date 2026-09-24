@@ -62,3 +62,36 @@ there. The truth for any given game is somewhere between 1 and 599.
   would be complexity in exchange for nothing.
 
 Stage 9.5 measures this against a real game rather than trusting the arithmetic.
+
+## Workers KV (stage 8.4, decision 0042)
+
+Free tier: **1,000 writes, 100,000 reads, 1,000 lists and 1,000 deletes a day**,
+values up to 25 MiB, 1 GB stored. Two namespaces share the write allowance, which
+is account-wide rather than per namespace.
+
+| Namespace | Writes | Reads |
+|---|---|---|
+| `SESSIONS` | a sign-in, and a throttled sliding renewal (`sessions.ts`) | every authenticated request that carries a Google session |
+| `ARCHIVE` | **1 per finished game**, written once a day after it ends. A rewrite happens only if the read-back disagrees | 1 per game created (to check the code was never archived); 1 at the object's last step (read-back); 1 per archived review, file or re-join |
+
+- **Pin the namespace id after the first deploy.** `wrangler.jsonc` declares
+  `ARCHIVE` with no `id`, so wrangler 4 creates it on the first `wrangler
+  deploy`, and later deploys find it again by binding name. Once it exists, copy
+  its id (`wrangler kv namespace list`) into `wrangler.jsonc` beside SESSIONS'.
+  Then the binding no longer depends on that lookup, and a fresh checkout or a
+  renamed Worker cannot quietly get a second, empty namespace.
+- **Key:** `game/v1/<CODE>`. **No TTL.** A finished game's history is kept, as
+  decision 0025 promised. **No list operation** is ever made: every read is by
+  a known code, so the 1,000/day list allowance is untouched.
+- **Size:** about 30 KB for a 40-move game (the PGN, plus a report of ~250 bytes
+  a ply). 1 GB holds about 33,000 games. That is the limit to watch, well
+  before writes are.
+- **Retries:** a failed write, or a read-back that disagrees, is retried on a
+  doubling ladder of twelve attempts (about 34 hours), so a day's write cap
+  resets before it gives up. Then the game is kept alive, not written again.
+- **Writes:** even at 100 finished games a day (far beyond two-people-on-a-field
+  play), the archive takes a tenth of the day's 1,000. It cannot starve sign-in.
+- **Requests** (the 100k/day budget above): a finished game's `gc` alarm fires
+  about three times (the grace check, the write, the settle and delete). Each
+  archived read adds one `UserDO` request for the seat check. Both are noise
+  next to the ~1,000 WebSocket messages a game costs.

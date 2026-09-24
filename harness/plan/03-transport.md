@@ -90,10 +90,13 @@ the field. No chess yet — proving the plumbing in isolation.
     position, and no identifier.
   - `3.5.3` done: Static assets for everything else, SPA fallback
 
-- `3.6` active: Garbage collection
+- `3.6` done: Garbage collection
   - `3.6.1` done: Unclaimed join codes expire after ~30 min
-  - `3.6.2` todo: Finished and abandoned games deleted on an alarm. A DO with
+  - `3.6.2` done: Finished and abandoned games deleted on an alarm. A DO with
     entirely empty storage ceases to exist, which is the goal.
+    - Decision 0042. Finished games are `8.4`'s. "Abandoned" means **unplayed**:
+      both seats taken, no move, nothing for 30 days. A game with moves and no
+      result is never collected (decision 0025).
 
 - `3.7` active: DO integration tests with `@cloudflare/vitest-pool-workers`
   - `test/worker/net-integration.test.ts` now runs the **real** `net.ts` against

@@ -60,7 +60,7 @@ The conditions under which this should be reopened.
 | [0022](0022-survey-is-a-secret-gated-debug-facility.md) | The field survey is a secret-gated debug facility, off by default | accepted |
 | [0023](0023-reach-absorbs-gps-error-squares-scale-with-it.md) | Reach absorbs GPS error; squares scale with reach | accepted |
 | [0024](0024-own-qr-encoder-byte-mode.md) | Ship our own QR encoder, byte mode only | accepted |
-| [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted |
+| [0025](0025-suspension-lasts-a-month-then-the-other-player-may-claim.md) | A suspended game waits a month, then the *other* player may claim | accepted (rule 6 amended by 0042) |
 | [0026](0026-no-qr-decoder-ships-the-camera-app-is-the-fallback.md) | Ship no QR decoder; the phone's own camera app is the iOS fallback | accepted |
 | [0027](0027-a-joiner-keeps-the-field-they-played-on.md) | A joiner keeps the field they played on, unasked | accepted |
 | [0028](0028-four-corners-fitted-as-an-affine-board.md) | Four corners, fitted as an affine board | accepted (amends 0002) |
@@ -77,3 +77,4 @@ The conditions under which this should be reopened.
 | [0039](0039-the-phone-remembers-who-it-is-but-never-decides-with-it.md) | The phone remembers who it is, but never decides anything with it | accepted |
 | [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041) |
 | [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) | A game leaves as one PGN, in board space, fetched at mount and shared on tap | accepted (amends 0040 rules 6, 7) |
+| [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |

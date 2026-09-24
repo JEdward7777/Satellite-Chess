@@ -33,7 +33,18 @@ import {
 } from '../shared/protocol.js';
 import type { GpsFix } from './gps.js';
 
-export type ConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
+export type ConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'gone';
+
+/**
+ * What the server said when a socket kept failing to open (decision 0042).
+ *
+ * - `archived` — the game finished, was archived, and its object deleted. There
+ *   is no board to come back to; the review reads the archive.
+ * - `missing` — no game at this code at all, for this player.
+ * - `live` — the game is there; keep trying, it is the network.
+ * - `unknown` — the question itself got no answer; keep trying.
+ */
+export type GameWhereabouts = 'archived' | 'missing' | 'live' | 'unknown';
 
 /** Everything a view needs to know about the connection and the game. */
 export interface NetState {
@@ -56,6 +67,11 @@ export interface NetState {
   opponent: { lat: number; lng: number; acc: number; at: number } | null;
   /** How many times the socket has had to come back. Useful in the field. */
   reconnects: number;
+  /**
+   * Set, with `status: 'gone'`, once the connection has stopped for good because
+   * the game is no longer there to connect to. Null otherwise.
+   */
+  gone: 'archived' | 'missing' | null;
 }
 
 export interface GameConnection {
@@ -83,6 +99,11 @@ export interface GameConnectionOptions {
   /** Keepalive period. Free, so frequent enough to hold an idle NAT open. */
   pingIntervalMs?: number;
   now?: () => number;
+  /**
+   * Ask the server, over plain HTTP, whether this game still exists. Injectable
+   * for tests; defaults to `GET /api/game/:code`.
+   */
+  probe?: () => Promise<GameWhereabouts>;
 }
 
 /** The slice of WebSocket this module uses, so a fake is small. */
@@ -111,6 +132,36 @@ const BACKOFF_MS = [250, 500, 1_000, 2_000, 5_000, 10_000];
 /** Frequent enough to hold a mobile NAT binding open, and free either way. */
 const DEFAULT_PING_MS = 25_000;
 
+/**
+ * How many sockets in a row may fail without ever opening before the phone asks
+ * whether the game is still there.
+ *
+ * A board can outlive its game: a phone sleeps with the board up, the game is
+ * archived and its object deleted a day later (decision 0042), and every
+ * upgrade after that is refused. Without this the screen says "Reconnecting…"
+ * for ever and costs a Worker request, a session read and an object request
+ * every ten seconds for as long as the tab lives. Three, because a dropout
+ * behind a building is shorter than that, and a refused upgrade tells the
+ * browser nothing about why — only an HTTP request can.
+ */
+export const PROBE_AFTER_FAILURES = 3;
+
+/** The default {@link GameConnectionOptions.probe}: one ordinary GET, never a socket message. */
+async function probeGame(origin: string, joinCode: string): Promise<GameWhereabouts> {
+  try {
+    const response = await fetch(`${origin}/api/game/${encodeURIComponent(joinCode)}`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) return 'unknown';
+    const body = (await response.json()) as { exists?: unknown; archived?: unknown };
+    if (body.archived === true) return 'archived';
+    if (body.exists === false) return 'missing';
+    return body.exists === true ? 'live' : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 class Connection implements GameConnection {
   private readonly listeners = new Set<(state: NetState) => void>();
   private readonly now: () => number;
@@ -120,6 +171,9 @@ class Connection implements GameConnection {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private wanted = true;
+  /** Sockets in a row that closed without ever opening. */
+  private failedOpens = 0;
+  private probing = false;
   private current: NetState = {
     status: 'idle',
     game: null,
@@ -127,6 +181,7 @@ class Connection implements GameConnection {
     lastError: null,
     opponent: null,
     reconnects: 0,
+    gone: null,
   };
 
   /** Relay bookkeeping. Both are the client half of the request budget. */
@@ -176,9 +231,12 @@ class Connection implements GameConnection {
       return;
     }
     this.socket = socket;
+    let opened = false;
 
     socket.onopen = () => {
+      opened = true;
       this.attempt = 0;
+      this.failedOpens = 0;
       this.patch({ status: 'open' });
       this.startPing();
       // A reconnect may have missed any number of broadcasts, so never assume
@@ -215,8 +273,36 @@ class Connection implements GameConnection {
         return;
       }
       this.patch({ status: 'reconnecting', reconnects: this.current.reconnects + 1 });
+      this.failedOpens = opened ? 0 : this.failedOpens + 1;
+      if (this.failedOpens >= PROBE_AFTER_FAILURES) {
+        void this.askWhetherGone();
+        return;
+      }
       this.scheduleRetry();
     };
+  }
+
+  /**
+   * Several upgrades refused in a row: ask over HTTP whether there is still a
+   * game here, and stop for good if there is not. Anything short of a definite
+   * "no" goes back to the ordinary backoff and asks again after as many more
+   * failures, so a flaky network is never mistaken for a deleted game.
+   */
+  private async askWhetherGone(): Promise<void> {
+    if (this.probing) return;
+    this.probing = true;
+    this.failedOpens = 0;
+    const origin = this.opts.origin ?? location.origin;
+    const answer = await (this.opts.probe ?? (() => probeGame(origin, this.opts.joinCode)))();
+    this.probing = false;
+    if (!this.wanted) return;
+    if (answer === 'archived' || answer === 'missing') {
+      this.wanted = false;
+      this.stopPing();
+      this.patch({ status: 'gone', gone: answer });
+      return;
+    }
+    this.scheduleRetry();
   }
 
   private receive(msg: ServerMsg): void {

@@ -17,6 +17,12 @@
  * - **Share hands the sheet a `.pgn` file**, with nothing awaited in front of
  *   it — checked against a stand-in `navigator.share`, since headless Chromium
  *   has no sheet of its own.
+ * - **The review survives the game's object** (stage 8.4, decision 0042). The
+ *   game is archived and its Durable Object deleted — hastened from a day to
+ *   seconds through the dev seam's `POST /api/dev/game/:code/collect`, which
+ *   runs the real steps through the real alarm — and then "Your games" opens
+ *   the review straight from the archive, with the same file, for the two
+ *   players and nobody else.
  *
  * ## Running it
  *
@@ -36,7 +42,7 @@ import { join } from 'node:path';
 
 import { chromium } from 'playwright';
 
-import { signIn } from './driver-signin.mjs';
+import { DEV_SECRET, signIn } from './driver-signin.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((a) => {
@@ -110,6 +116,17 @@ const step = (n, msg) => console.log(`\n${n}. ${msg}`);
 async function newPhone(browser, name) {
   const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
   await signIn(context, `sim-review-${name}-${Date.now()}`, new URL(BASE).origin, name);
+  // A switch for this phone's game socket, so step 9 can put it to sleep the
+  // way a pocket does: every upgrade refused while `severed`, live otherwise.
+  const line = { severed: false, live: [] };
+  await context.routeWebSocket(/\/ws$/, (ws) => {
+    if (line.severed) {
+      ws.close();
+      return;
+    }
+    line.live.push({ ws, server: ws.connectToServer() });
+  });
+  context.line = line;
   await context.addInitScript(
     ({ field }) => {
       const req = indexedDB.open('satellite-chess', 1);
@@ -439,6 +456,94 @@ try {
   await white.page.click('[data-review-home]');
   await white.page.waitForSelector('[data-new]', { timeout: 15_000 });
   check(true, 'home again');
+
+  step(9, 'White leaves the board up and the phone sleeps; a day later the game is archived and deleted');
+  const origin = new URL(BASE).origin;
+  // Back to the board the ordinary way, so it is mounted with a live socket.
+  await white.page.waitForSelector(`[data-game="${code}"]`, { timeout: 15_000 });
+  await white.page.click(`[data-game="${code}"]`);
+  await white.page.waitForSelector('[data-board]', { timeout: 15_000 });
+  await white.page.waitForFunction(() => /checkmate/i.test(document.querySelector('[data-prompt]')?.textContent ?? ''), null, { timeout: 15_000 });
+  // Asleep: the socket goes, and every attempt to bring it back is refused.
+  white.context.line.severed = true;
+  for (const { ws, server } of white.context.line.live.splice(0)) {
+    try { server.close(); } catch {}
+    try { ws.close(); } catch {}
+  }
+  await white.page.waitForFunction(() => /Reconnecting/.test(document.querySelector('[data-prompt]')?.textContent ?? ''), null, { timeout: 15_000 });
+  check(true, 'the board says it is reconnecting');
+  // Long enough for the object to see the close before anything is hastened.
+  await new Promise((r) => setTimeout(r, 2_000));
+  const hastened = await white.context.request.post(`${origin}/api/dev/game/${code}/collect`, {
+    headers: { 'x-dev-auth-secret': DEV_SECRET },
+    data: { afterMs: 0 },
+  });
+  check(hastened.status() === 200, 'collection hastened through the dev seam', String(hastened.status()));
+  const peekAs = (page) =>
+    page.evaluate(async (c) => (await fetch(`/api/game/${c}`)).json(), code);
+  let archived = null;
+  for (let i = 0; i < 60 && archived?.archived !== true; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    archived = await peekAs(white.page);
+  }
+  check(archived?.archived === true && archived?.status === 'finished', 'the game reads as archived to a player', JSON.stringify(archived));
+  check(!('field' in (archived ?? {})), 'and hands out no field');
+
+  step('9b', 'The phone wakes: the board notices its game has gone, opens the review, and stops retrying');
+  let upgrades = 0;
+  white.page.on('websocket', () => {
+    upgrades += 1;
+  });
+  white.context.line.severed = false;
+  await white.page.waitForSelector('section[data-review]', { timeout: 90_000 });
+  await white.page.waitForSelector('[data-review-distance]', { timeout: 15_000 });
+  check(/You lost — checkmate/.test((await text(white.page, '[data-review-result]')) ?? ''), 'the review opened by itself, from the archive', await text(white.page, '[data-review-result]'));
+  const upgradesThen = upgrades;
+  await new Promise((r) => setTimeout(r, 25_000));
+  check(upgrades === upgradesThen, 'and no socket has been tried since', `${upgrades - upgradesThen} more after ${upgradesThen}`);
+  await white.page.click('[data-review-home]');
+  await white.page.waitForSelector('[data-new]', { timeout: 15_000 });
+
+  step(10, '"Your games" opens the review straight from the archive');
+  await white.page.reload({ waitUntil: 'domcontentloaded' });
+  await white.page.waitForSelector(`[data-game="${code}"]`, { timeout: 15_000 });
+  await white.page.click(`[data-game="${code}"]`);
+  await white.page.waitForSelector('section[data-review]', { timeout: 15_000 });
+  await white.page.waitForSelector('[data-review-distance]', { timeout: 15_000 });
+  check(/You lost — checkmate/.test((await text(white.page, '[data-review-result]')) ?? ''), 'the same result', await text(white.page, '[data-review-result]'));
+  const archivedRows = await white.page.evaluate(() => document.querySelectorAll('[data-review-moves] li').length);
+  check(archivedRows === 4, 'the same four carries', String(archivedRows));
+  const archivedFile = await white.page.evaluate(() => document.querySelector('[data-review-text]').value);
+  check(archivedFile === served.body, 'the same file, byte for byte');
+  const fromArchive = await white.page.evaluate(async (c) => {
+    const r = await fetch(`/api/game/${c}/pgn`);
+    return { status: r.status, disposition: r.headers.get('content-disposition'), body: await r.text() };
+  }, code);
+  check(fromArchive.status === 200 && fromArchive.body === served.body, 'and the server serves it from the archive');
+  check(fromArchive.disposition === served.disposition, 'under the same name', fromArchive.disposition);
+  await white.page.screenshot({ path: `${OUT}/3-white-review-archived.png`, fullPage: true });
+
+  step(11, 'A deep link to the game on the other phone lands on the review too');
+  await black.page.goto(new URL(`/j/${code}${new URL(BASE).search}`, origin).href, { waitUntil: 'domcontentloaded' });
+  await black.page.waitForSelector('section[data-review]', { timeout: 15_000 });
+  await black.page.waitForSelector('[data-review-distance]', { timeout: 15_000 });
+  check(/You won — checkmate/.test((await text(black.page, '[data-review-result]')) ?? ''), 'black’s own review', await text(black.page, '[data-review-result]'));
+
+  step(12, 'Nobody else can read it, and a code that was a game is nothing to them');
+  const stranger = await browser.newContext();
+  await signIn(stranger, `sim-review-stranger-${Date.now()}`, origin, 'stranger');
+  for (const suffix of ['', '/review', '/pgn']) {
+    const r = await stranger.request.get(`${origin}/api/game/${code}${suffix}`);
+    const body = await r.text();
+    if (suffix === '') {
+      check(r.status() === 200 && JSON.parse(body).exists === false, 'a stranger’s peek finds no game', body);
+    } else {
+      check(r.status() === 404, `a stranger gets 404 from ${suffix}`, String(r.status()));
+    }
+  }
+  const joinAttempt = await stranger.request.post(`${origin}/api/game/${code}`);
+  check(joinAttempt.status() === 404, 'and cannot join it', String(joinAttempt.status()));
+  await stranger.close();
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);
   console.log(`Screenshots in ${OUT}`);

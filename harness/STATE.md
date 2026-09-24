@@ -3,23 +3,42 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean — `8.1`/`8.2` are done, reviewed clean over five rounds,
-committed and pushed (`2026-09-23-02`).
-**Active stage**: none in flight. Next is **`8.4` + `3.6.2`**, phase 5 of the
-pipeline run.
-**Next action**: read `harness/sessions/2026-09-23-02.md`, then build `8.4`:
-archive a finished game to KV as its PGN (`GameDO.buildReport` → `buildPgn`,
-the path the review screen already uses) plus the track, then delete the DO —
-and answer **O-34** there.
+**Tree state**: clean. `8.4` and `3.6.2` are done, reviewed clean over two rounds,
+committed and pushed (`2026-09-24-01`). All five phases of the pipeline run
+have landed.
+**Active stage**: none in flight.
+**Next action**: the deploy, which is the operator's. Then **O-33**: drop the
+accuracy-based reach bonus.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5`, `2.3.5` and `8.1`/`8.2` all ship on the next
-`npm run deploy`, which is the operator's.
-**971 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-23
-`check-review`, `check-record`, `drive-game` and `check-games` passed. **Run
-drivers from a new, uniquely named `--persist-to`** (O-19), and not with
-`--base=…?sim=1` on anything but `check-resume`, `check-account`,
+phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2` and `8.4`/`3.6.2` all ship on the
+next `npm run deploy`. That deploy **creates the `ARCHIVE` KV namespace**
+(no `id` in `wrangler.jsonc`). Pin its id there afterwards (`reference/budget.md`).
+**1016 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
+`check-review`, `check-record`, `check-games`, `check-resume` and `drive-game`
+passed. **Run drivers from a new, uniquely named `--persist-to`** (O-19), and
+not with `--base=…?sim=1` on anything but `check-resume`, `check-account`,
 `check-record` and `check-review` (O-24).
+
+## A finished game, a day later, in one paragraph
+
+A day after anybody last looked at a finished game, it is **archived to KV and
+its Durable Object deleted** (decision 0042, `worker/collection.ts`,
+`GameDO.retire`).
+- **The archive** holds the PGN byte for byte and the review report, in board
+  space. It has no coordinates, no field, no accounts, and no join code in the
+  value.
+- **After the object has gone**, the review, the file, "Your games" and a deep
+  link all read the archive. The seat check asks the player's own account.
+- **Deletion waits** for the record and index lines to land, then for a
+  settled, read-back archive, and never happens under an open board.
+- **Unplayed games** (two seats, no move, not a claimable pause) go after 30
+  days. **A game with moves and no result is never deleted** (0025).
+- **The field** goes to anybody only while a seat is free (O-34, resolved).
+
+**The rule most likely to be broken by a well-meaning simplification**: creating
+the schema on wake. Storage is existence, and that one line made every request
+to any code a permanent object and every deleted game come back.
 
 ## After the game, in one paragraph
 
@@ -102,9 +121,9 @@ server opens the app.
 Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
 `1.9.3.6`. **Phases 4, 5, 6 and 7 are closed** — server-authoritative chess with
 carry validation, the clock, the join flow and the back-rank handshake. Phase 3
-is complete bar `3.6.2` and the standing `3.7`. **Phase 2 is closed apart from
+is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
-built. **`8.1`/`8.2` are done**; what is left is the rest of phases 8–10.
+built. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031) — but see **O-33**, which removes half of it. **The board is not forced to
@@ -122,16 +141,19 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **`8.4` + `3.6.2`** — archive finished games to KV as PGN plus track, then
-   delete the DO; GC. `8.4` is also where **O-34** should be answered.
-2. **Deploy.** Five sessions of work are waiting, and the deploy is what turns on
-   the record and the review for the owner's real games — which will read as
-   *unmeasured*, by design.
-3. **O-33: drop the accuracy-based reach bonus.** The owner's ruling; its own
-   stage under phase 10 and a decision reversing 0023's generous half. Closes
-   **O-12** by removal.
-4. **O-31**, the clock rounding, with the raw snapshot numbers beside the screen.
-5. **O-30**, piece outlines and the vanishing bishop — a daylight check.
-6. **A phone test**: the record and review screens, sharing a `.pgn` (Android
-   falls to the text rung), sign-in and sign-out, the wake lock (`1.9.2`), and the
-   handshake on real GPS (O-25, O-17).
+1. **Deploy** (the operator's). Six sessions of work are waiting. Afterwards,
+   pin the `ARCHIVE` namespace id in `wrangler.jsonc`. Finished games from before
+   8.4, including the owner's two real games, are archived only once someone
+   re-opens them.
+2. **O-33: drop the accuracy-based reach bonus.** The owner's ruling. It needs
+   its own stage under phase 10 and a decision reversing 0023's generous half.
+   It closes **O-12** by removal.
+3. **O-31**, the clock rounding, with the raw snapshot numbers beside the screen.
+4. **O-30**, piece outlines and the vanishing bishop. This is a daylight check.
+5. **O-38**, the distance accumulator, once there are real-handset traces.
+6. **A phone test** covering:
+   - the record, review and archived-review screens;
+   - sharing a `.pgn` (Android falls to the text rung);
+   - sign-in and sign-out;
+   - the wake lock (`1.9.2`);
+   - the handshake on real GPS (O-25, O-17).

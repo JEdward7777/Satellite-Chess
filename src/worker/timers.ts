@@ -6,7 +6,10 @@
  * - `flag` — the exact instant the active player's clock expires.
  * - `disconnect` — the grace period after which a dropped player suspends the
  *   game and freezes both clocks.
- * - `gc` — garbage collection of an unclaimed, abandoned or finished game.
+ * - `gc` — collection: an unclaimed code, an unplayed game left for a month, or
+ *   a finished game a day after anybody last looked, which is archived to KV
+ *   first (`collection.ts`, decision 0042). Its handler re-derives the deadline
+ *   every time it fires, and runs a finished game's steps one firing at a time.
  * - `record` — a retry of a finished game's push into its players' permanent
  *   records, when the first attempt could not reach an account (stage 2.3.5).
  *
