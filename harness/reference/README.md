@@ -12,4 +12,5 @@ otherwise have to rediscover.
 | [`geometry.md`](geometry.md) | The field maths, and the reachability numbers that killed the single-instant rule |
 | [`gotchas.md`](gotchas.md) | What will bite you when you touch the code — read before changing anything unfamiliar |
 | [`container.md`](container.md) | Node, wrangler, git credentials and signing inside the build container |
-| [`pipeline.md`](pipeline.md) | **Opt-in, not the normal way of working.** What "run the pipeline" means: implement → review → fix, until clean, one phase at a time |
+
+Pipeline mode ("the ratchet") moved out of here to [`../pipeline/ratchet.md`](../pipeline/ratchet.md) on 2026-09-24.
