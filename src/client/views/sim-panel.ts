@@ -156,10 +156,17 @@ export function mountSimPanel(deps: SimPanelDeps): SimPanelHandle {
  * A drag teleports rather than walks, which the distance accumulator will
  * rightly refuse to pay for — that is correct behaviour, not a bug to work
  * around. Use the arrow pad when a plausible walk is what is wanted.
+ *
+ * Stands down while the board is zoomed (stage 10.8), because a drag then
+ * pans the view, and for any finger but the first, which is a pinch.
  */
 export function attachSimDrag(
   canvas: HTMLCanvasElement,
-  deps: { active(): SimGps; toLatLng(x: number, y: number): { lat: number; lng: number } },
+  deps: {
+    active(): SimGps;
+    toLatLng(x: number, y: number): { lat: number; lng: number };
+    zoomed?(): boolean;
+  },
 ): () => void {
   let dragging = false;
 
@@ -169,12 +176,16 @@ export function attachSimDrag(
   };
 
   const onDown = (event: PointerEvent) => {
+    if (!event.isPrimary || deps.zoomed?.()) {
+      dragging = false;
+      return;
+    }
     dragging = true;
     canvas.setPointerCapture(event.pointerId);
     place(event);
   };
   const onMove = (event: PointerEvent) => {
-    if (dragging) place(event);
+    if (dragging && event.isPrimary && !deps.zoomed?.()) place(event);
   };
   const onUp = (event: PointerEvent) => {
     dragging = false;

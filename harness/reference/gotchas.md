@@ -308,9 +308,12 @@ is; this says what will bite you when you touch it.*
   which is how "does it glide or does it jump?" became a number rather than a
   judgement about a picture. Read pixels when the question is about motion.
 - **Clicking the board under `?sim=1` teleports *and* taps.** `attachSimDrag`
-  moves the player on `pointerdown`, the game view taps on `pointerup`. To drive a
-  game from a script, teleport with `satchess.me.moveTo(...)` and dispatch a bare
-  `pointerup` — a real click places the piece where you already stand.
+  moves the player on a primary `pointerdown`, the game view taps on the matching
+  `pointerup`. To drive a game from a script, teleport with
+  `satchess.me.moveTo(...)` and dispatch a `pointerdown`/`pointerup` pair with
+  `isPrimary: false`, which the simulator ignores — a real click places the
+  piece where you already stand. **A lone `pointerup` is not a tap** (decision
+  0046, since stage 10.8): the board takes only a lift it saw go down.
 - **The simulator emits a fix only once a second**, so a tap dispatched straight
   after a teleport still carries the *old* position and is refused for reach.
   That failure reads exactly like a bug in `shared/reach.ts` and is not one. Wait

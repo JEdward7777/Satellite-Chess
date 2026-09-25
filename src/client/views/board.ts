@@ -14,7 +14,15 @@ import { type Color, toSquare } from '../../shared/squares.js';
 import { toBoardPoint } from '../../shared/field.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import { pieceLook } from '../piece-look.js';
-import { type Projection, drawBoard, squareUnderFoot, startingPieces } from '../render.js';
+import {
+  type Projection,
+  canvasSizePx,
+  drawBoard,
+  squareUnderFoot,
+  startingPieces,
+  zoomFrameFor,
+} from '../render.js';
+import { BOARD_FRAME_HTML, attachBoardZoom } from './board-gestures.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
 export interface BoardDeps {
@@ -27,7 +35,11 @@ export interface BoardDeps {
    * Called after the first paint with a way to turn a canvas touch into a
    * place on the field. Only the simulator uses it.
    */
-  onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;
+  onCanvas?(
+    canvas: HTMLCanvasElement,
+    toLatLng: (x: number, y: number) => LatLng,
+    zoomed: () => boolean,
+  ): void;
 }
 
 export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
@@ -37,7 +49,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
 
   root.innerHTML = `
     <div class="board-screen">
-      <canvas data-board></canvas>
+      ${BOARD_FRAME_HTML}
       <div class="board-status">
         <dl class="readout">
           <dt>On</dt><dd data-square>—</dd>
@@ -60,14 +72,24 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   let state: GpsState = deps.gps.state;
   let projection: Projection | null = null;
   const looks = pieceLook();
+  // The same pinch zoom as the game screen (stage 10.8). Nothing is tapped
+  // here, so it only zooms, pans and follows.
+  const zoom = attachBoardZoom({
+    canvas,
+    controls: root.querySelector<HTMLElement>('[data-zoom-controls]'),
+    onChange: () => paint(),
+  });
 
   const paint = () => {
     const fix = state.fix;
     const accuracyM = fix?.accuracyM ?? 0;
     const reachM = effectiveReachM(geo.meanSquareM);
+    const { width, height } = canvasSizePx(canvas);
+    const { frame, base } = zoomFrameFor(geo, orientation, width, height);
 
     projection = drawBoard(canvas, {
       geo,
+      zoom: zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null),
       orientation,
       pieces,
       pos: fix?.pos ?? null,
@@ -99,8 +121,10 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   });
 
   paint();
-  deps.onCanvas?.(canvas, (x, y) =>
-    projection ? fromBoardPoint(geo, projection.toBoard(x, y)) : deps.field.a1,
+  deps.onCanvas?.(
+    canvas,
+    (x, y) => (projection ? fromBoardPoint(geo, projection.toBoard(x, y)) : deps.field.a1),
+    zoom.zoomed,
   );
 
   // The canvas is sized from its box, so a rotation has to redraw it.
@@ -110,6 +134,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
 
   return () => {
     offLook();
+    zoom.detach();
     unsubscribe();
     removeEventListener('resize', onResize);
     void screenLock.release();

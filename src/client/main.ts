@@ -522,10 +522,10 @@ async function boot(): Promise<void> {
         onLeave: () => void showHome(),
         onReview: () => showReview(joinCode),
         serverState: () => server.state,
-        onCanvas: (canvas, toLatLng) => {
+        onCanvas: (canvas, toLatLng, zoomed) => {
           const panel = simPanel;
           if (!panel) return;
-          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng });
+          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng, zoomed });
         },
       });
       // The join code is the only way a second phone gets in, so it stays
@@ -572,10 +572,10 @@ async function boot(): Promise<void> {
         gps,
         field,
         onBack: () => void showHome(),
-        onCanvas: (canvas, toLatLng) => {
+        onCanvas: (canvas, toLatLng, zoomed) => {
           const panel = simPanel;
           if (!panel) return;
-          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng });
+          detachDrag = attachSimDrag(canvas, { active: () => panel.active, toLatLng, zoomed });
         },
       });
       return () => {

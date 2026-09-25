@@ -3,32 +3,29 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **O-30 is built** (`10.7.1`–`10.7.3`, decision 0045,
-which supersedes 0011): pieces are now the standard two-sided cburnett set
-(BSD, bundled, credited in `NOTICE` and on the account screen) on mid-tone
-squares, the owner's gray-ringed team disc is a per-phone switch, and the last
-move is tinted yellow. Two review rounds, both clean; committed and pushed
-(`2026-09-24-04`). This is phase 3 of a four-phase run: O-33 (done), O-31
-(done), O-30 (done), pinch zoom.
-**Active stages**: `10.5`, `10.6` and `10.7`, each waiting only on a real-phone
-check (`10.5.4`, `10.6.4`, `10.7.4`).
-**Next action**: phase 4 of this run, **pinch zoom** on the board. The deploy
-is still the operator's.
-**Ask the owner**, on the next outdoor game:
-- compare **Standard** against **On discs** with the "Pieces" button in the
-  game screen's readout, in daylight, and say which to keep (`10.7.4`);
-- switch the clock readout on by tapping either clock (O-31, `10.6.4`). It
-  shows the server's raw clock numbers and stays on until tapped again.
+**Tree state**: clean. **Nothing is in flight.** The four-phase pipeline run of
+2026-09-24/25 is finished: O-33 (a poor fix no longer buys reach, `10.5`),
+O-31 (the clock no longer jumps up, `10.6`), O-30 (the standard piece set and
+a last-move tint, `10.7`), and **pinch zoom** (`10.8`, decision 0046: pinch,
+pan, follow your dot, "Whole board"; a drag is never a tap). Each was
+reviewed until clean, committed and pushed (`2026-09-25-01` is the last).
+**Active stages**: `10.5`, `10.6`, `10.7` and `10.8`, each waiting only on a
+real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`).
+**Next action**: the **deploy**, which is the operator's, then the next
+outdoor game with the checklist below.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2`, `10.5`, `10.6`
-and `10.7` all ship on the next `npm run deploy`. That deploy **creates the
+phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2`, and `10.5`
+through `10.8` all ship on the next `npm run deploy`. That deploy **creates the
 `ARCHIVE` KV namespace** (no `id` in `wrangler.jsonc`). Pin its id there
 afterwards (`reference/budget.md`).
-**1052 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
-`drive-game` and `check-review` passed after this phase. **Run drivers from a
-new, uniquely named `--persist-to`** (O-19). Every driver takes
-`--base=http://127.0.0.1:<port>/?sim=1`.
+**1088 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-25
+`drive-game`, `check-review`, `check-clock`, `check-record` and the new
+`check-zoom` (real two-finger touch) passed. **Run drivers from a new,
+uniquely named `--persist-to`** (O-19). Every driver takes
+`--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
+`pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is no
+longer a tap (0046).
 
 ## A finished game, a day later, in one paragraph
 
@@ -154,20 +151,28 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Pinch zoom** on the board. Phase 4. On a 5:1 field the coordinate labels
-   sit at their 8 px floor; zoom is the answer there.
-2. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
+1. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
    `wrangler.jsonc`. Finished games from before 8.4, including the owner's two
    real games, are archived only once someone re-opens them.
-3. **O-38**, the distance accumulator, once there are real-handset traces.
-   **O-12** is still open too: 0043 did not close it.
-4. **A phone test** covering:
+2. **The next outdoor game**, one checklist:
+   - `10.5.4`: is anybody standing on a square refused because the dot is off
+     (reach with a poor fix)?
+   - `10.6.4`: tap either clock to switch the readout on. Does the clock still
+     look wrong?
+   - `10.7.4`: compare **Standard** against **On discs** with the "Pieces"
+     button in the readout, in daylight; keep one. Is the last-move tint
+     visible in sun?
+   - `10.8.4`: pinch zoom while walking. Are taps ever dropped, is a pan ever
+     read as a tap, does follow feel right, do the buttons get in the way?
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
-   - the handshake on real GPS (O-25, O-17);
-   - `10.5.4`: is anybody standing on a square refused because the dot is off?
-   - `10.6.4`: with the clock readout on, does the clock still look wrong?
-   - `10.7.4`: Standard or On discs in daylight, and is the last-move tint
-     visible in sun?
+   - the handshake on real GPS (O-25, O-17).
+3. **Next candidates:**
+   - **O-38**, the distance counter, once there are real-handset traces.
+     **O-12** is still open too.
+   - **O-44**, the carried piece drawn on the dot.
+   - **O-48**, the board opening scrolled 231 px down after the invite
+     screen: a one-line `scrollTo(0, 0)` in `swap`.
+   - **O-47**, `user-scalable=no` blocking accessibility zoom: the owner's call.

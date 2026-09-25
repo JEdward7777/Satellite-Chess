@@ -167,7 +167,12 @@ async function walk(page, file, rank) {
   );
 }
 
-/** Tap without moving: a bare `pointerup`, which `attachSimDrag` ignores. */
+/**
+ * Tap without moving: a `pointerdown` and `pointerup` pair, as a finger would.
+ * The board takes only a matched pair as a tap (decision 0046). Both are
+ * dispatched with `isPrimary: false`, which `attachSimDrag` ignores, so the
+ * simulator does not teleport the player to the square being tapped.
+ */
 async function tap(page, file, rank, orientation) {
   const box = await page.locator('[data-board]').boundingBox();
   const p = squareToPixel(file, rank, orientation, box.width, box.height);
@@ -175,14 +180,17 @@ async function tap(page, file, rank, orientation) {
     ({ x, y }) => {
       const canvas = document.querySelector('[data-board]');
       const rect = canvas.getBoundingClientRect();
-      canvas.dispatchEvent(
-        new PointerEvent('pointerup', {
-          clientX: rect.left + x,
-          clientY: rect.top + y,
-          bubbles: true,
-          pointerId: 1,
-        }),
-      );
+      for (const type of ['pointerdown', 'pointerup']) {
+        canvas.dispatchEvent(
+          new PointerEvent(type, {
+            clientX: rect.left + x,
+            clientY: rect.top + y,
+            bubbles: true,
+            pointerId: 1,
+            isPrimary: false,
+          }),
+        );
+      }
     },
     { x: p.x, y: p.y },
   );

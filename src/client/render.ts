@@ -24,6 +24,7 @@ import {
   toBoardPoint,
 } from '../shared/field.js';
 import type { LatLng } from '../shared/geo.js';
+import { type Rect, type ZoomFrame, type ZoomView, zoomProjection } from './board-zoom.js';
 import { type PieceLook, drawPiece } from './pieces.js';
 import {
   type Color,
@@ -79,6 +80,13 @@ export interface BoardView {
    * is asked of the server.
    */
   lastMove?: { from: Square; to: Square } | null;
+  /**
+   * The pinch zoom (stage 10.8, `client/board-zoom.ts`). Whole board when
+   * omitted. Everything in board space goes through the zoomed projection;
+   * the north arrow, the dots for the two players and the thin strokes stay
+   * at screen size, and the few strokes sized from a cell are capped.
+   */
+  zoom?: ZoomView | null;
 }
 
 /**
@@ -141,6 +149,14 @@ const PIECE_BOX = 0.94;
 const PADDING = 0.06;
 
 /**
+ * The widest a stroke sized from a cell may get. At 6x zoom a cell can be a
+ * few hundred pixels across, and the square-under-foot outline, drawn at 6%
+ * of that, would be a bar rather than an outline. Nothing at 1x on a phone
+ * reaches it.
+ */
+const MAX_CELL_STROKE_PX = 6;
+
+/**
  * Board space to screen pixels.
  *
  * Both orientations are a rigid transform of the same board space, so nothing
@@ -190,6 +206,54 @@ export function projectionFor(
 }
 
 /**
+ * The board's outline in a projection's pixels, outer half-squares included:
+ * what a zoomed view is kept on the canvas by.
+ */
+export function boardBoundsPx(geo: FieldGeometry, projection: Projection): Rect {
+  const corners = [
+    { file: -0.5, rank: -0.5 },
+    { file: 7.5, rank: -0.5 },
+    { file: 7.5, rank: 7.5 },
+    { file: -0.5, rank: 7.5 },
+  ].map((bi) => projection.toScreen(boardPointOfIndex(geo, bi)));
+  const xs = corners.map((c) => c.x);
+  const ys = corners.map((c) => c.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
+/**
+ * Everything a zoomed view needs to know about the canvas, from the fitted
+ * (unzoomed) projection: its size, where the board sits on it, and the
+ * margin the board may come in from the edge — the same padding the whole
+ * board already has, so zooming never shows more bare canvas than 1x does.
+ */
+export function zoomFrameFor(
+  geo: FieldGeometry,
+  orientation: Color,
+  width: number,
+  height: number,
+): { frame: ZoomFrame; base: Projection } {
+  const base = projectionFor(geo, orientation, width, height);
+  return {
+    base,
+    frame: {
+      width,
+      height,
+      board: boardBoundsPx(geo, base),
+      margin: Math.min(width, height) * PADDING,
+    },
+  };
+}
+
+/** The canvas's size in CSS pixels, as `drawBoard` measures it. */
+export function canvasSizePx(canvas: HTMLCanvasElement): { width: number; height: number } {
+  return {
+    width: canvas.clientWidth || canvas.width,
+    height: canvas.clientHeight || canvas.height,
+  };
+}
+
+/**
  * The screen direction of true north, as a unit vector.
  *
  * North in board space has components `cos(bearing)` along the file axis and
@@ -228,8 +292,7 @@ export function startingPieces(): PieceMap {
  */
 export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projection | null {
   const dpr = globalThis.devicePixelRatio ?? 1;
-  const width = canvas.clientWidth || canvas.width;
-  const height = canvas.clientHeight || canvas.height;
+  const { width, height } = canvasSizePx(canvas);
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
@@ -240,7 +303,8 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const projection = projectionFor(view.geo, view.orientation, width, height);
+  const base = projectionFor(view.geo, view.orientation, width, height);
+  const projection = view.zoom ? zoomProjection(base, view.zoom) : base;
   const here = view.pos ? toBoardPoint(view.geo, view.pos) : null;
 
   drawSquares(ctx, view, projection, here);
@@ -343,7 +407,7 @@ function drawSquares(
 
       if (underFoot && underFoot.file === file && underFoot.rank === rank) {
         ctx.strokeStyle = UNDER_FOOT;
-        ctx.lineWidth = Math.max(2, size * 0.06);
+        ctx.lineWidth = Math.min(MAX_CELL_STROKE_PX, Math.max(2, size * 0.06));
         ctx.stroke();
       }
     }
@@ -457,7 +521,7 @@ function drawLiftedFrom(
   const size = cellPx(view.geo, projection);
   traceSquare(ctx, view.geo, projection, fromSquare(carry.from));
   ctx.strokeStyle = LIFTED_FROM;
-  ctx.lineWidth = Math.max(2, size * 0.08);
+  ctx.lineWidth = Math.min(MAX_CELL_STROKE_PX, Math.max(2, size * 0.08));
   ctx.setLineDash([size * 0.15, size * 0.1]);
   ctx.stroke();
   ctx.setLineDash([]);

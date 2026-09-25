@@ -828,3 +828,39 @@ people to ignore red.
 **Fix, when wanted:** wait for evidence the relay was stored (the opponent's
 `opp` frame, or a read of the presence row) before connecting black.
 **Not doing yet because:** out of O-33's scope.
+
+### O-46 — Zoomed in, the file and rank labels are off screen
+**Spotted:** 2026-09-24, stage 10.8
+**Why it matters:** the coordinates are drawn only along the board's own near
+edge and left edge. Zoomed into the middle of the board, neither edge is in
+view, so nothing on screen names a square. The "On" readout still does, and so
+does the whole board, one tap on "Whole board" away.
+**Fix, when wanted:** while zoomed, draw the file letters and rank numbers
+along the canvas edges for the squares in view.
+**Not doing yet because:** it is not yet known whether players miss them.
+`10.8.4` should say.
+
+### O-47 — `user-scalable=no` blocks accessibility zoom on every screen
+**Spotted:** 2026-09-24, stage 10.8
+**Why it matters:** `public/index.html` sets `user-scalable=no` so a pinch
+while jogging never zooms the page. The board now handles its own pinch with
+`touch-action: none`, so that reason only still applies to the strip under the
+board. The meta also stops someone with poor sight zooming the home, account
+or review screens. iOS ignores it. Chrome on Android honors it unless the user
+has turned on "force enable zoom".
+**Fix, when wanted:** drop `user-scalable=no`, and put `touch-action:
+manipulation` (or `pan-y`) on the game screen's strip if accidental zooms there
+turn out to matter.
+**Not doing yet because:** it changes every screen, and the trade-off
+(accessibility against a stray zoom mid-game) is the owner's call. Stage 10.8
+left the meta alone.
+
+### O-48 — The board opens scrolled halfway off the top on a phone
+**Spotted:** 2026-09-24, `scripts/check-zoom.mjs` at 390 x 844
+**Why it matters:** the page keeps its scroll position when one screen
+replaces another. The invite screen is taller than a phone, so after "Open the
+board" the game screen opened 231 px down, with most of the board above the
+top of the screen. Nothing in the client calls `scrollTo`.
+**Fix, when wanted:** `scrollTo(0, 0)` in `swap` in `client/main.ts`.
+**Not doing yet because:** it predates stage 10.8 and is outside its scope.
+The driver works around it.

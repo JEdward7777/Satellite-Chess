@@ -81,3 +81,4 @@ The conditions under which this should be reopened.
 | [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |
 | [0044](0044-the-clock-never-shows-more-time-than-the-player-has.md) | The clock never shows more time than the player has | accepted |
 | [0045](0045-pieces-are-the-standard-two-sided-set.md) | Pieces are the standard two-sided set (cburnett, BSD), on mid-tone squares; team discs behind a switch | accepted (supersedes 0011) |
+| [0046](0046-the-board-zooms-in-screen-space-and-a-drag-is-never-a-tap.md) | The board zooms in screen space (pinch, pan, follow, "Whole board"), and a drag is never a tap | accepted |

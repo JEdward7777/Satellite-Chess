@@ -82,3 +82,24 @@ file. Expect most of it to be written after the first real game.
   - `10.7.4` todo: Outdoors, in daylight, on real phones: compare the two
     looks, keep one, and change the default (or drop the switch) to match.
     Also check that the last-move tint is visible in sun. Needs a real game.
+
+- `10.8` active: Pinch zoom on the board (decision 0046)
+  - The owner asked for "a pinch zoom option". On a 5:1 field a piece is
+    about 7 px tall.
+  - `10.8.1` done: Pinch to zoom about the pinch, one finger to pan while
+    zoomed, 1x to 6x, the board kept on the canvas, and a "Whole board"
+    button while zoomed (no double-tap). Screen-space zoom over the fitted
+    projection (`client/board-zoom.ts`, `views/board-gestures.ts`), on the
+    game screen and the practice board. In memory only; nothing is sent.
+  - `10.8.2` done: A drag is never a tap: one finger, never more than 10 px
+    from where it landed, or the touch is spent. A lift never seen going down
+    is never a tap, and anything that moves the view under a finger (reset,
+    "Follow me", a re-fit, the board turning round) spends it. Taps map
+    through the zoomed projection. Unit tests, and `scripts/check-zoom.mjs` drives it with real
+    two-finger touch input.
+  - `10.8.3` done: A zoomed view follows your dot, re-centring when you reach
+    the outer 20% of the canvas. A one-finger pan (or a pinch that loses you)
+    stops following; "Follow me" and "Whole board" restart it.
+  - `10.8.4` todo: On real phones, outdoors and walking: are taps ever
+    dropped by the 10 px slop, is a pan ever read as a tap, does the follow
+    feel right, and do the buttons get in the way? Needs a real game.

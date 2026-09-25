@@ -57,10 +57,13 @@ import {
   type Piece,
   type PieceType,
   type Projection,
+  canvasSizePx,
   drawBoard,
   piecesFromFen,
   squareUnderFoot,
+  zoomFrameFor,
 } from '../render.js';
+import { BOARD_FRAME_HTML, attachBoardZoom } from './board-gestures.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
 // ---------------------------------------------------------------------------
@@ -273,7 +276,11 @@ export interface GameViewDeps {
    */
   serverState?(): NetState;
   /** The simulator hooks the canvas here, exactly as the board view does. */
-  onCanvas?(canvas: HTMLCanvasElement, toLatLng: (x: number, y: number) => LatLng): void;
+  onCanvas?(
+    canvas: HTMLCanvasElement,
+    toLatLng: (x: number, y: number) => LatLng,
+    zoomed: () => boolean,
+  ): void;
 }
 
 /** How long a rejection stays on screen before it stops being useful. */
@@ -291,7 +298,7 @@ const CLOCK_FRAME_MS = 100;
 export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.innerHTML = `
     <div class="board-screen">
-      <canvas data-board></canvas>
+      ${BOARD_FRAME_HTML}
       <div class="board-status">
         <div class="clocks" data-clocks hidden>
           <div class="clock" data-clock-side="mine">
@@ -530,18 +537,30 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paint();
   }
 
-  const onPointerUp = (event: PointerEvent) => {
+  const onPointerUp = () => {
     // Inside a real gesture, which is the only place a mobile browser will let
     // audio start — and it refuses silently, so the low-time warning would
     // simply never be heard if this were done at mount. Every player taps the
     // board long before their clock is low, so by the time it matters the
     // context is running. Idempotent after the first call.
     alerts.arm();
-    const rect = canvas.getBoundingClientRect();
-    const square = squareAtPointer(event.clientX - rect.left, event.clientY - rect.top);
-    if (square) onTap(square);
   };
   canvas.addEventListener('pointerup', onPointerUp);
+  // Pinch to zoom, one finger to pan while zoomed (stage 10.8). A tap comes
+  // out of it only when the finger was a tap — never the end of a pan or a
+  // pinch — already in canvas pixels, and is read through the same zoomed
+  // projection the board was drawn with.
+  const zoom = attachBoardZoom({
+    canvas,
+    controls: root.querySelector<HTMLElement>('[data-zoom-controls]'),
+    onTap: (at) => {
+      const square = squareAtPointer(at.x, at.y);
+      if (square) onTap(square);
+    },
+    onChange: () => paint(),
+  });
+  /** The side the zoom was set up for; turning the board resets it. */
+  let zoomOrientation: Color | null = null;
 
   root.querySelector<HTMLButtonElement>('[data-leave]')?.addEventListener('click', deps.onLeave);
   root.querySelector<HTMLButtonElement>('[data-review-open]')?.addEventListener('click', () => {
@@ -686,8 +705,20 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const dot = opponentTrack.at(Date.now());
     const them = net.game?.players?.[myColor() === 'w' ? 'b' : 'w'] ?? null;
 
+    // The zoom is kept in screen pixels, which mean nothing once the board is
+    // turned the other way up — as it is when the snapshot first says which
+    // side this phone is.
+    if (zoomOrientation !== myColor()) {
+      if (zoomOrientation !== null) zoom.reset();
+      zoomOrientation = myColor();
+    }
+    const { width, height } = canvasSizePx(canvas);
+    const { frame, base } = zoomFrameFor(geo, myColor(), width, height);
+    const view = zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null);
+
     projection = drawBoard(canvas, {
       geo,
+      zoom: view,
       orientation: myColor(),
       pieces: piecesFromFen(net.game?.fen ?? ''),
       pos: fix?.pos ?? null,
@@ -885,8 +916,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   addEventListener('resize', onResize);
 
   paint();
-  deps.onCanvas?.(canvas, (x, y) =>
-    projection ? fromBoardPoint(geometry(), projection.toBoard(x, y)) : deps.field.a1,
+  deps.onCanvas?.(
+    canvas,
+    (x, y) => (projection ? fromBoardPoint(geometry(), projection.toBoard(x, y)) : deps.field.a1),
+    zoom.zoomed,
   );
 
   return () => {
@@ -899,6 +932,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     syncAnimator(false);
     removeEventListener('resize', onResize);
     canvas.removeEventListener('pointerup', onPointerUp);
+    zoom.detach();
     void screenLock.release();
     root.innerHTML = '';
   };

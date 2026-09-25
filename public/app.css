@@ -312,7 +312,59 @@ h2 {
   width: 100%;
   aspect-ratio: 1;
   max-height: 70vh;
+  /*
+   * The board's own pinch and pan (stage 10.8), so the browser must not take
+   * the gesture for a page zoom or a scroll. Only here: the rest of the page
+   * keeps whatever the viewport allows.
+   */
   touch-action: none;
+}
+
+/* Holds the canvas and the zoom buttons over its corner. */
+.board-frame {
+  position: relative;
+}
+
+.board-frame canvas {
+  /* A block, or the wrapper grows by a line's descent under the canvas. */
+  display: block;
+}
+
+/*
+ * "Follow me" and "Whole board", over the top-left corner and only while
+ * zoomed. Opaque enough to read over any square, and small enough to leave
+ * the board visible: shorter than the 48 px the play buttons get, because
+ * missing one of these costs nothing but a second try.
+ */
+.zoom-controls {
+  position: absolute;
+  /*
+   * Over the board, so a pinch that happens to start on a button must not
+   * become a page zoom or scroll either. A tap still clicks.
+   */
+  touch-action: none;
+  top: 0.4rem;
+  left: 0.4rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.zoom-controls[hidden],
+.zoom-controls [hidden] {
+  display: none;
+}
+
+.zoom-controls button {
+  min-height: 36px;
+  min-width: 0;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.8rem;
+  border-width: 1px;
+  background: rgba(13, 17, 23, 0.82);
+}
+
+.zoom-controls button + button {
+  margin-left: 0;
 }
 
 /*

@@ -20,8 +20,9 @@
  * ## The two traps
  *
  * **Clicking the board teleports *and* taps.** `attachSimDrag` moves the player
- * on `pointerdown`; the game view taps on `pointerup`. A plain `page.mouse.click`
- * therefore places the piece wherever you already were.
+ * on a primary `pointerdown`; the game view taps on the matching `pointerup`.
+ * A plain `page.mouse.click` therefore places the piece wherever you already
+ * were. `tapSquare` sends a non-primary pair, which the simulator ignores.
  *
  * **The simulator only emits a fix once a second.** So a tap dispatched straight
  * after a teleport still carries the *old* position, and the server rejects it
@@ -177,7 +178,12 @@ async function walkTo(page, file, rank) {
   );
 }
 
-/** Tap without moving: a bare `pointerup`, which `attachSimDrag` ignores. */
+/**
+ * Tap without moving: a `pointerdown` and `pointerup` pair, as a finger would.
+ * The board takes only a matched pair as a tap (decision 0046). Both are
+ * dispatched with `isPrimary: false`, which `attachSimDrag` ignores, so the
+ * simulator does not teleport the player to the square being tapped.
+ */
 async function tapSquare(page, file, rank, orientation) {
   const box = await page.locator('[data-board]').boundingBox();
   const p = squareToPixel(file, rank, orientation, box.width, box.height);
@@ -185,14 +191,17 @@ async function tapSquare(page, file, rank, orientation) {
     ({ x, y }) => {
       const canvas = document.querySelector('[data-board]');
       const rect = canvas.getBoundingClientRect();
-      canvas.dispatchEvent(
-        new PointerEvent('pointerup', {
-          clientX: rect.left + x,
-          clientY: rect.top + y,
-          bubbles: true,
-          pointerId: 1,
-        }),
-      );
+      for (const type of ['pointerdown', 'pointerup']) {
+        canvas.dispatchEvent(
+          new PointerEvent(type, {
+            clientX: rect.left + x,
+            clientY: rect.top + y,
+            bubbles: true,
+            pointerId: 1,
+            isPrimary: false,
+          }),
+        );
+      }
     },
     { x: p.x, y: p.y },
   );
