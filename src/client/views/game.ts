@@ -51,8 +51,10 @@ import {
 } from '../handshake.js';
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
+import { pieceLook } from '../piece-look.js';
+import { pieceSvg } from '../pieces.js';
 import {
-  PIECE_GLYPHS,
+  type Piece,
   type PieceType,
   type Projection,
   drawBoard,
@@ -95,7 +97,8 @@ export function promotesOn(carry: Pick<CarryState, 'piece' | 'color'>, to: Squar
 export interface CarryGuidance {
   from: Square;
   piece: string;
-  glyph: string;
+  /** Whose piece is in hand, so the readout can draw it in the right color. */
+  color: Color;
   mine: boolean;
   destinations: Square[];
   /** Those that could be placed on from where the player stands right now. */
@@ -168,7 +171,7 @@ export function carryGuidance(
   return {
     from: carry.from,
     piece: carry.piece,
-    glyph: PIECE_GLYPHS[carry.piece.toLowerCase() as PieceType] ?? '?',
+    color: carry.color,
     mine,
     destinations,
     inReach,
@@ -206,15 +209,27 @@ export function metres(m: number): string {
   return m < 10 ? `${m.toFixed(1)} m` : `${Math.round(m)} m`;
 }
 
-/** The HUD line: what is in hand, and where it is going. */
+/**
+ * The HUD line: what is in hand, and where it is going.
+ *
+ * Words only. The piece itself is drawn beside it from the board's own art
+ * ({@link carryPiece}), so the HUD and the board cannot show different pieces.
+ */
 export function carryReadout(guidance: CarryGuidance | null): string {
   if (!guidance) return '—';
-  const what = `${guidance.glyph} ${guidance.from}`;
+  const what = guidance.from;
   if (!guidance.mine) return `${what} · theirs`;
   if (guidance.pending) return `${what} · in hand`;
   if (guidance.inReach.length > 0) return `${what} · ${guidance.inReach.length} in reach`;
   if (!guidance.nearest) return `${what} · no fix`;
   return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM)}`;
+}
+
+/** The piece in hand, as the board draws it. Null for a letter this client does not know. */
+export function carryPiece(guidance: CarryGuidance): Piece | null {
+  const type = guidance.piece.toLowerCase();
+  if (type.length !== 1 || !'kqrbnp'.includes(type)) return null;
+  return { type: type as PieceType, color: guidance.color };
 }
 
 /** What to do next while someone is carrying, in one line. */
@@ -293,7 +308,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <dt>On</dt><dd data-square>—</dd>
           <dt>Reach</dt><dd data-reach>—</dd>
           <dt>Turn</dt><dd data-turn>—</dd>
-          <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden>—</dd>
+          <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden><span class="piece-icon" data-carry-icon></span><span data-carry-text>—</span></dd>
+          <dt>Pieces</dt><dd><button class="look-toggle" data-look-toggle aria-label="Switch piece look">—</button></dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
         <p data-handshake class="dim" hidden></p>
@@ -313,7 +329,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           ${PROMOTION_CHOICES.map(
             (choice) => `
             <button data-promote="${choice.type}">
-              <span aria-hidden="true">${PIECE_GLYPHS[choice.type]}</span>
+              <span class="piece-icon" data-promote-icon="${choice.type}"></span>
               <span>${choice.name}</span>
             </button>`,
           ).join('')}
@@ -350,6 +366,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const alerts = createClockAlerts(browserClockAlertOptions());
   /** The clock's field instrument (`clock-debug.ts`), off unless switched on. */
   let clockDebug = readClockDebug(browserFlagStorage());
+  /** The phone's piece look (decision 0045), shared with the simulator panel. */
+  const looks = pieceLook();
+  /** What the carry and promotion icons last drew, so a repaint can skip them. */
+  let shownCarryIcon = '';
+  let shownPromotionIcons = '';
   /** Says "I am on my back rank" once per arrival, unasked (stage 7.2.1). */
   const autoReady = new AutoReady();
 
@@ -674,6 +695,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       reachM,
       carry,
       opponent: dot ? { pos: dot.pos, connected: them?.connected ?? false } : null,
+      look: looks.get(),
+      lastMove: net.game?.lastMove ?? null,
     });
     syncAnimator(dot?.moving ?? false);
 
@@ -697,7 +720,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     // The carry line earns its space only while there is something in hand;
     // a permanent "Carrying —" is a row of screen spent saying nothing.
-    set('[data-carry]', carryReadout(carry));
+    set('[data-carry-text]', carryReadout(carry));
+    // Rewritten only when it changes: this runs up to ten times a second while
+    // the opponent's dot glides, and the icon is a few hundred bytes of SVG.
+    const inHand = carry ? carryPiece(carry) : null;
+    const carryKey = inHand ? `${inHand.color}${inHand.type}${looks.get()}` : '';
+    if (carryKey !== shownCarryIcon) {
+      shownCarryIcon = carryKey;
+      const icon = root.querySelector('[data-carry-icon]');
+      if (icon) icon.innerHTML = inHand ? pieceSvg(inHand, looks.get()) : '';
+    }
     for (const el of root.querySelectorAll<HTMLElement>('[data-carry], [data-carry-label]')) {
       el.hidden = carry === null;
     }
@@ -750,6 +782,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       picker.hidden = pendingPromotion === null;
       if (pendingPromotion) {
         set('[data-promotion-title]', `Promote on ${pendingPromotion.to}`);
+        // In the mover's own color and the phone's look, drawn when the picker
+        // opens rather than at mount, because the seat is not known at mount.
+        const promoKey = `${myColor()}${looks.get()}`;
+        if (promoKey !== shownPromotionIcons) {
+          shownPromotionIcons = promoKey;
+          for (const icon of root.querySelectorAll<HTMLElement>('[data-promote-icon]')) {
+            const type = icon.dataset.promoteIcon as PromotionPiece;
+            icon.innerHTML = pieceSvg({ type, color: myColor() }, looks.get());
+          }
+        }
       }
     }
 
@@ -822,6 +864,23 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paintClock();
   };
   root.querySelector('[data-clocks]')?.addEventListener('click', onClocksTap);
+  // The look switch (decision 0045, stage 10.7.4), here so the owner can
+  // compare the two looks mid-game without leaving it. A small button in the
+  // readout, well away from the board and the play buttons, and harmless if
+  // hit by accident: another tap puts it back, and nothing is sent.
+  const lookToggle = root.querySelector<HTMLButtonElement>('[data-look-toggle]');
+  const syncLookToggle = () => {
+    if (lookToggle) lookToggle.textContent = looks.get() === 'disc' ? 'On discs' : 'Standard';
+  };
+  lookToggle?.addEventListener('click', () => {
+    looks.set(looks.get() === 'disc' ? 'standard' : 'disc');
+  });
+  syncLookToggle();
+  // Switched here, or from the simulator panel: redraw now.
+  const offLook = looks.subscribe(() => {
+    syncLookToggle();
+    paint();
+  });
   const onResize = () => paint();
   addEventListener('resize', onResize);
 
@@ -831,6 +890,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   );
 
   return () => {
+    offLook();
     offGps();
     offNet();
     clearInterval(ticker);

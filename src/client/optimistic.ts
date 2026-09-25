@@ -269,6 +269,19 @@ export function predict(
         ...game,
         fen: applyMoveToFen(game.fen, carry.from, msg.to, msg.promotion),
         carry: null,
+        // The last-move highlight moves with the piece, rather than staying on
+        // the opponent's move until the server answers. Only `from` and `to`
+        // are known here and only they are read on this side of the wire: the
+        // notation and the carried distance are the server's to fill, and its
+        // snapshot replaces this one whole the moment it lands.
+        lastMove: {
+          seq: (game.lastMove?.seq ?? 0) + 1,
+          from: carry.from,
+          to: msg.to,
+          san: '',
+          color: game.you,
+          carriedM: 0,
+        },
         // Whose turn it is drives the prompt, so it has to flip with the move.
         //
         // Both clocks are shown *stopped* until the server answers. Flipping

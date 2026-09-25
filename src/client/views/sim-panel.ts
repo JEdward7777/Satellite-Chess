@@ -14,6 +14,7 @@
 
 import { fromLocal } from '../../shared/geo.js';
 import type { SimGps } from '../gps-sim.js';
+import { pieceLook } from '../piece-look.js';
 
 export interface SimPanelHandle {
   /** Whichever player the controls are currently pointed at. */
@@ -50,6 +51,11 @@ export function mountSimPanel(deps: SimPanelDeps): SimPanelHandle {
       <label>jitter <span data-jitter-value>0</span> m
         <input data-jitter type="range" min="0" max="15" step="1" value="0" />
       </label>
+    </div>
+    <div class="sim-row">
+      <span>pieces</span>
+      <button data-look="standard" class="sim-toggle">Standard</button>
+      <button data-look="disc" class="sim-toggle">Discs</button>
     </div>
     <div class="sim-pad">
       <button data-nudge="n">↑</button>
@@ -98,6 +104,21 @@ export function mountSimPanel(deps: SimPanelDeps): SimPanelHandle {
     active.halt();
   });
 
+  // The piece look (decision 0045). The same switch as the account screen's,
+  // here so the two looks can be compared without leaving a game.
+  const looks = pieceLook();
+  const lookButtons = panel.querySelectorAll<HTMLButtonElement>('[data-look]');
+  const syncLook = () => {
+    for (const button of lookButtons) {
+      button.classList.toggle('is-on', button.dataset.look === looks.get());
+    }
+  };
+  for (const button of lookButtons) {
+    button.addEventListener('click', () => looks.set(button.dataset.look === 'disc' ? 'disc' : 'standard'));
+  }
+  const offLook = looks.subscribe(syncLook);
+  syncLook();
+
   // Compass directions, so the pad works before there is a board to be oriented
   // against — during calibration there is not yet one.
   const HEADINGS: Record<string, { e: number; n: number }> = {
@@ -123,6 +144,7 @@ export function mountSimPanel(deps: SimPanelDeps): SimPanelHandle {
       return active;
     },
     destroy() {
+      offLook();
       panel.remove();
     },
   };

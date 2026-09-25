@@ -46,7 +46,7 @@ The conditions under which this should be reopened.
 | [0008](0008-client-computes-reach-server-decides.md) | Client computes reach for free; the server decides | accepted |
 | [0009](0009-suspension-cancels-a-carry.md) | Suspension puts a carried piece back | accepted |
 | [0010](0010-harness-layout.md) | Harness layout and dotted stage numbering | accepted |
-| [0011](0011-piece-glyphs-not-artwork.md) | Render pieces as Unicode glyphs, not artwork | accepted |
+| [0011](0011-piece-glyphs-not-artwork.md) | Render pieces as Unicode glyphs, not artwork | superseded by 0045 |
 | [0012](0012-time-controls-default-long.md) | Time controls default long | accepted |
 | [0013](0013-local-first-persistence-oauth-never-loses-data.md) | Persist locally first; OAuth only adds sync | partly superseded by 0014 |
 | [0014](0014-accounts-are-mandatory.md) | Google sign-in is required to play | accepted |
@@ -80,3 +80,4 @@ The conditions under which this should be reopened.
 | [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |
 | [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |
 | [0044](0044-the-clock-never-shows-more-time-than-the-player-has.md) | The clock never shows more time than the player has | accepted |
+| [0045](0045-pieces-are-the-standard-two-sided-set.md) | Pieces are the standard two-sided set (cburnett, BSD), on mid-tone squares; team discs behind a switch | accepted (supersedes 0011) |

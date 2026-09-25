@@ -208,6 +208,21 @@ describe('predict', () => {
     expect(out?.clock.whiteMs).toBe(600_000);
   });
 
+  it('moves the last-move highlight with the piece', () => {
+    const carrying = snapshot({
+      carry: { color: 'w', from: 'e2', piece: 'p', at: 1, destinations: ['e3', 'e4'] },
+    });
+    const out = predict(carrying, { t: 'place', to: 'e4', pos: standingOn(4, 3) }, 2_000);
+    expect(out?.lastMove).toMatchObject({ from: 'e2', to: 'e4', color: 'w', seq: 1 });
+  });
+
+  it('leaves the last move alone on a lift or a drop', () => {
+    const before = snapshot({
+      lastMove: { seq: 3, from: 'g8', to: 'f6', san: 'Nf6', color: 'b', carriedM: 20 },
+    });
+    expect(predict(before, liftE2, 2_000)?.lastMove).toEqual(before.lastMove);
+  });
+
   /**
    * The turn flips locally but the *handover instant* cannot: it is a server
    * timestamp and the client has no way to name one. Leaving the mover's start

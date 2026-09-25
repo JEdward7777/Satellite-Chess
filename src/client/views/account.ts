@@ -23,6 +23,8 @@ import {
   timeUntil,
   whoLabel,
 } from '../account.js';
+import { type PieceLookStore, pieceLook } from '../piece-look.js';
+import { PIECE_ART_CREDIT, PIECE_ART_LICENSE, type PieceLook, pieceSvg } from '../pieces.js';
 import type { RecordTransport } from '../record.js';
 import { type SignOutResult, signInHref } from '../session.js';
 import { mountRecord, privacyHtml, recordSectionHtml } from './record.js';
@@ -41,6 +43,8 @@ export interface AccountDeps {
   onBack(): void;
   /** Where the permanent record is read from (stage 2.3.5). */
   record: RecordTransport;
+  /** The phone's piece look. The page's own store when omitted. */
+  looks?: PieceLookStore;
 }
 
 export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
@@ -62,6 +66,7 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
       ${sessionNoticeHtml(sessionNotice(identity, deps.confirmed, now), deps.next)}
       ${recordSectionHtml()}
       ${privacyHtml()}
+      ${boardSectionHtml()}
       <h2>Sign out</h2>
       <p class="dim">
         Signing out ends this phone's session. Your games and your record stay on
@@ -93,13 +98,54 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   });
   root.querySelector<HTMLButtonElement>('[data-back]')?.addEventListener('click', deps.onBack);
 
+  const looks = deps.looks ?? pieceLook();
+  const lookButtons = root.querySelectorAll<HTMLButtonElement>('[data-look]');
+  const syncLook = () => {
+    for (const choice of lookButtons) {
+      const on = choice.dataset.look === looks.get();
+      choice.classList.toggle('is-on', on);
+      choice.setAttribute('aria-pressed', String(on));
+    }
+  };
+  for (const choice of lookButtons) {
+    choice.addEventListener('click', () => looks.set(choice.dataset.look === 'disc' ? 'disc' : 'standard'));
+  }
+  const offLook = looks.subscribe(syncLook);
+  syncLook();
+
   const record = root.querySelector<HTMLElement>('[data-record]');
   const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record);
 
   return () => {
+    offLook();
     stopRecord();
     root.innerHTML = '';
   };
+}
+
+/**
+ * How pieces are drawn on this phone (decision 0045), and whose they are.
+ *
+ * A device setting, not an account one, so it says "this phone". Each choice
+ * shows a white and a black bishop in that look, because the bishop is the
+ * piece that vanished outdoors (O-30) and a picture decides this faster than a
+ * description. The artwork's credit and license sit under it, in a
+ * `<details>` so the license is on the phone without taking the screen.
+ */
+export function boardSectionHtml(): string {
+  const sample = (look: PieceLook) =>
+    `<span class="piece-icon">${pieceSvg({ type: 'b', color: 'w' }, look)}</span>` +
+    `<span class="piece-icon">${pieceSvg({ type: 'b', color: 'b' }, look)}</span>`;
+  return `<h2>Board</h2>
+    <p class="dim">How pieces are drawn on this phone. Try each outdoors and keep the one you can read at a glance.</p>
+    <p class="look-choices">
+      <button class="secondary" data-look="standard">${sample('standard')} Standard</button>
+      <button class="secondary" data-look="disc">${sample('disc')} On discs</button>
+    </p>
+    <details class="dim" data-credits>
+      <summary>${escapeHtml(PIECE_ART_CREDIT)}</summary>
+      <pre class="license">${escapeHtml(PIECE_ART_LICENSE)}</pre>
+    </details>`;
 }
 
 /**

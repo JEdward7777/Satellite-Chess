@@ -493,14 +493,48 @@ h2 {
   margin-left: 0;
 }
 
-.promotion-choices button span:first-child {
-  font-size: 2rem;
-  line-height: 1;
-  font-family: "DejaVu Sans", "Segoe UI Symbol", "Apple Symbols", serif;
+.promotion-choices .piece-icon {
+  width: 2.6rem;
+  height: 2.6rem;
 }
 
 .promotion-choices button span + span {
   font-size: 0.85rem;
+}
+
+/*
+ * A piece drawn in the HTML around the board (decision 0045): the carry
+ * readout and the promotion picker. The same art as the board, on a tile of
+ * the board's light square, because a black piece drawn straight on to this
+ * app's near-black chrome would be a black shape on black.
+ */
+.piece-icon {
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  vertical-align: middle;
+  background: #e6dcbc;
+  border-radius: 4px;
+}
+
+.piece-icon:empty {
+  display: none;
+}
+
+.piece-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+[data-carry] .piece-icon {
+  margin-right: 0.4em;
+}
+
+/* The look switch on the account screen: two choices, one lit. */
+.look-choices button.is-on {
+  color: var(--bg);
+  background: var(--accent);
 }
 
 /*
@@ -588,7 +622,7 @@ h2 {
 
 /* Keep the panel from covering the controls it is meant to be used alongside. */
 body:has(.sim-panel) #app {
-  padding-bottom: 14rem;
+  padding-bottom: 16rem;
 }
 
 /*
@@ -850,4 +884,32 @@ body:has(.sim-panel) #app {
   font-size: 0.8rem;
   white-space: pre;
   overflow-x: auto;
+}
+
+/* The artwork's license, on the account screen: readable, never wider than the phone. */
+.license {
+  white-space: pre-wrap;
+  font-size: 0.75rem;
+}
+
+/* Two choices that wrap on a phone, so no left margin to indent the second row. */
+.look-choices button {
+  margin: 0.3rem 0.6rem 0.3rem 0;
+}
+
+/*
+ * The piece-look switch in the game readout (stage 10.7.4). Deliberately small
+ * and quiet, below the 48px of the play buttons: it is a preference changed a
+ * few times a game at most, and a stray tap costs one more tap to undo.
+ */
+.look-toggle {
+  min-height: 30px;
+  min-width: 0;
+  padding: 0.1rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }

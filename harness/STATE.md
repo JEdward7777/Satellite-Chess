@@ -3,32 +3,32 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **O-31 is fixed** (`10.6.1`–`10.6.3`, decision 0044):
-while a place waited for the server, the mover's clock jumped *up* to the
-balance their turn began with, which on a first move is exactly the time
-control. A predicted place now stops the clock at the tap. Reviewed clean in one
-round, committed and pushed (`2026-09-24-03`). This is phase 2 of a four-phase
-run: O-33 (done), O-31 (done), O-30 (piece look plus a last-move highlight),
-pinch zoom.
-**Active stages**: `10.5`, waiting only on `10.5.4`, and `10.6`, waiting only on
-`10.6.4` (both real-phone checks).
-**Next action**: phase 3 of this run, **O-30**. The deploy is still the
-operator's.
-**Ask the owner**, on the next outdoor game, to switch the clock readout on:
-tap either clock. It shows the server's raw clock numbers beside the screen and
-stays on until tapped again. A screenshot when the clock looks wrong settles
-`10.6.4`.
+**Tree state**: clean. **O-30 is built** (`10.7.1`–`10.7.3`, decision 0045,
+which supersedes 0011): pieces are now the standard two-sided cburnett set
+(BSD, bundled, credited in `NOTICE` and on the account screen) on mid-tone
+squares, the owner's gray-ringed team disc is a per-phone switch, and the last
+move is tinted yellow. Two review rounds, both clean; committed and pushed
+(`2026-09-24-04`). This is phase 3 of a four-phase run: O-33 (done), O-31
+(done), O-30 (done), pinch zoom.
+**Active stages**: `10.5`, `10.6` and `10.7`, each waiting only on a real-phone
+check (`10.5.4`, `10.6.4`, `10.7.4`).
+**Next action**: phase 4 of this run, **pinch zoom** on the board. The deploy
+is still the operator's.
+**Ask the owner**, on the next outdoor game:
+- compare **Standard** against **On discs** with the "Pieces" button in the
+  game screen's readout, in daylight, and say which to keep (`10.7.4`);
+- switch the clock readout on by tapping either clock (O-31, `10.6.4`). It
+  shows the server's raw clock numbers and stays on until tapped again.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
 2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2`, `10.5` and `10.6`
-all ship on the next `npm run deploy`. That deploy **creates the `ARCHIVE` KV
-namespace** (no `id` in `wrangler.jsonc`). Pin its id there afterwards
-(`reference/budget.md`).
-**1035 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
-`check-clock`, `check-resume` and `drive-game` passed after this phase, and
-`check-review`, `check-record`, `check-games` and `check-invite` passed before
-it. **Run drivers from a new, uniquely named `--persist-to`** (O-19). Every
-driver now takes `--base=http://127.0.0.1:<port>/?sim=1` (O-24 is fixed).
+phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2`, `10.5`, `10.6`
+and `10.7` all ship on the next `npm run deploy`. That deploy **creates the
+`ARCHIVE` KV namespace** (no `id` in `wrangler.jsonc`). Pin its id there
+afterwards (`reference/budget.md`).
+**1052 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-24
+`drive-game` and `check-review` passed after this phase. **Run drivers from a
+new, uniquely named `--persist-to`** (O-19). Every driver takes
+`--base=http://127.0.0.1:<port>/?sim=1`.
 
 ## A finished game, a day later, in one paragraph
 
@@ -143,8 +143,9 @@ perfect one. **The board is not forced to be square** (decision 0028).
 ## The game has now been played outdoors, twice
 
 The owner played complete games on real ground on 2026-09-20, which is the first
-evidence from outside this repository. It produced **O-30** (piece outlines take
-the *opponent's* color; a bishop can vanish), **O-31** (the host's clock appeared
+evidence from outside this repository. It produced **O-30** (piece outlines took
+the *opponent's* color; a bishop could vanish: now built, open until the
+outdoor comparison), **O-31** (the host's clock appeared
 to round up: a real bug in the predicted place, now fixed, open until an
 outdoor game confirms it), **O-32** (a
 parked feature idea: two players on two fields), and **O-33** (the owner's
@@ -153,15 +154,14 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **O-30**, piece outlines and the vanishing bishop, plus a last-move
-   highlight. Phase 3.
-2. **Pinch zoom** on the board. Phase 4.
-3. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
+1. **Pinch zoom** on the board. Phase 4. On a 5:1 field the coordinate labels
+   sit at their 8 px floor; zoom is the answer there.
+2. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
    `wrangler.jsonc`. Finished games from before 8.4, including the owner's two
    real games, are archived only once someone re-opens them.
-4. **O-38**, the distance accumulator, once there are real-handset traces.
+3. **O-38**, the distance accumulator, once there are real-handset traces.
    **O-12** is still open too: 0043 did not close it.
-5. **A phone test** covering:
+4. **A phone test** covering:
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - sign-in and sign-out;
@@ -169,3 +169,5 @@ game-rule work.
    - the handshake on real GPS (O-25, O-17);
    - `10.5.4`: is anybody standing on a square refused because the dot is off?
    - `10.6.4`: with the clock readout on, does the clock still look wrong?
+   - `10.7.4`: Standard or On discs in daylight, and is the last-move tint
+     visible in sun?

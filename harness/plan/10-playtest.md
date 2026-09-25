@@ -63,3 +63,22 @@ file. Expect most of it to be written after the first real game.
     snapshots already carry; sends nothing.
   - `10.6.4` todo: Outdoors, on real phones, with the readout on: does the
     host's clock still appear to round? Needs a real game.
+
+- `10.7` active: Pieces anyone can read outdoors, and the last move (O-30, decision 0045)
+  - The owner's 2026-09-20 games: players could not tell whose piece was
+    whose, and a bishop nearly vanished on its matching square.
+  - `10.7.1` done: The standard two-sided set (cburnett, BSD, `client/pieces.ts`)
+    on mid-tone squares, on the board, the carry readout and the promotion
+    picker. `NOTICE` and the account screen carry the license.
+  - `10.7.2` done: The owner's alternative, a team-color disc with a gray ring
+    under each piece, behind a per-phone switch on the account screen, the
+    game screen's readout and the simulator panel (`client/piece-look.ts`, `localStorage` in try/catch).
+  - `10.7.3` done: The last completed move tinted on both squares, from the
+    snapshot's `lastMove`, moved at the tap by a predicted place. No new
+    traffic. Coordinates and destination dots now draw over the pieces;
+    coordinates are sized from the narrow way across a cell, sit in its
+    corners, and carry a thin outline, so a 5:1 field keeps them off the
+    pieces. The north arrow draws under the pieces.
+  - `10.7.4` todo: Outdoors, in daylight, on real phones: compare the two
+    looks, keep one, and change the default (or drop the switch) to match.
+    Also check that the last-move tint is visible in sun. Needs a real game.

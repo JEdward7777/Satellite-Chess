@@ -1,0 +1,49 @@
+Satellite Chess
+Copyright (c) 2026 Joshua L. Licensed under the MIT License (see LICENSE).
+
+This project includes third-party material under the terms below.
+
+-------------------------------------------------------------------------------
+Chess piece artwork ("cburnett" set)
+-------------------------------------------------------------------------------
+
+Used in: src/client/pieces.ts (transcribed path for path into the bundle).
+Author:  Colin M. L. Burnett (Wikimedia user Cburnett), 2006.
+Source:  Wikimedia Commons, File:Chess_klt45.svg, Chess_kdt45.svg,
+         Chess_qlt45.svg, Chess_qdt45.svg, Chess_rlt45.svg, Chess_rdt45.svg,
+         Chess_blt45.svg, Chess_bdt45.svg, Chess_nlt45.svg, Chess_ndt45.svg,
+         Chess_plt45.svg, Chess_pdt45.svg
+         https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces
+         Retrieved 2026-09-24. Each file page carries
+         {{self|GFDL|migration=relicense|BSD|GPL}}: the author offers the
+         work under GFDL (with CC BY-SA 3.0 by migration), BSD, and GPL, at
+         the user's choice. This project uses it under the BSD license
+         (Commons' {{BSD}} template, which defaults to the 3-clause text).
+
+Copyright (c) 2006 Colin M. L. Burnett. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Neither the name of Colin M. L. Burnett nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY COLIN M. L. BURNETT "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+EVENT SHALL COLIN M. L. BURNETT BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+In the running app, the same notice is shown on the account screen, under
+"Board".

@@ -6,6 +6,7 @@ import type { CarryState } from '../src/shared/protocol.js';
 import {
   PROMOTION_CHOICES,
   carryGuidance,
+  carryPiece,
   carryPrompt,
   carryReadout,
   metres,
@@ -122,8 +123,13 @@ describe('carryGuidance', () => {
     expect(g.mine).toBe(false);
   });
 
-  it('carries the piece glyph, so the HUD and the board agree', () => {
-    expect(carryGuidance(GEO, null, 8, carry({ piece: 'q' }), 'w').glyph).toBe('♛︎');
+  it('names the piece and its side, so the HUD draws the board’s own art', () => {
+    const g = carryGuidance(GEO, null, 8, carry({ piece: 'q', color: 'b' }), 'w');
+    expect(carryPiece(g)).toEqual({ type: 'q', color: 'b' });
+  });
+
+  it('draws nothing for a piece letter it does not know', () => {
+    expect(carryPiece(carryGuidance(GEO, null, 8, carry({ piece: 'x' }), 'w'))).toBeNull();
   });
 });
 
@@ -133,6 +139,10 @@ describe('carryReadout', () => {
 
   it('is a dash when nothing is in hand', () => {
     expect(carryReadout(null)).toBe('—');
+  });
+
+  it('is words only: the piece is drawn beside it, not spelled as a glyph', () => {
+    expect(from({})).toMatch(/^e2 · /);
   });
 
   it('counts what can be placed on right now', () => {

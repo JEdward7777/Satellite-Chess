@@ -13,6 +13,7 @@ import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/re
 import { type Color, toSquare } from '../../shared/squares.js';
 import { toBoardPoint } from '../../shared/field.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
+import { pieceLook } from '../piece-look.js';
 import { type Projection, drawBoard, squareUnderFoot, startingPieces } from '../render.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
@@ -58,6 +59,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
 
   let state: GpsState = deps.gps.state;
   let projection: Projection | null = null;
+  const looks = pieceLook();
 
   const paint = () => {
     const fix = state.fix;
@@ -71,6 +73,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
+      look: looks.get(),
     });
 
     const here = fix ? toBoardPoint(geo, fix.pos) : null;
@@ -103,8 +106,10 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   // The canvas is sized from its box, so a rotation has to redraw it.
   const onResize = () => paint();
   addEventListener('resize', onResize);
+  const offLook = looks.subscribe(() => paint());
 
   return () => {
+    offLook();
     unsubscribe();
     removeEventListener('resize', onResize);
     void screenLock.release();

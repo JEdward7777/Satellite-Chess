@@ -24,6 +24,7 @@ import {
   toBoardPoint,
 } from '../shared/field.js';
 import type { LatLng } from '../shared/geo.js';
+import { type PieceLook, drawPiece } from './pieces.js';
 import {
   type Color,
   type FileRank,
@@ -69,6 +70,15 @@ export interface BoardView {
    * player who has gone.
    */
   opponent?: { pos: LatLng; connected: boolean } | null;
+  /** How pieces are drawn (decision 0045). The standard set when omitted. */
+  look?: PieceLook;
+  /**
+   * The last completed move, tinted on both squares the way lichess and
+   * chess.com do, so a player glancing back at the phone sees what changed
+   * while they were walking. Read from the snapshot's `lastMove`; nothing new
+   * is asked of the server.
+   */
+  lastMove?: { from: Square; to: Square } | null;
 }
 
 /**
@@ -77,12 +87,30 @@ export interface BoardView {
  * The dark squares are green rather than brown because the thing underneath
  * really is grass, and the pairing has to survive being seen through a
  * translucent reach circle without either square reading as the other.
+ *
+ * Both are **mid-tones** (decision 0045), the way every board app's squares
+ * are, so that both sides' pieces stand off both squares. The dark square is
+ * chess.com's green, about 3.4:1 against a white piece and 6.3:1 against a
+ * black one; the old `#4f7a46` gave a black piece only 4.2:1. The light square
+ * is lichess's lightness in this board's cream (about 1.4:1 against white,
+ * which is what the black outline of a white piece is for).
  */
-const LIGHT_SQUARE = '#efe6cf';
-const DARK_SQUARE = '#4f7a46';
+const LIGHT_SQUARE = '#e6dcbc';
+const DARK_SQUARE = '#769656';
 const BOARD_EDGE = '#20261c';
-const LABEL_ON_LIGHT = '#5c5646';
-const LABEL_ON_DARK = '#d8e6d2';
+const LABEL_ON_LIGHT = '#4f5a3c';
+const LABEL_ON_DARK = '#f4efdc';
+/** The outline round a label: the other tone, so it reads over any piece. */
+const LABEL_HALO_ON_LIGHT = 'rgba(244, 239, 220, 0.9)';
+const LABEL_HALO_ON_DARK = 'rgba(32, 38, 28, 0.85)';
+/**
+ * The last move's two squares: translucent yellow, as on chess.com.
+ *
+ * A fill, where everything else yellow on this board is an outline (the square
+ * under foot is solid, the square a piece was lifted from is dashed), so the
+ * three never read as one another even where they meet.
+ */
+const LAST_MOVE = 'rgba(255, 236, 51, 0.5)';
 const REACH_FILL = 'rgba(88, 166, 255, 0.22)';
 const REACH_EDGE = 'rgba(88, 166, 255, 0.9)';
 const IN_REACH_TINT = 'rgba(88, 166, 255, 0.28)';
@@ -104,23 +132,10 @@ const PLAYER_EDGE = '#0d1117';
 const OPPONENT_DOT = '#ff4d6d';
 
 /**
- * Solid glyphs for both colours, distinguished by fill — decision 0011.
- *
- * Exported because the HUD and the promotion picker name pieces too, and a
- * knight that is one glyph on the board and another in the picker is a puzzle
- * for someone who is trying to read it at arm's length in the sun.
+ * How much of a cell a piece's box fills. The art has its own margin inside
+ * the box, so this leaves the square's color showing round every piece.
  */
-export const PIECE_GLYPHS: Record<PieceType, string> = {
-  k: '♚︎',
-  q: '♛︎',
-  r: '♜︎',
-  b: '♝︎',
-  n: '♞︎',
-  p: '♟︎',
-};
-
-/** U+FE0E alone is not always enough; a concrete serif stack finishes the job. */
-const GLYPH_FONT = '"DejaVu Sans", "Segoe UI Symbol", "Apple Symbols", serif';
+const PIECE_BOX = 0.94;
 
 /** Fraction of the canvas kept clear around the board. */
 const PADDING = 0.06;
@@ -229,9 +244,16 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   const here = view.pos ? toBoardPoint(view.geo, view.pos) : null;
 
   drawSquares(ctx, view, projection, here);
-  drawCarry(ctx, view, projection, here);
-  drawPieces(ctx, view, projection);
+  drawLiftedFrom(ctx, view, projection);
+  // Under the pieces: the art fills most of its cell (decision 0045), and on a
+  // rotated field the arrow overlaps the corner square, so it would cover h8.
   drawNorth(ctx, view, width, height);
+  drawPieces(ctx, view, projection);
+  // Over the pieces, both. The art fills most of its cell (decision 0045), so a
+  // coordinate or a capture's destination dot drawn underneath would be hidden
+  // by the very piece it is about.
+  drawCoordinates(ctx, view, projection);
+  drawDestinations(ctx, view, projection, here);
   drawOpponent(ctx, view, projection);
   if (here) drawPlayer(ctx, view, projection, here);
   return projection;
@@ -267,11 +289,11 @@ function traceSquare(
 }
 
 /**
- * A representative cell size in screen pixels, for glyphs and line widths.
+ * A representative cell size in screen pixels, for labels, dots and line widths.
  *
- * Deliberately one number even where the two axes differ: a piece is drawn as a
- * glyph, not stretched to fill its cell, so it wants a single size. Never use
- * this to position anything.
+ * Deliberately one number even where the two axes differ. Pieces use
+ * {@link pieceBoxPx} instead, which fits the narrow way across. Never use this
+ * to position anything.
  */
 function cellPx(geo: FieldGeometry, projection: Projection): number {
   return geo.meanSquareM * projection.scale;
@@ -295,6 +317,7 @@ function drawSquares(
   const { geo } = view;
   const size = cellPx(geo, projection);
   const underFoot = here ? squareUnderFoot(geo, here) : null;
+  const moved = new Set<string>(view.lastMove ? [view.lastMove.from, view.lastMove.to] : []);
 
   for (let file = 0; file < 8; file++) {
     for (let rank = 0; rank < 8; rank++) {
@@ -302,6 +325,14 @@ function drawSquares(
       traceSquare(ctx, geo, projection, { file, rank });
       ctx.fillStyle = light ? LIGHT_SQUARE : DARK_SQUARE;
       ctx.fill();
+
+      // Under the reach tint rather than over it: reach is the rule and has to
+      // read the same on every square, and blue over yellow still reads as
+      // "this one moved" where yellow over blue would hide "you can reach it".
+      if (moved.has(toSquare(file, rank))) {
+        ctx.fillStyle = LAST_MOVE;
+        ctx.fill();
+      }
 
       // In reach: the squares you could actually lift from or place on right
       // now. This is the rule made visible, so it has to be unmissable.
@@ -315,11 +346,6 @@ function drawSquares(
         ctx.lineWidth = Math.max(2, size * 0.06);
         ctx.stroke();
       }
-
-      drawLabels(ctx, view, squareCentrePx(geo, projection, { file, rank }), size, {
-        file,
-        rank,
-      }, light);
     }
   }
 
@@ -344,42 +370,71 @@ function drawSquares(
 /**
  * File letters along the near edge, rank numbers up the left — from the
  * player's own point of view, which is what "own side at the bottom" means.
+ *
+ * Drawn over the pieces, so they are sized from the *narrow* way across a
+ * cell ({@link pieceBoxPx}) and pushed into its corners. On a 120 x 24 m
+ * field a cell is five times wider than it is tall: a label sized from the
+ * mean cell was as tall as the whole square and sat on the a-file and
+ * rank-1 pieces. In the corner of a long cell there is room beside the piece.
  */
-/**
- * Placed by offsetting from the cell's centre in *screen* space rather than
- * from the corners of a rectangle, because a cell no longer has corners at
- * predictable screen positions. On a square board this lands where it always
- * did; on a skewed one it stays inside the cell, which corner arithmetic on a
- * parallelogram would not guarantee.
- */
-function drawLabels(
+function drawCoordinates(
   ctx: CanvasRenderingContext2D,
   view: BoardView,
-  centre: { x: number; y: number },
-  size: number,
-  fr: FileRank,
-  light: boolean,
+  projection: Projection,
 ): void {
+  const box = pieceBoxPx(view.geo, projection);
+  const fontPx = Math.max(8, Math.min(14, box * 0.24));
+  ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+  ctx.lineJoin = 'round';
   const nearRank = view.orientation === 'w' ? 0 : 7;
   const leftFile = view.orientation === 'w' ? 0 : 7;
-  const showFile = fr.rank === nearRank;
-  const showRank = fr.file === leftFile;
-  if (!showFile && !showRank) return;
+  for (let i = 0; i < 8; i++) {
+    const fileSquare = { file: i, rank: nearRank };
+    drawLabel(ctx, view, projection, fileSquare, toSquare(i, nearRank)[0], 'bottom-right', fontPx);
+    const rankSquare = { file: leftFile, rank: i };
+    drawLabel(ctx, view, projection, rankSquare, String(i + 1), 'top-left', fontPx);
+  }
+}
 
+/**
+ * One label, anchored just inside a corner of its cell as the player sees it.
+ *
+ * The corner is found in board *index* space — a fraction of a square along
+ * each axis — and projected, so it stays inside the cell on a rectangular or
+ * skewed board, where a screen-space offset from the centre would not. The
+ * text gets a thin outline in the opposite tone, so it reads over a piece or
+ * a disc of either color as well as over the bare square.
+ */
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  view: BoardView,
+  projection: Projection,
+  fr: FileRank,
+  text: string,
+  corner: 'bottom-right' | 'top-left',
+  fontPx: number,
+): void {
+  const { geo } = view;
+  // A couple of pixels in from each edge, as a fraction of that edge.
+  const inFile = 0.5 - Math.min(0.2, 2 / (geo.fileM * projection.scale));
+  const inRank = 0.5 - Math.min(0.2, 2 / (geo.rankM * projection.scale));
+  // White's screen right is +file and screen down is -rank; Black's is turned.
+  const dir = view.orientation === 'w' ? 1 : -1;
+  const sign = corner === 'bottom-right' ? 1 : -1;
+  const anchor = projection.toScreen(
+    boardPointOfIndex(geo, {
+      file: fr.file + sign * dir * inFile,
+      rank: fr.rank - sign * dir * inRank,
+    }),
+  );
+  const light = isLightSquare(fr.file, fr.rank);
+  ctx.textAlign = corner === 'bottom-right' ? 'right' : 'left';
+  ctx.textBaseline = corner === 'bottom-right' ? 'bottom' : 'top';
+  ctx.strokeStyle = light ? LABEL_HALO_ON_LIGHT : LABEL_HALO_ON_DARK;
+  ctx.lineWidth = Math.max(2, fontPx * 0.28);
+  ctx.strokeText(text, anchor.x, anchor.y);
   ctx.fillStyle = light ? LABEL_ON_LIGHT : LABEL_ON_DARK;
-  ctx.font = `600 ${Math.max(9, size * 0.22)}px system-ui, sans-serif`;
-  const inset = size * 0.34;
-
-  if (showFile) {
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(toSquare(fr.file, fr.rank)[0], centre.x + inset, centre.y + inset);
-  }
-  if (showRank) {
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(String(fr.rank + 1), centre.x - inset, centre.y - inset);
-  }
+  ctx.fillText(text, anchor.x, anchor.y);
 }
 
 /**
@@ -391,7 +446,25 @@ function drawLabels(
  * one is legal but needs walking — which is the decision the whole game is made
  * of, so it has to be readable at a glance while moving.
  */
-function drawCarry(
+function drawLiftedFrom(
+  ctx: CanvasRenderingContext2D,
+  view: BoardView,
+  projection: Projection,
+): void {
+  const carry = view.carry;
+  if (!carry) return;
+
+  const size = cellPx(view.geo, projection);
+  traceSquare(ctx, view.geo, projection, fromSquare(carry.from));
+  ctx.strokeStyle = LIFTED_FROM;
+  ctx.lineWidth = Math.max(2, size * 0.08);
+  ctx.setLineDash([size * 0.15, size * 0.1]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/** Drawn after the pieces, so a capture's dot sits on the piece it would take. */
+function drawDestinations(
   ctx: CanvasRenderingContext2D,
   view: BoardView,
   projection: Projection,
@@ -399,16 +472,7 @@ function drawCarry(
 ): void {
   const carry = view.carry;
   if (!carry) return;
-
   const size = cellPx(view.geo, projection);
-  const origin = fromSquare(carry.from);
-
-  traceSquare(ctx, view.geo, projection, origin);
-  ctx.strokeStyle = LIFTED_FROM;
-  ctx.lineWidth = Math.max(2, size * 0.08);
-  ctx.setLineDash([size * 0.15, size * 0.1]);
-  ctx.stroke();
-  ctx.setLineDash([]);
 
   // Only your own carry gets destination dots. Seeing the opponent's options
   // drawn on your board would be both confusing and a small act of espionage.
@@ -465,27 +529,30 @@ export function piecesFromFen(fen: string): PieceMap {
   return pieces;
 }
 
+/**
+ * The side of the largest upright square that fits inside one cell, in pixels.
+ *
+ * Not {@link cellPx}: on a rectangular or skewed board the mean cell is wider
+ * than the narrow way across, and a piece sized to it spills into the next
+ * square. A parallelogram's narrow width is the shorter step times the sine of
+ * the angle between the axes; on a square board this is the cell itself.
+ */
+export function pieceBoxPx(geo: FieldGeometry, projection: Projection): number {
+  const sin = Math.sin((geo.axisAngleDeg * Math.PI) / 180);
+  return Math.min(geo.fileM, geo.rankM) * Math.abs(sin) * projection.scale * PIECE_BOX;
+}
+
 function drawPieces(
   ctx: CanvasRenderingContext2D,
   view: BoardView,
   projection: Projection,
 ): void {
-  const size = cellPx(view.geo, projection);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = `${size * 0.72}px ${GLYPH_FONT}`;
-  ctx.lineWidth = Math.max(1, size * 0.03);
-
+  const box = pieceBoxPx(view.geo, projection);
+  const look = view.look ?? 'standard';
   for (const [square, piece] of Object.entries(view.pieces)) {
     if (!piece) continue;
-    const fr = fromSquare(square);
-    const centre = squareCentrePx(view.geo, projection, fr);
-    const glyph = PIECE_GLYPHS[piece.type];
-    // Same solid glyph for both colours; fill and stroke carry the difference.
-    ctx.fillStyle = piece.color === 'w' ? '#ffffff' : '#16181d';
-    ctx.strokeStyle = piece.color === 'w' ? '#16181d' : '#e8e8e8';
-    ctx.fillText(glyph, centre.x, centre.y);
-    ctx.strokeText(glyph, centre.x, centre.y);
+    const centre = squareCentrePx(view.geo, projection, fromSquare(square));
+    drawPiece(ctx, piece, look, centre.x, centre.y, box);
   }
 }
 

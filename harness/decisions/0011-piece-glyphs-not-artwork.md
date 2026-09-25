@@ -1,7 +1,8 @@
 # 0011 — Render pieces as Unicode glyphs, not bitmap or SVG artwork
 
 - **Date:** 2026-07-25
-- **Status:** accepted
+- **Status:** superseded
+- **Superseded by:** [0045](0045-pieces-are-the-standard-two-sided-set.md) — the owner's outdoor games met this decision's own revisit condition (O-30).
 - **Stage:** 1.3
 
 ## Decision

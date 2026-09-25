@@ -559,6 +559,11 @@ from the square, not from the opposing side. Check the bishop specifically on
 every square color, and check it outdoors rather than on a desk monitor.
 **Not doing yet because:** it wants a look at the renderer and a real-daylight
 check, not a quick color swap. It belongs with the other playtest findings (10.2).
+**Update 2026-09-24:** built as stage `10.7` (decision 0045): the standard
+cburnett set on mid-tone squares, a team-disc look behind a switch, and a
+last-move tint. The outline now only separates a piece from its square and is
+never the opponent's color. Stays open until the outdoor comparison
+(`10.7.4`).
 
 ### O-31 — The host's clock kept rounding up to a whole number of minutes
 **Spotted:** 2026-09-20, the owner's first complete games outdoors (stage 10.1)
