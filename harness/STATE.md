@@ -11,14 +11,14 @@ pan, follow your dot, "Whole board"; a drag is never a tap). Each was
 reviewed until clean, committed and pushed (`2026-09-25-01` is the last).
 **Active stages**: `10.5`, `10.6`, `10.7` and `10.8`, each waiting only on a
 real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`).
-**Next action**: the **deploy**, which is the operator's, then the next
-outdoor game with the checklist below.
+**Next action**: the next outdoor game with the checklist below. A second
+pipeline run (O-44, 8.3 replay, 8.5 share card and head-to-head, O-21 units,
+and a batch of small fixes) is under way.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
-2026-09-16, version `1fea90ff`. **Nothing since `2.5.3` is deployed**: `2.5.3`,
-phase 7, `2.2.3`–`2.2.5`, `2.3.5`, `8.1`/`8.2`, `8.4`/`3.6.2`, and `10.5`
-through `10.8` all ship on the next `npm run deploy`. That deploy **creates the
-`ARCHIVE` KV namespace** (no `id` in `wrangler.jsonc`). Pin its id there
-afterwards (`reference/budget.md`).
+2026-09-25, version `58b81889`, at `53d684a` — everything up to and including
+`10.8`. That deploy created the `ARCHIVE` KV namespace; its id
+(`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The operator
+has authorized deploys during this run once a phase is reviewed clean.
 **1088 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-25
 `drive-game`, `check-review`, `check-clock`, `check-record` and the new
 `check-zoom` (real two-finger touch) passed. **Run drivers from a new,
@@ -151,9 +151,9 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deploy** (the operator's). Afterwards, pin the `ARCHIVE` namespace id in
-   `wrangler.jsonc`. Finished games from before 8.4, including the owner's two
-   real games, are archived only once someone re-opens them.
+1. **Deployed** 2026-09-25 (`58b81889`), `ARCHIVE` id pinned. Finished games
+   from before 8.4, including the owner's two real games, are archived only
+   once someone re-opens them.
 2. **The next outdoor game**, one checklist:
    - `10.5.4`: is anybody standing on a square refused because the dot is off
      (reach with a poor fix)?

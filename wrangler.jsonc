@@ -39,7 +39,7 @@
   // none. Once it exists, its id may be pinned here like SESSIONS'.
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "5054a97ed81e4475ae7ef4b48d1b1fbc" },
-    { "binding": "ARCHIVE" }
+    { "binding": "ARCHIVE", "id": "fe6b455ea33c415f983eee0921c64cdc" }
   ],
   // The free plan requires the SQLite storage backend. `new_classes` (the legacy
   // key-value backend) fails to deploy with error 10097.

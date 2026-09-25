@@ -74,12 +74,10 @@ is account-wide rather than per namespace.
 | `SESSIONS` | a sign-in, and a throttled sliding renewal (`sessions.ts`) | every authenticated request that carries a Google session |
 | `ARCHIVE` | **1 per finished game**, written once a day after it ends. A rewrite happens only if the read-back disagrees | 1 per game created (to check the code was never archived); 1 at the object's last step (read-back); 1 per archived review, file or re-join |
 
-- **Pin the namespace id after the first deploy.** `wrangler.jsonc` declares
-  `ARCHIVE` with no `id`, so wrangler 4 creates it on the first `wrangler
-  deploy`, and later deploys find it again by binding name. Once it exists, copy
-  its id (`wrangler kv namespace list`) into `wrangler.jsonc` beside SESSIONS'.
-  Then the binding no longer depends on that lookup, and a fresh checkout or a
-  renamed Worker cannot quietly get a second, empty namespace.
+- **The namespace id is pinned.** The first deploy (2026-09-25) created
+  `satellite-chess-archive`, id `fe6b455ea33c415f983eee0921c64cdc`, and it is
+  now in `wrangler.jsonc` beside SESSIONS', so a fresh checkout or a renamed
+  Worker cannot quietly get a second, empty namespace.
 - **Key:** `game/v1/<CODE>`. **No TTL.** A finished game's history is kept, as
   decision 0025 promised. **No list operation** is ever made: every read is by
   a known code, so the 1,000/day list allowance is untouched.
