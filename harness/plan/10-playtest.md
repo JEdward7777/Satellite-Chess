@@ -103,3 +103,24 @@ file. Expect most of it to be written after the first real game.
   - `10.8.4` todo: On real phones, outdoors and walking: are taps ever
     dropped by the 10 px slop, is a pan ever read as a tap, does the follow
     feel right, and do the buttons get in the way? Needs a real game.
+
+- `10.9` done: Small fixes from the observation list
+  - A batch the operator approved from `observations/open.md`, one sub-stage
+    each.
+  - `10.9.1` done: The board opens at the top of the page (O-48). `swap`
+    scrolls to the top for a new screen; home redrawing itself after a sync
+    keeps its scroll. `check-zoom` checks it and no longer works around it.
+  - `10.9.2` done: Zoomed in, file letters and rank numbers move to the
+    nearest cells in view along the bottom and left (O-46), in the same
+    corner of the cell and at the same size, so they cover no more of a
+    piece than at 1x. Unchanged at 1x.
+  - `10.9.3` done: The flaky snapshot-relay test waits for the relay to be
+    stored (O-45).
+  - `10.9.4` done: An expired dev account says "It has ended" (O-29).
+  - `10.9.5` done: A deferred automatic `ready` goes on the 1 s ticker, not
+    the next GPS fix (O-25). The latch is unchanged (O-26).
+  - `10.9.6` done: The relay's rate limit is measured from the last relay,
+    not the last lift, place or ready (O-39, decision 0047, schema 6).
+  - `10.9.7` done: What the sprint cap clips is owed and paid under later
+    windows, up to 30 m, and never across a pause or after the result (O-36,
+    decision 0047).

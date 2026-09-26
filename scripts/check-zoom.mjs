@@ -151,12 +151,11 @@ const canvasBox = (page) => page.locator('[data-board]').boundingBox();
 /**
  * A square's centre in page pixels, through the zoom the canvas reports.
  *
- * Scrolls to the top first. The page keeps the invite screen's scroll when
- * the board replaces it, and Chrome's scroll anchoring moves it again when
- * the readout grows a row, so a box measured once goes stale.
+ * Measured fresh every time. The board used to open scrolled wherever the
+ * invite screen had been left (O-48), and this scrolled to the top first to
+ * hide it; step 1 now checks the board opens at the top instead.
  */
 async function squareOnPage(phone, file, rank, orientation) {
-  await phone.page.evaluate(() => window.scrollTo(0, 0));
   const box = await canvasBox(phone.page);
   const { zoom } = await readout(phone.page);
   const p = squareToPixel(file, rank, orientation, box.width, box.height);
@@ -234,8 +233,17 @@ try {
   await white.page.click('[data-create]');
   await white.page.waitForSelector('[data-join-code]', { timeout: 15_000 });
   const code = await white.page.getAttribute('[data-join-code]', 'data-join-code');
+  // O-48: the invite screen is taller than a phone, so it is left scrolled
+  // down, as a thumb would leave it; a board that kept that scroll opened
+  // with most of itself off the top.
+  const invitedAt = await white.page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    return Math.round(window.scrollY);
+  });
   await white.page.click('[data-open]');
   await white.page.waitForSelector('[data-board]', { timeout: 15_000 });
+  const openedAt = await white.page.evaluate(() => Math.round(window.scrollY));
+  check('the board opens at the top of the page', invitedAt > 0 && openedAt === 0, { invitedAt, openedAt });
   await black.page.fill('[data-code]', code);
   await black.page.click('[data-join]');
   await black.page.waitForSelector('[data-board]', { timeout: 15_000 });
@@ -288,7 +296,6 @@ try {
   await white.page.screenshot({ path: `${OUT}/4-lifted-zoomed.png` });
 
   step(5, 'Pinch again while carrying: nothing is placed or put back');
-  await white.page.evaluate(() => window.scrollTo(0, 0));
   const box5 = await canvasBox(white.page);
   await pinch(white, { x: box5.x + box5.width / 2, y: box5.y + box5.height / 2 }, 120, 60);
   await white.page.waitForTimeout(600);

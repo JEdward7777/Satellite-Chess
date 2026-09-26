@@ -351,3 +351,61 @@ applies:** start each server from a new, empty `--persist-to`.
 **Original report:** each driver kept only the second piece of
 `split('=')`, so `…/?sim=1` became `…/?sim`, the simulator never started, and
 the driver timed out on a selector, which read as a broken game screen.
+
+### O-48 — The board opens scrolled halfway off the top on a phone
+**Resolved:** 2026-09-25, stage 10.9.1
+**Outcome:** Fixed. `swap` in `client/main.ts` scrolls to the top for every
+new screen. The one exception is home redrawing itself after a field sync,
+which keeps its scroll. `check-zoom` no longer scrolls to work around it, and
+now checks that a board opened from an invite screen left 514 px down opens
+at 0. Without the fix that check reads 231 px.
+
+### O-46 — Zoomed in, the file and rank labels are off screen
+**Resolved:** 2026-09-25, stage 10.9.2
+**Outcome:** Fixed. Zoomed in, each file letter and rank number goes in the
+same corner of the nearest cell of its file or rank that is on screen
+(`coordinateLabels`, `client/render.ts`), at the same size. So it covers no
+more of a piece than at 1x. They are not pinned to the canvas edge, because a
+cell cut in half there has its piece drawn up to the edge. Unchanged at 1x.
+Checked from both seats in both piece looks. **Known and left alone:** the
+top rank's number can sit under the see-through "Whole board" button.
+
+### O-45 — `game-do.test.ts` "repeats the last relayed position in the snapshot" is flaky
+**Resolved:** 2026-09-25, stage 10.9.3
+**Outcome:** Fixed. The test polls the presence row until the relay is
+stored before Black connects. It passed ten times alone, and the whole file
+passed ten times. A second timing-dependent test was found and fixed in the
+same batch: `record.test.ts`'s burst of refused places assumed two messages
+land under a second apart, which failed once in six loaded full runs. It now
+measures its own window.
+
+### O-29 — An expired dev token offline reads "It ends within the hour"
+**Resolved:** 2026-09-25, stage 10.9.4
+**Outcome:** Fixed. It now reads "It has ended, and is never renewed."
+(`devExpiryWords`, `views/account.ts`).
+
+### O-25 — A deferred automatic `ready` waits for the next GPS fix, not for the clock
+**Resolved:** 2026-09-25, stage 10.9.5
+**Outcome:** Fixed. The game screen's 1 s ticker calls `considerReady(false)`.
+The latch is unchanged (O-26): one `ready` per episode, refused or not, and a
+test shows a minute of ticks sends exactly one, at the deadline.
+
+### O-39 — After a lift or a place, the next relay can be throttled and the dot goes stale
+**Resolved:** 2026-09-25, stage 10.9.6 (decision 0047)
+**Outcome:** Fixed. There is a new column `presence.last_relay_at` (schema 6),
+and the relay's 1.5 s rate limit is measured from it. A lift, a place or a
+`ready` no longer throttles the next relay. The travel window still runs from
+`last_pos_at`. There are no new messages. The only new server work is one row
+write for a relay that used to be dropped.
+
+### O-36 — A relay landing just after a ply loses the meters the cap clips
+**Resolved:** 2026-09-25, stage 10.9.7 (decision 0047)
+**Outcome:** Fixed, without waiting for O-03 as the observation suggested.
+What the sprint cap clips is kept in `presence.travel_owed_m` (schema 6) and
+paid under the ceilings of later windows, up to 30 m (a sprint for one relay
+interval). It is dropped outside active play, zeroed at every start and
+resume, and never paid after the result. Every credit stays inside its own
+window's ceiling, and the total never exceeds what the phone reported. In
+review, a 200-report random run credited 3413 m of 4241 m reported.
+**Left open:** a counter jump of more than 30 m in the short window just after
+a lift still loses the excess. It is rare, and 0047's "revisit if" covers it.

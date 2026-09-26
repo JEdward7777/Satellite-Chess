@@ -52,8 +52,9 @@ there. The truth for any given game is somewhere between 1 and 599.
 - Never stream GPS to the server. The client computes its own reach.
 - Position relay: `POS_MIN_DELTA_M = 2`, `POS_MIN_INTERVAL_MS = 2500`, with
   `POS_SERVER_MIN_INTERVAL_MS = 1500` as a server-side backstop against a client
-  that ignores the policy. All three live in `src/shared/protocol.ts` so both ends
-  agree on the numbers.
+  that ignores the policy, measured from the last accepted relay (decision
+  0047), not from a lift, place or `ready`. All three live in
+  `src/shared/protocol.ts` so both ends agree on the numbers.
 - Keepalive must go through `setWebSocketAutoResponse`. A hand-rolled ping/pong
   would wake the object and be billed, turning idle games into a cost.
 - The clock is never polled. It ticks locally on each client from the snapshot,

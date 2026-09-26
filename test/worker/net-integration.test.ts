@@ -111,7 +111,7 @@ function fakeClock(start = Date.now()) {
 async function backdate(stub: DurableObjectStub<GameDO>, ms: number): Promise<void> {
   await runInDurableObject(stub, (_i, state) => {
     const now = Date.now();
-    state.storage.sql.exec(`UPDATE presence SET last_pos_at = ?`, now - ms);
+    state.storage.sql.exec(`UPDATE presence SET last_pos_at = ?, last_relay_at = ?`, now - ms, now - ms);
     state.storage.sql.exec(
       `UPDATE game SET last_clock_start_at = ? WHERE id = 1 AND last_clock_start_at IS NOT NULL`,
       now - ms,

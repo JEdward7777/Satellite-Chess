@@ -205,12 +205,23 @@ function checkedWords(identity: KnownIdentity, confirmed: boolean, now: number):
     : `Not checked — no connection. Last confirmed ${timeSince(now - identity.confirmedAt)}.`;
 }
 
+/**
+ * The dev account's lapse (O-29). A remembered dev token that has already run
+ * out gives a negative difference, and `timeUntil` would call that "within the
+ * hour"; a Google session in that state gets `sessionNotice`'s wording instead.
+ */
+export function devExpiryWords(remainingMs: number): string {
+  return remainingMs > 0
+    ? `It ends ${timeUntil(remainingMs)} and is never renewed.`
+    : 'It has ended, and is never renewed.';
+}
+
 function expiryHtml(identity: KnownIdentity, confirmed: boolean, now: number): string {
   if (identity.expiresAt === null) return '';
   if (identity.via === 'dev') {
-    return `<p class="dim" data-expiry>A local test account. It ends ${escapeHtml(
-      timeUntil(identity.expiresAt - now),
-    )} and is never renewed.</p>`;
+    return `<p class="dim" data-expiry>A local test account. ${escapeHtml(
+      devExpiryWords(identity.expiresAt - now),
+    )}</p>`;
   }
   const until = new Date(identity.expiresAt).toLocaleDateString('en-US', {
     month: 'long',

@@ -6,10 +6,25 @@
  * read, rather than a paragraph inside a socket handler.
  */
 
+import { POS_MIN_INTERVAL_MS } from '../shared/protocol.js';
 import { MAX_PLAUSIBLE_SPEED_MPS } from '../shared/reach.js';
 
 /** A phone's distance-counter id is a label, not data; long ones are cut. */
 export const MAX_TRAVEL_LEG_CHARS = 64;
+
+/**
+ * The most a player may be owed: what the sprint cap clipped off a report and
+ * has not yet been paid (O-36, decision 0047).
+ *
+ * A sprint for one relay interval. What an honest report is clipped by is the
+ * walk between a ply and the relay just after it, which re-stamped the window
+ * a few hundred milliseconds earlier — at most about a relay interval's
+ * walking, or one accumulator hop. The bound is there for a phone that is not
+ * honest, or not well: without it, one report claiming a kilometer would be
+ * paid out at a sprint for the rest of the game, where before it was spent in
+ * one message.
+ */
+export const MAX_OWED_TRAVEL_M = (MAX_PLAUSIBLE_SPEED_MPS * POS_MIN_INTERVAL_MS) / 1000;
 
 /**
  * How much of a reported distance this game should be credited with (stage
@@ -36,7 +51,16 @@ export const MAX_TRAVEL_LEG_CHARS = 64;
  *   message. The property that holds over a whole game is the one worth stating:
  *   **total credit is at most `MAX_PLAUSIBLE_SPEED_MPS` × the time the game
  *   spent active**, because every window is inside that time and the windows do
- *   not overlap. Silence during the opponent's think is therefore not a hole to
+ *   not overlap.
+ * - **The cap delays; it does not discard** (O-36, decision 0047). What it
+ *   clips is kept as `owedM` and paid under the next window's ceiling, before
+ *   anything new. Every ply re-stamps the window, so a relay landing just
+ *   after a move had a ceiling of a few hundred milliseconds and lost the rest
+ *   of what it genuinely carried. Paying it later changes neither bound above:
+ *   every credit is still inside its own window's ceiling, and the total is
+ *   still at most what the counter reported. What is owed is capped at
+ *   {@link MAX_OWED_TRAVEL_M}, earns nothing outside active play, and is
+ *   dropped there, so nothing owed crosses a pause or a start. Silence during the opponent's think is therefore not a hole to
  *   close: it buys nothing the elapsed clock had not already allowed. None of
  *   this makes the number honest (O-03: a phone can still claim a steady jog
  *   while standing still); it bounds what may be claimed.
@@ -74,6 +98,8 @@ export function creditTravel(input: {
   reportedM: unknown;
   storedLeg: string | null;
   seenM: number;
+  /** What earlier caps clipped and this game still owes (O-36). */
+  owedM: number;
   active: boolean;
   /**
    * Milliseconds of walking this credit may be paid for: `now` minus the later
@@ -81,23 +107,35 @@ export function creditTravel(input: {
    * such instant yet, which earns nothing.
    */
   budgetMs: number | null;
-}): { creditM: number; leg: string | null; seenM: number } {
+}): { creditM: number; leg: string | null; seenM: number; owedM: number } {
+  // Nothing is owed outside active play: a pause or the result drops it, so it
+  // cannot be carried across into the next active period.
+  const owed =
+    input.active && Number.isFinite(input.owedM)
+      ? Math.min(MAX_OWED_TRAVEL_M, Math.max(0, input.owedM))
+      : 0;
   const reported = input.reportedM;
   // A relay with no distance on it (an older client, or none measured yet)
   // moves the dot and changes nothing about distance.
   if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 0) {
-    return { creditM: 0, leg: input.storedLeg, seenM: input.seenM };
+    return { creditM: 0, leg: input.storedLeg, seenM: input.seenM, owedM: owed };
   }
+  // A new counter is a baseline. What the old one was owed was walked here, in
+  // play, so it stays owed.
   if (input.leg !== input.storedLeg) {
-    return { creditM: 0, leg: input.leg, seenM: reported };
+    return { creditM: 0, leg: input.leg, seenM: reported, owedM: owed };
   }
-  const added = Math.max(0, reported - input.seenM);
+  const seenM = Math.max(input.seenM, reported);
+  if (!input.active) return { creditM: 0, leg: input.leg, seenM, owedM: 0 };
+  const due = owed + Math.max(0, reported - input.seenM);
   const ceiling =
     input.budgetMs === null ? 0 : (Math.max(0, input.budgetMs) / 1000) * MAX_PLAUSIBLE_SPEED_MPS;
+  const creditM = Math.min(due, ceiling);
   return {
-    creditM: input.active ? Math.min(added, ceiling) : 0,
+    creditM,
     leg: input.leg,
-    seenM: Math.max(input.seenM, reported),
+    seenM,
+    owedM: Math.min(MAX_OWED_TRAVEL_M, due - creditM),
   };
 }
 

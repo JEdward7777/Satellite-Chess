@@ -727,15 +727,24 @@ export class GameDO extends DurableObject<Env> {
     const now = Date.now();
     const [row] = [...this.sql.exec<{
       last_pos_at: number | null;
+      last_relay_at: number | null;
       in_start_zone: number;
       travel_leg: string | null;
       travel_seen_m: number;
+      travel_owed_m: number;
     }>(
-      `SELECT last_pos_at, in_start_zone, travel_leg, travel_seen_m
+      `SELECT last_pos_at, last_relay_at, in_start_zone, travel_leg, travel_seen_m, travel_owed_m
          FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
-    if (row?.last_pos_at != null && now - row.last_pos_at < POS_SERVER_MIN_INTERVAL_MS) {
+    // Measured from the last accepted *relay*, not from the last fix of any
+    // kind (O-39). A lift, a place or a ready moves `last_pos_at`, and a relay
+    // inside 1.5 s of one used to be dropped whole, leaving the opponent's dot
+    // a few meters stale until the player next moved far enough to send
+    // another. The distance window still runs from `last_pos_at`
+    // (`travelFrom`), so accepting that relay cannot pay the same seconds
+    // twice; what its short window clips is owed, not lost (O-36).
+    if (row?.last_relay_at != null && now - row.last_relay_at < POS_SERVER_MIN_INTERVAL_MS) {
       return;
     }
 
@@ -745,19 +754,21 @@ export class GameDO extends DurableObject<Env> {
 
     this.sql.exec(
       `UPDATE presence
-          SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?,
+          SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?, last_relay_at = ?,
               last_seen_at = ?, in_start_zone = ?,
-              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?
         WHERE player_id = ?`,
       msg.lat,
       msg.lng,
       msg.acc,
       now,
       now,
+      now,
       zone ? 1 : 0,
       travel.creditM,
       travel.leg,
       travel.seenM,
+      travel.owedM,
       who.playerId,
     );
 
@@ -808,11 +819,16 @@ export class GameDO extends DurableObject<Env> {
    * during the opponent's think harmless rather than a hole.
    */
   private travelFrom(
-    row: { last_pos_at: number | null; travel_leg: string | null; travel_seen_m: number } | null,
+    row: {
+      last_pos_at: number | null;
+      travel_leg: string | null;
+      travel_seen_m: number;
+      travel_owed_m: number;
+    } | null,
     game: GameRow | null,
     report: TravelReport,
     now: number,
-  ): { creditM: number; leg: string | null; seenM: number } {
+  ): { creditM: number; leg: string | null; seenM: number; owedM: number } {
     // **A finished game's distance is frozen at the result** (decision 0041).
     // Re-opening a finished game's board still relays, and `creditTravel`
     // would store a new leg and baseline even while paying nothing — which
@@ -823,7 +839,12 @@ export class GameDO extends DurableObject<Env> {
     // Only `finished`: staging and a suspension still need their baselines
     // moved, which is how the walk to the back rank is kept out.
     if (game?.status === 'finished') {
-      return { creditM: 0, leg: row?.travel_leg ?? null, seenM: row?.travel_seen_m ?? 0 };
+      return {
+        creditM: 0,
+        leg: row?.travel_leg ?? null,
+        seenM: row?.travel_seen_m ?? 0,
+        owedM: row?.travel_owed_m ?? 0,
+      };
     }
     const budgetFrom = Math.max(row?.last_pos_at ?? 0, game?.last_clock_start_at ?? 0);
     return creditTravel({
@@ -831,6 +852,7 @@ export class GameDO extends DurableObject<Env> {
       reportedM: report.travelM,
       storedLeg: row?.travel_leg ?? null,
       seenM: row?.travel_seen_m ?? 0,
+      owedM: row?.travel_owed_m ?? 0,
       active: game?.status === 'active',
       budgetMs: budgetFrom === 0 ? null : Math.max(0, now - budgetFrom),
     });
@@ -870,8 +892,9 @@ export class GameDO extends DurableObject<Env> {
       last_pos_at: number | null;
       travel_leg: string | null;
       travel_seen_m: number;
+      travel_owed_m: number;
     }>(
-      `SELECT last_pos_at, travel_leg, travel_seen_m FROM presence WHERE player_id = ?`,
+      `SELECT last_pos_at, travel_leg, travel_seen_m, travel_owed_m FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
     if (row === undefined) return;
@@ -881,7 +904,7 @@ export class GameDO extends DurableObject<Env> {
     this.sql.exec(
       `UPDATE presence
           SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?, last_seen_at = ?,
-              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?
         WHERE player_id = ?`,
       pos.lat,
       pos.lng,
@@ -891,6 +914,7 @@ export class GameDO extends DurableObject<Env> {
       travel.creditM,
       travel.leg,
       travel.seenM,
+      travel.owedM,
       who.playerId,
     );
   }
@@ -1013,6 +1037,10 @@ export class GameDO extends DurableObject<Env> {
       MAX_TRAVEL_LEG_CHARS,
       String(now),
     );
+    // And nothing owed from an earlier active period is paid in this one (O-36,
+    // decision 0047). `creditTravel` already drops it on any report made while
+    // not active; this covers a pause and a resume with no report in between.
+    this.sql.exec(`UPDATE presence SET travel_owed_m = 0`);
     await this.armFlag();
     // Being played: nothing may collect it now (decision 0042).
     await this.armCollection(now);

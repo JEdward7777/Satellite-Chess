@@ -454,22 +454,6 @@ then the living harness docs. Then **re-run all eleven drivers from an empty
 `.wrangler`** (O-19) — `check-invite.mjs` is the one that would catch a broken
 `data-colour`.
 
-### O-25 — A deferred automatic `ready` waits for the next GPS fix, not for the clock
-**Spotted:** 2026-09-18, review of phase 7 (optional note)
-**Why it matters:** `considerReady` in `views/game.ts` runs on a GPS fix or a
-network event, never on the 1 s paint ticker. After an in-zone relay, `AutoReady`
-gives the server `RELAY_CONFIRM_MS` (3 s) to confirm and then sends `ready`, but
-only on the next call. A phone standing still still gets a fix about once a
-second, so in practice this costs at most a second. A browser that throttles or
-stops `watchPosition` while the handset is motionless, though (some do when
-backgrounded or when there is no movement), would hold the `ready` until the
-player moves, which is the stranded "checking with the server…" state that fix
-was meant to remove.
-**Fix, when wanted:** call `considerReady(false)` from the existing 1 s `ticker`
-as well. It is idempotent and does nothing almost every time.
-**Not doing yet because:** not seen. The simulator emits a fix every second, and
-no real phone has run the handshake yet (stage 10.1).
-
 ### O-26 — A refused automatic `ready` keeps the latch for the rest of the episode
 **Spotted:** 2026-09-18, review of phase 7
 **Why it matters:** `AutoReady` latches when it sends, whatever the answer. If the
@@ -534,16 +518,6 @@ Not a one-liner, because the two types differ (`Storage` vs `IdentityStorage |
 null`) and the signed-in path wants the same treatment.
 **Not doing yet because:** not seen on any browser this game targets; found by
 reading.
-
-### O-29 — An expired dev token offline reads "It ends within the hour"
-**Spotted:** 2026-09-18, review of stages 2.2.3–2.2.5
-**Why it matters:** `expiryHtml` in `views/account.ts` passes `expiresAt - now`
-to `timeUntil` for a dev account, and a remembered dev token that has already
-expired gives a negative number, which `timeUntil` renders as "within the hour".
-Dev only: a Google session in that state gets the "probably run out" notice
-instead, and dev tokens are never renewed so nobody relies on the line.
-**Fix, when wanted:** say "It has ended" when the difference is not positive.
-**Not doing yet because:** it only affects the local test account, offline.
 
 ### O-30 — Piece outlines are the opponent's color, and a bishop can vanish
 **Spotted:** 2026-09-20, the owner's first complete games outdoors (stage 10.1)
@@ -650,23 +624,6 @@ real rows exist.
 **Not doing yet because:** it cannot happen today, and inventing the composite
 key now would complicate every read for a case the seat rules already exclude.
 
-### O-36 — A relay landing just after a ply loses the meters the cap clips
-**Spotted:** 2026-09-22, stage 2.3.5 review
-**Why it matters:** `creditTravel`'s ceiling is `MAX_PLAUSIBLE_SPEED_MPS` × the
-window since the later of the player's last report and the last clock start, and
-`last_clock_start_at` is re-stamped on every move. So a report arriving a few
-hundred milliseconds after a ply is credited at most a sprint for those
-milliseconds, and the rest of what that leg had genuinely added is not carried
-forward — `seenM` moves to what was reported either way. It is small (the walking
-of one relay interval, at most), always in the under-counting direction, and it
-stacks with the two hops decision 0040 already concedes.
-**Fix, when wanted:** carry the clipped remainder forward instead of dropping it
-— keep it in the presence row and pay it out under the next window's ceiling.
-That turns the cap into a rate limiter rather than a discarder, and it should be
-done with O-03's server-side lower bound rather than on its own.
-**Not doing yet because:** the whole residue is 1–3% of a game and one way; the
-fix adds a column and a second accumulator to save a fraction of that.
-
 ### O-37 — A live link, so friends can watch the game from the sofa
 **Spotted:** 2026-09-23, the owner's wish list after the first outdoor games
 **Why it matters:** A spectator link is the one feature that lets somebody who is
@@ -737,23 +694,6 @@ carry — but that hides the counter's shortfall behind the floor on stop-and-st
 games rather than fixing it. The counter is still the problem this observation is
 about.
 
-### O-39 — After a lift or a place, the next relay can be throttled and the dot goes stale
-**Spotted:** 2026-09-23, round 2 review of stages 8.1/8.2
-**Why it matters:** since decision 0041 a lift or place with a counter moves
-`last_pos_at` (so the travel windows never overlap), and `onPos` throttles against
-that same column with `POS_SERVER_MIN_INTERVAL_MS` (1.5 s). A relay arriving
-inside 1.5 s of a lift or place — including a *refused* one — is dropped whole, so
-the opponent's dot can sit a few meters stale until the player moves far enough
-to send another. The distance is not lost (the next accepted report credits the
-difference), and AutoReady at worst waits for its 3 s fallback.
-**Fix, when wanted:** throttle `onPos` against the time of the last *relay*
-rather than the last fix of any kind — a separate column, or `last_seen_at` if
-its other readers allow it — while `travelFrom` keeps measuring its window from
-`last_pos_at`.
-**Not doing yet because:** cosmetic and short-lived, and it wants a schema column
-or a careful read of `last_seen_at`'s other uses, which is more than a review
-round should carry.
-
 ### O-40 — Empty Durable Objects that the code before 8.4 left behind still exist
 **Spotted:** 2026-09-23, stage 8.4 (decision 0042)
 **Why it matters:** until 8.4, `GameDO` applied its schema on every wake, and
@@ -819,27 +759,6 @@ own carry (known locally) and to the opponent's (the server knows the lift, so
 show it on their relayed dot). No new traffic.
 **Not doing yet because:** a later phase; behind the current run.
 
-### O-45 — `game-do.test.ts` "repeats the last relayed position in the snapshot" is flaky
-**Spotted:** 2026-09-24, the O-33 review
-**Why it matters:** the test at `test/worker/game-do.test.ts:478` does not wait
-for the `pos` message to be handled before black connects, so it races. It
-failed once in two runs in review. It predates O-33. A flaky test teaches
-people to ignore red.
-**Fix, when wanted:** wait for evidence the relay was stored (the opponent's
-`opp` frame, or a read of the presence row) before connecting black.
-**Not doing yet because:** out of O-33's scope.
-
-### O-46 — Zoomed in, the file and rank labels are off screen
-**Spotted:** 2026-09-24, stage 10.8
-**Why it matters:** the coordinates are drawn only along the board's own near
-edge and left edge. Zoomed into the middle of the board, neither edge is in
-view, so nothing on screen names a square. The "On" readout still does, and so
-does the whole board, one tap on "Whole board" away.
-**Fix, when wanted:** while zoomed, draw the file letters and rank numbers
-along the canvas edges for the squares in view.
-**Not doing yet because:** it is not yet known whether players miss them.
-`10.8.4` should say.
-
 ### O-47 — `user-scalable=no` blocks accessibility zoom on every screen
 **Spotted:** 2026-09-24, stage 10.8
 **Why it matters:** `public/index.html` sets `user-scalable=no` so a pinch
@@ -854,13 +773,3 @@ turn out to matter.
 **Not doing yet because:** it changes every screen, and the trade-off
 (accessibility against a stray zoom mid-game) is the owner's call. Stage 10.8
 left the meta alone.
-
-### O-48 — The board opens scrolled halfway off the top on a phone
-**Spotted:** 2026-09-24, `scripts/check-zoom.mjs` at 390 x 844
-**Why it matters:** the page keeps its scroll position when one screen
-replaces another. The invite screen is taller than a phone, so after "Open the
-board" the game screen opened 231 px down, with most of the board above the
-top of the screen. Nothing in the client calls `scrollTo`.
-**Fix, when wanted:** `scrollTo(0, 0)` in `swap` in `client/main.ts`.
-**Not doing yet because:** it predates stage 10.8 and is outside its scope.
-The driver works around it.

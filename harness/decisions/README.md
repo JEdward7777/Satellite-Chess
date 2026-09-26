@@ -75,10 +75,11 @@ The conditions under which this should be reopened.
 | [0037](0037-the-phone-says-ready-once-and-the-evidence-ends-with-the-socket.md) | The phone says `ready` once per arrival; a back rank is forgotten when the socket goes | accepted |
 | [0038](0038-a-cold-start-finds-its-game-through-the-index.md) | A cold start finds its game through the game index, not `localStorage` | accepted |
 | [0039](0039-the-phone-remembers-who-it-is-but-never-decides-with-it.md) | The phone remembers who it is, but never decides anything with it | accepted |
-| [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041) |
+| [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041; rule 6 by 0047) |
 | [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) | A game leaves as one PGN, in board space, fetched at mount and shared on tap | accepted (amends 0040 rules 6, 7) |
 | [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |
 | [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |
 | [0044](0044-the-clock-never-shows-more-time-than-the-player-has.md) | The clock never shows more time than the player has | accepted |
 | [0045](0045-pieces-are-the-standard-two-sided-set.md) | Pieces are the standard two-sided set (cburnett, BSD), on mid-tone squares; team discs behind a switch | accepted (supersedes 0011) |
 | [0046](0046-the-board-zooms-in-screen-space-and-a-drag-is-never-a-tap.md) | The board zooms in screen space (pinch, pan, follow, "Whole board"), and a drag is never a tap | accepted |
+| [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) | The sprint cap delays rather than discards, and the relay limit counts relays | accepted (amends 0040 rule 6) |

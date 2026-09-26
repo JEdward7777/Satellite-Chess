@@ -885,7 +885,18 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
   // The notice has to expire on its own, so the screen cannot only repaint when
   // something arrives.
-  const ticker = setInterval(paint, 1_000);
+  //
+  // And a deferred `ready` has to go on the clock, not on the next fix (O-25).
+  // After an in-zone relay `AutoReady` waits `RELAY_CONFIRM_MS` for the server
+  // to agree, and then sends — but only when asked. A browser that stops
+  // `watchPosition` for a handset standing still would otherwise hold it until
+  // the player moved. Asking once a second sends nothing almost every time: the
+  // latch still allows one `ready` per episode, refused or not (O-26), and the
+  // ten-second floor still spaces the repeats.
+  const ticker = setInterval(() => {
+    considerReady(false);
+    paint();
+  }, 1_000);
   // The clock gets its own, faster one. See `paintClock`.
   const clockTicker = setInterval(paintClock, CLOCK_FRAME_MS);
   // Tapping either clock switches the debug readout (O-31). Nothing else is

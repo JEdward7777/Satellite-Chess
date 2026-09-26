@@ -16,7 +16,7 @@ import {
   whoLabel,
   writeCachedIdentity,
 } from '../src/client/account.js';
-import { signOutFailureWords } from '../src/client/views/account.js';
+import { devExpiryWords, signOutFailureWords } from '../src/client/views/account.js';
 import { createMemoryJournal } from '../src/client/field-sync.js';
 
 /**
@@ -254,6 +254,13 @@ describe('words for time and for people', () => {
     expect(timeUntil(HOUR)).toBe('in 1 hour');
     expect(timeUntil(47 * HOUR)).toBe('in 47 hours');
     expect(timeUntil(3 * DAY + HOUR)).toBe('in 3 days');
+  });
+
+  it('says a dev account has ended rather than "within the hour" once it has (O-29)', () => {
+    expect(devExpiryWords(3 * HOUR)).toBe('It ends in 3 hours and is never renewed.');
+    expect(devExpiryWords(30 * 60 * 1000)).toBe('It ends within the hour and is never renewed.');
+    expect(devExpiryWords(0)).toBe('It has ended, and is never renewed.');
+    expect(devExpiryWords(-DAY)).toBe('It has ended, and is never renewed.');
   });
 
   it('counts up coarsely', () => {

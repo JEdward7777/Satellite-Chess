@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveGeometry, makeFieldSpec, toBoardPoint } from '../src/shared/field.js';
+import { boardIndexOf, boardPointOfIndex, deriveGeometry, makeFieldSpec, toBoardPoint } from '../src/shared/field.js';
 import { fromLocal } from '../src/shared/geo.js';
+import { type ZoomView, zoomProjection } from '../src/client/board-zoom.js';
 import {
+  type CoordinateLabel,
+  coordinateLabels,
   northOnScreen,
   projectionFor,
   squareUnderFoot,
@@ -131,4 +134,105 @@ describe('startingPieces', () => {
     expect(pieces.a2).toEqual({ type: 'p', color: 'w' });
     expect(pieces.e4).toBeUndefined();
   });
+});
+
+describe('coordinateLabels (O-46)', () => {
+  const FONT = 12;
+  /** 120 x 24 m, the 5:1 field zoom exists for. */
+  const THIN = deriveGeometry(
+    makeFieldSpec('thin', {
+      a1: A1,
+      h1: fromLocal(A1, { e: 7 * 15, n: 0 }),
+      a8: fromLocal(A1, { e: 0, n: 7 * 3 }),
+      h8: fromLocal(A1, { e: 7 * 15, n: 7 * 3 }),
+    }),
+  );
+
+  /** Zoomed `k` times about the canvas centre. */
+  const about = (k: number): ZoomView => ({ k, tx: (SIZE / 2) * (1 - k), ty: (SIZE / 2) * (1 - k) });
+
+  function labels(geo: typeof EAST, orientation: 'w' | 'b', view: ZoomView | null) {
+    const base = projectionFor(geo, orientation, SIZE, SIZE);
+    const projection = view ? zoomProjection(base, view) : base;
+    const placed = coordinateLabels(geo, orientation, projection, {
+      width: SIZE,
+      height: SIZE,
+      fontPx: FONT,
+      zoomed: view !== null && view.k > 1,
+    });
+    return { placed, projection };
+  }
+
+  const where = (placed: CoordinateLabel[], corner: CoordinateLabel['corner']) =>
+    placed.filter((l) => l.corner === corner).map((l) => `${l.text}@${l.square.file},${l.square.rank}`);
+
+  /** Whether a label's text, anchored where it is, lies wholly on the canvas. */
+  const fits = (corner: CoordinateLabel['corner'], x: number, y: number) => {
+    const left = corner === 'bottom-right' ? x - FONT : x;
+    const top = corner === 'bottom-right' ? y - FONT : y;
+    return left >= 0 && top >= 0 && left + FONT <= SIZE && top + FONT <= SIZE;
+  };
+
+  for (const orientation of ['w', 'b'] as const) {
+    const near = orientation === 'w' ? 0 : 7;
+
+    it(`puts them where they always were on the whole board, for ${orientation}`, () => {
+      const { placed } = labels(EAST, orientation, null);
+      expect(where(placed, 'bottom-right')).toEqual(
+        [...'abcdefgh'].map((letter, file) => `${letter}@${file},${near}`),
+      );
+      expect(where(placed, 'top-left')).toEqual(
+        [1, 2, 3, 4, 5, 6, 7, 8].map((n, rank) => `${n}@${near},${rank}`),
+      );
+      // A little zoom that leaves both edges in view moves none of them.
+      const slight = labels(EAST, orientation, about(1.05)).placed;
+      expect(where(slight, 'bottom-right')).toEqual(where(placed, 'bottom-right'));
+      expect(where(slight, 'top-left')).toEqual(where(placed, 'top-left'));
+    });
+
+    for (const [name, geo] of [
+      ['square', EAST],
+      ['5:1', THIN],
+    ] as const) {
+      it(`keeps them on screen, in the corners of whole cells, zoomed into the middle (${name}, ${orientation})`, () => {
+        const { placed, projection } = labels(geo, orientation, about(4));
+        expect(placed.some((l) => l.corner === 'bottom-right')).toBe(true);
+        expect(placed.some((l) => l.corner === 'top-left')).toBe(true);
+        // Zoomed into the middle, the rank numbers have left the left edge, and
+        // on the square board the file letters the near one too. (Across its
+        // short way the 5:1 board still fits at 4x, so its near rank is in view.)
+        const moved = placed.filter((l) =>
+          l.corner === 'top-left' ? l.square.file !== near : name === '5:1' || l.square.rank !== near,
+        );
+        expect(moved).toEqual(placed);
+        if (name === '5:1') {
+          expect(placed.filter((l) => l.corner === 'bottom-right').every((l) => l.square.rank === near)).toBe(true);
+        }
+        for (const label of placed) {
+          expect(fits(label.corner, label.x, label.y)).toBe(true);
+          // Inside its own cell, near the corner the whole board uses, so it
+          // covers no more of a piece than a near-rank label always has.
+          const bi = boardIndexOf(geo, projection.toBoard(label.x, label.y));
+          expect(Math.round(bi.file) + 0).toBe(label.square.file);
+          expect(Math.round(bi.rank) + 0).toBe(label.square.rank);
+          expect(Math.abs(bi.file - label.square.file)).toBeGreaterThan(0.25);
+          expect(Math.abs(bi.rank - label.square.rank)).toBeGreaterThan(0.25);
+          if (label.corner === 'bottom-right') expect(label.text).toBe('abcdefgh'[label.square.file]);
+          else expect(label.text).toBe(String(label.square.rank + 1));
+
+          // And it is the nearest to the player's own edge (files) or the
+          // leftmost (ranks): the same corner one cell further out is off.
+          const out = orientation === 'w' ? -1 : 1;
+          const next =
+            label.corner === 'bottom-right'
+              ? { file: label.square.file, rank: label.square.rank + out }
+              : { file: label.square.file + out, rank: label.square.rank };
+          if (next.file < 0 || next.file > 7 || next.rank < 0 || next.rank > 7) continue;
+          const from = projection.toScreen(boardPointOfIndex(geo, label.square));
+          const to = projection.toScreen(boardPointOfIndex(geo, next));
+          expect(fits(label.corner, label.x + to.x - from.x, label.y + to.y - from.y)).toBe(false);
+        }
+      });
+    }
+  }
 });

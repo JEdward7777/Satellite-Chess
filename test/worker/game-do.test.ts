@@ -485,6 +485,19 @@ describe('position relay', () => {
     await white.next((m) => m.t === 'state');
     const pos = squareCentreLatLng(GEO, fromSquare('e2'));
     white.ws.send(JSON.stringify({ t: 'pos', lat: pos.lat, lng: pos.lng, acc: 4 }));
+    // Wait until the relay is stored (O-45). A send returns before the object
+    // has handled it, so black could otherwise connect first and get a snapshot
+    // that has not seen the relay yet — which failed about one run in two.
+    for (let tries = 0; ; tries++) {
+      const stored = await runInDurableObject(stub, (_instance, state) =>
+        [...state.storage.sql.exec<{ last_lat: number | null }>(
+          `SELECT last_lat FROM presence WHERE color = 'w'`,
+        )][0]?.last_lat ?? null,
+      );
+      if (stored !== null) break;
+      if (tries >= 100) throw new Error('the relay was never stored');
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
     // Black arrives afterwards, so the relay is already history. Without the
     // snapshot carrying it, black has nothing to draw until white next moves —

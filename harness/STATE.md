@@ -3,27 +3,30 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Nothing is in flight.** The four-phase pipeline run of
-2026-09-24/25 is finished: O-33 (a poor fix no longer buys reach, `10.5`),
-O-31 (the clock no longer jumps up, `10.6`), O-30 (the standard piece set and
-a last-move tint, `10.7`), and **pinch zoom** (`10.8`, decision 0046: pinch,
-pan, follow your dot, "Whole board"; a drag is never a tap). Each was
-reviewed until clean, committed and pushed (`2026-09-25-01` is the last).
+**Tree state**: clean. **Run 2 of the pipeline is under way** (six phases,
+`harness/pipeline/ratchet.md`). **Phase 1 is done**: stage `10.9`, a batch of
+seven small fixes from the observation list, reviewed clean in one round,
+committed and pushed (`2026-09-25-02`). It closed O-48 (the board opens at the
+top), O-46 (labels stay in view when zoomed), O-45 (a flaky test), O-29 (an
+expired dev account says so), O-25 (a deferred `ready` goes on the clock),
+O-39 (the relay limit counts relays) and O-36 (clipped meters are owed, not
+lost). Decision 0047 covers the last two, with schema 6 adding two `presence`
+columns.
 **Active stages**: `10.5`, `10.6`, `10.7` and `10.8`, each waiting only on a
 real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`).
-**Next action**: the next outdoor game with the checklist below. A second
-pipeline run (O-44, 8.3 replay, 8.5 share card and head-to-head, O-21 units,
-and a batch of small fixes) is under way.
+**Next action**: phase 2 of run 2, **O-44** (the carried piece drawn on the
+dot). Then O-21 (feet and miles), `8.3` (replay), `8.5.1`–`8.5.3` (the share
+card) and `8.5.4` (the head-to-head record). The coordinator deploys after
+each clean phase.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
-2026-09-25, version `58b81889`, at `53d684a` — everything up to and including
-`10.8`. That deploy created the `ARCHIVE` KV namespace; its id
+2026-09-25, version `58b81889`, at `53d684a`. That is everything up to and
+including `10.8`, and **not yet `10.9`**. That deploy created the `ARCHIVE` KV namespace; its id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The operator
 has authorized deploys during this run once a phase is reviewed clean.
-**1088 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-25
-`drive-game`, `check-review`, `check-clock`, `check-record` and the new
-`check-zoom` (real two-finger touch) passed. **Run drivers from a new,
-uniquely named `--persist-to`** (O-19). Every driver takes
-`--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
+**1106 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-25
+`drive-game`, `check-resume`, `check-zoom`, `check-record` and `check-review`
+passed. **Run drivers from a new, uniquely named `--persist-to`** (O-19). Every
+driver takes `--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
 `pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is no
 longer a tap (0046).
 
@@ -81,11 +84,17 @@ A phone's counter runs for the life of the *page*, so every report carries its
 reports, while `active`, capped at a sprint over a window that cannot be banked
 — and every leg is re-baselined at the transition into `active`. **Relays, lifts
 and places all carry the counter**, through one function (`GameDO.travelFrom`),
-so the carry that ends a game is counted (decision 0041). The figure stored and
+so the carry that ends a game is counted (decision 0041). **The cap delays; it
+does not discard** (decision 0047): what it clips is owed (`travel_owed_m`, at
+most 30 m) and paid under later windows' ceilings. It is dropped outside active
+play and at every start and resume, and never paid after the result. So the
+total is still at most a sprint for the time the game was active, and never
+more than the phone reported. The figure stored and
 shown is **floored by the player's own carries** — the larger, never the sum —
 and **frozen once the game is finished**. `travel_m` is nullable, and NULL means
 *unmeasured*: the owner's 2026-09-20 games stay unmeasured however often they are
-re-opened. The server now loses a steady 12–14 m of what a phone counts; the
+re-opened. The residue the server loses against the phone was a steady 12–14 m
+before 0047. It has not been re-measured since, because `check-record`'s figure is floored by the carries. The
 bigger error is the phone's counter itself, which strands up to a hop at every
 stop (**O-38**).
 
@@ -97,8 +106,9 @@ says `ready` by itself, once per arrival (`client/handshake.ts`). The flag
 **expires with the socket**, and a relay that flips it is followed by a snapshot
 (decision 0037). A killed phone finds its game again on home, through the game
 index (decision 0038). The rule most likely to be broken by a simplification is
-treating a sent relay as delivered. The server drops relays inside its interval
-floor, so `AutoReady` waits 3 s for confirmation and then sends `ready` anyway.
+treating a sent relay as delivered. The server drops a relay inside 1.5 s of
+the last *relay* (0047), so `AutoReady` waits 3 s for confirmation and then
+sends `ready` anyway, from the 1 s ticker if no fix arrives.
 
 ## The gate, in one paragraph
 
@@ -168,11 +178,9 @@ game-rule work.
    - sharing a `.pgn` (Android falls to the text rung);
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
-   - the handshake on real GPS (O-25, O-17).
+   - the handshake on real GPS (O-17), and zoomed labels (O-46).
 3. **Next candidates:**
    - **O-38**, the distance counter, once there are real-handset traces.
      **O-12** is still open too.
-   - **O-44**, the carried piece drawn on the dot.
-   - **O-48**, the board opening scrolled 231 px down after the invite
-     screen: a one-line `scrollTo(0, 0)` in `swap`.
+   - **O-44**, the carried piece drawn on the dot: phase 2 of run 2, next.
    - **O-47**, `user-scalable=no` blocking accessibility zoom: the owner's call.

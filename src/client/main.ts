@@ -249,11 +249,20 @@ async function boot(): Promise<void> {
   let refreshHome: (() => void) | null = null;
   fieldSync.onChange(() => refreshHome?.());
 
-  /** Only one screen is mounted at a time, and each cleans up after itself. */
+  /**
+   * Only one screen is mounted at a time, and each cleans up after itself.
+   *
+   * A new screen opens at the top (O-48). The page is the scroller, so it kept
+   * the last screen's scroll: the invite screen is taller than a phone, and the
+   * board opened a couple of hundred pixels down with most of it off the top.
+   * `keepScroll` is for a screen redrawing itself in place — home, when a sync
+   * changes the field list under somebody scrolled down it.
+   */
   let teardown: (() => void) | null = null;
-  const swap = (mount: () => () => void) => {
+  const swap = (mount: () => () => void, keepScroll = false) => {
     teardown?.();
     teardown = mount();
+    if (!keepScroll) window.scrollTo(0, 0);
   };
 
   /**
@@ -264,7 +273,7 @@ async function boot(): Promise<void> {
    * stage 6.3 it is not: a phone that has never walked out a board can join a game
    * on someone else's field, and it needs a screen with a code box on it to do so.
    */
-  const showHome = async () => {
+  const showHome = async (keepScroll = false) => {
     // The URL keeps whatever brought us here, so a reload from the board resumes
     // the game. Home is not that game, and a reload here should not re-join one.
     forgetDeepLink();
@@ -290,12 +299,12 @@ async function boot(): Promise<void> {
         onScan: () => showScan(),
         onTidy: () => showTidy(myGames),
       });
-      refreshHome = () => void showHome();
+      refreshHome = () => void showHome(true);
       return () => {
         refreshHome = null;
         teardownHome();
       };
-    });
+    }, keepScroll);
   };
 
   /**

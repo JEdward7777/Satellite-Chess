@@ -24,7 +24,7 @@ import {
   toBoardPoint,
 } from '../shared/field.js';
 import type { LatLng } from '../shared/geo.js';
-import { type Rect, type ZoomFrame, type ZoomView, zoomProjection } from './board-zoom.js';
+import { type Rect, type ZoomFrame, type ZoomView, isZoomed, zoomProjection } from './board-zoom.js';
 import { type PieceLook, drawPiece } from './pieces.js';
 import {
   type Color,
@@ -316,7 +316,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   // Over the pieces, both. The art fills most of its cell (decision 0045), so a
   // coordinate or a capture's destination dot drawn underneath would be hidden
   // by the very piece it is about.
-  drawCoordinates(ctx, view, projection);
+  drawCoordinates(ctx, view, projection, width, height);
   drawDestinations(ctx, view, projection, here);
   drawOpponent(ctx, view, projection);
   if (here) drawPlayer(ctx, view, projection, here);
@@ -440,65 +440,140 @@ function drawSquares(
  * field a cell is five times wider than it is tall: a label sized from the
  * mean cell was as tall as the whole square and sat on the a-file and
  * rank-1 pieces. In the corner of a long cell there is room beside the piece.
+ *
+ * Zoomed in, the near edge and the left edge are usually off screen, so each
+ * label moves to the nearest cell of its file or rank that is (O-46) — see
+ * {@link coordinateLabels}.
  */
 function drawCoordinates(
   ctx: CanvasRenderingContext2D,
   view: BoardView,
   projection: Projection,
+  width: number,
+  height: number,
 ): void {
   const box = pieceBoxPx(view.geo, projection);
   const fontPx = Math.max(8, Math.min(14, box * 0.24));
   ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
   ctx.lineJoin = 'round';
-  const nearRank = view.orientation === 'w' ? 0 : 7;
-  const leftFile = view.orientation === 'w' ? 0 : 7;
-  for (let i = 0; i < 8; i++) {
-    const fileSquare = { file: i, rank: nearRank };
-    drawLabel(ctx, view, projection, fileSquare, toSquare(i, nearRank)[0], 'bottom-right', fontPx);
-    const rankSquare = { file: leftFile, rank: i };
-    drawLabel(ctx, view, projection, rankSquare, String(i + 1), 'top-left', fontPx);
-  }
+  const zoomed = view.zoom ? isZoomed(view.zoom) : false;
+  const labels = coordinateLabels(view.geo, view.orientation, projection, {
+    width,
+    height,
+    fontPx,
+    zoomed,
+  });
+  for (const label of labels) drawLabel(ctx, label, fontPx);
+}
+
+/** One coordinate label, placed: which cell, which corner, and where on screen. */
+export interface CoordinateLabel {
+  square: FileRank;
+  text: string;
+  corner: 'bottom-right' | 'top-left';
+  x: number;
+  y: number;
 }
 
 /**
- * One label, anchored just inside a corner of its cell as the player sees it.
+ * Where the file letters and rank numbers go (O-46).
+ *
+ * Whole board: the file letters in the near rank's cells and the rank numbers
+ * in the left file's, exactly as they always were. **Zoomed**, each file's
+ * letter goes in the nearest of that file's cells, counting up from the
+ * player's own edge, whose labelled corner is on the canvas; each rank's number
+ * likewise in the leftmost such cell of its rank. So they sit along the bottom
+ * and the left of what is in view, and a file or rank with nothing in view is
+ * not labelled.
+ *
+ * A label only ever moves to **the same corner of another cell**, at the same
+ * size, and never to a point pinned at the canvas edge. A cell cut in half by
+ * the edge of the screen has its piece drawn right up to that edge, so a
+ * label pinned there would sit on the piece's body; in the corner of a whole
+ * cell it covers no more of a piece than the near-rank labels always have.
+ * The price is that the labels can sit up to a cell in from the edge.
+ */
+export function coordinateLabels(
+  geo: FieldGeometry,
+  orientation: Color,
+  projection: Projection,
+  canvas: { width: number; height: number; fontPx: number; zoomed: boolean },
+): CoordinateLabel[] {
+  // From the player's side: the ranks nearest first, the files leftmost first.
+  const outward = orientation === 'w' ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
+  const { width, height, fontPx, zoomed } = canvas;
+  const place = (square: FileRank, corner: CoordinateLabel['corner'], text: string) => {
+    const at = labelAnchor(geo, orientation, projection, square, corner);
+    return { square, text, corner, x: at.x, y: at.y };
+  };
+  // The text runs left and up from a bottom-right anchor, right and down from
+  // a top-left one. A glyph is at most about a font size wide.
+  const onCanvas = (label: CoordinateLabel) =>
+    label.corner === 'bottom-right'
+      ? label.x - fontPx >= 0 && label.x <= width && label.y - fontPx >= 0 && label.y <= height
+      : label.x >= 0 && label.x + fontPx <= width && label.y >= 0 && label.y + fontPx <= height;
+  const labels: CoordinateLabel[] = [];
+  for (let i = 0; i < 8; i++) {
+    const letter = toSquare(i, 0)[0];
+    const number = String(i + 1);
+    if (!zoomed) {
+      labels.push(place({ file: i, rank: outward[0] }, 'bottom-right', letter));
+      labels.push(place({ file: outward[0], rank: i }, 'top-left', number));
+      continue;
+    }
+    const fileLabel = outward
+      .map((rank) => place({ file: i, rank }, 'bottom-right', letter))
+      .find(onCanvas);
+    if (fileLabel) labels.push(fileLabel);
+    const rankLabel = outward
+      .map((file) => place({ file, rank: i }, 'top-left', number))
+      .find(onCanvas);
+    if (rankLabel) labels.push(rankLabel);
+  }
+  return labels;
+}
+
+/**
+ * A label's anchor, just inside a corner of its cell as the player sees it.
  *
  * The corner is found in board *index* space — a fraction of a square along
  * each axis — and projected, so it stays inside the cell on a rectangular or
- * skewed board, where a screen-space offset from the centre would not. The
- * text gets a thin outline in the opposite tone, so it reads over a piece or
- * a disc of either color as well as over the bare square.
+ * skewed board, where a screen-space offset from the centre would not.
  */
-function drawLabel(
-  ctx: CanvasRenderingContext2D,
-  view: BoardView,
+function labelAnchor(
+  geo: FieldGeometry,
+  orientation: Color,
   projection: Projection,
   fr: FileRank,
-  text: string,
   corner: 'bottom-right' | 'top-left',
-  fontPx: number,
-): void {
-  const { geo } = view;
+): { x: number; y: number } {
   // A couple of pixels in from each edge, as a fraction of that edge.
   const inFile = 0.5 - Math.min(0.2, 2 / (geo.fileM * projection.scale));
   const inRank = 0.5 - Math.min(0.2, 2 / (geo.rankM * projection.scale));
   // White's screen right is +file and screen down is -rank; Black's is turned.
-  const dir = view.orientation === 'w' ? 1 : -1;
+  const dir = orientation === 'w' ? 1 : -1;
   const sign = corner === 'bottom-right' ? 1 : -1;
-  const anchor = projection.toScreen(
+  return projection.toScreen(
     boardPointOfIndex(geo, {
       file: fr.file + sign * dir * inFile,
       rank: fr.rank - sign * dir * inRank,
     }),
   );
-  const light = isLightSquare(fr.file, fr.rank);
-  ctx.textAlign = corner === 'bottom-right' ? 'right' : 'left';
-  ctx.textBaseline = corner === 'bottom-right' ? 'bottom' : 'top';
+}
+
+/**
+ * One label. The text gets a thin outline in the opposite tone, so it reads
+ * over a piece or a disc of either color as well as over the bare square.
+ */
+function drawLabel(ctx: CanvasRenderingContext2D, label: CoordinateLabel, fontPx: number): void {
+  const light = isLightSquare(label.square.file, label.square.rank);
+  ctx.textAlign = label.corner === 'bottom-right' ? 'right' : 'left';
+  ctx.textBaseline = label.corner === 'bottom-right' ? 'bottom' : 'top';
   ctx.strokeStyle = light ? LABEL_HALO_ON_LIGHT : LABEL_HALO_ON_DARK;
   ctx.lineWidth = Math.max(2, fontPx * 0.28);
-  ctx.strokeText(text, anchor.x, anchor.y);
+  ctx.strokeText(label.text, label.x, label.y);
   ctx.fillStyle = light ? LABEL_ON_LIGHT : LABEL_ON_DARK;
-  ctx.fillText(text, anchor.x, anchor.y);
+  ctx.fillText(label.text, label.x, label.y);
 }
 
 /**

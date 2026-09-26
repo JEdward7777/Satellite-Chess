@@ -169,7 +169,7 @@ function relay(ws: WebSocket, pos: { lat: number; lng: number }, travelM: number
 async function backdate(game: Game, ms: number): Promise<void> {
   await runInDurableObject(game.stub, (_instance, state) => {
     const now = Date.now();
-    state.storage.sql.exec(`UPDATE presence SET last_pos_at = ?`, now - ms);
+    state.storage.sql.exec(`UPDATE presence SET last_pos_at = ?, last_relay_at = ?`, now - ms, now - ms);
     state.storage.sql.exec(
       `UPDATE game SET last_clock_start_at = ? WHERE id = 1 AND last_clock_start_at IS NOT NULL`,
       now - ms,
@@ -504,6 +504,24 @@ describe('a game that predates the distance columns', () => {
   });
 });
 
+describe('a game that predates schema 6 (decision 0047)', () => {
+  it('gains an empty owed remainder and relay stamp, and keeps its distance', async () => {
+    const game = await activeGame();
+    const row = await runInDurableObject(game.stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec(`ALTER TABLE presence DROP COLUMN travel_owed_m`);
+      sql.exec(`ALTER TABLE presence DROP COLUMN last_relay_at`);
+      applySchema(sql);
+      return [
+        ...sql.exec<{ travel_m: number; travel_leg: string; travel_owed_m: number; last_relay_at: number | null }>(
+          `SELECT travel_m, travel_leg, travel_owed_m, last_relay_at FROM presence WHERE color = 'w'`,
+        ),
+      ][0];
+    });
+    expect(row).toEqual({ travel_m: 420, travel_leg: 'w-page', travel_owed_m: 0, last_relay_at: null });
+  });
+});
+
 describe('a game played before distance was measured per game', () => {
   /**
    * The case the owner's phone is actually in: games finished on the deployed
@@ -802,6 +820,35 @@ describe('the walk before play starts', () => {
     sockets.b.close();
   });
 
+  it('carries nothing owed across a pause and a resume (O-36)', async () => {
+    const { game, sockets } = await staged();
+    relay(sockets.w, squareAt(4, 0), 10, 'w-page');
+    await settle();
+    await backdate(game, 4_000);
+    relay(sockets.b, squareAt(4, 7), 10, 'b-page');
+    await settle();
+    expect(await game.stub.peek()).toMatchObject({ status: 'active' });
+
+    // Owed from play before the pause, and no report at all until the resume.
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(`UPDATE presence SET travel_owed_m = 20`);
+    });
+    sockets.w.send(JSON.stringify({ t: 'pause' }));
+    await settle();
+    sockets.w.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 0), acc: 3, ts: 0 } }));
+    sockets.b.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 7), acc: 3, ts: 0 } }));
+    await settle();
+    expect(await game.stub.peek()).toMatchObject({ status: 'active' });
+    const owed = await runInDurableObject(game.stub, (_instance, state) =>
+      [...state.storage.sql.exec<{ travel_owed_m: number }>(`SELECT travel_owed_m FROM presence`)].map(
+        (row) => row.travel_owed_m,
+      ),
+    );
+    expect(owed).toEqual([0, 0]);
+    sockets.w.close();
+    sockets.b.close();
+  });
+
   it('cannot grow the mark without bound over repeated pauses', async () => {
     const { game, sockets } = await staged();
     relay(sockets.w, squareAt(4, 0), 10, 'w-page');
@@ -961,11 +1008,21 @@ describe('the walk a move ends (decision 0041)', () => {
     expect(after.last_pos_at).toBeGreaterThan(Date.now() - 5_000);
 
     // At once, claiming a kilometre: the window since the last one is a few
-    // milliseconds, so the claim is spent without being paid.
+    // milliseconds, so the claim is not paid. Measured from the stored
+    // instants rather than assumed to be under a second, which a loaded test
+    // run does not promise. At most a relay interval's sprint of it is owed
+    // (decision 0047), to be paid only under later windows.
     await sendAndSettle(ws, { t: 'place', to: 'e5', pos: fix(4, 4), travelM: 1130, leg: 'B' });
     const burst = await travelRow(game, 'b');
-    expect(burst.travel_m - 40).toBeLessThan(12);
+    const windowS = (burst.last_pos_at! - after.last_pos_at!) / 1000;
+    expect(burst.travel_m - 40).toBeLessThanOrEqual(12 * windowS + 1e-9);
     expect(burst.travel_seen_m).toBe(1130);
+    const owed = await runInDurableObject(game.stub, (_instance, state) =>
+      [...state.storage.sql.exec<{ travel_owed_m: number }>(
+        `SELECT travel_owed_m FROM presence WHERE color = 'b'`,
+      )][0]!.travel_owed_m,
+    );
+    expect(owed).toBeLessThanOrEqual(30);
     ws.close();
   });
 
@@ -1041,6 +1098,103 @@ describe('the walk a move ends (decision 0041)', () => {
     }
     expect(black.recent[0]).toMatchObject({ result: 'win', reason: 'checkmate' });
     expect(black.totals.travelM).toBeCloseTo(380 + 45.5, 6);
+  });
+
+  /** What the relay rate limit and the owed remainder are measured by (0047). */
+  async function relayState(game: Game, color: 'w' | 'b') {
+    return runInDurableObject(game.stub, (_instance, state) =>
+      [
+        ...state.storage.sql.exec<{ last_relay_at: number | null; travel_owed_m: number; travel_m: number }>(
+          `SELECT last_relay_at, travel_owed_m, travel_m FROM presence WHERE color = ?`,
+          color,
+        ),
+      ][0]!,
+    );
+  }
+
+  it('relays a position sent straight after a lift, and still limits relays to each other (O-39)', async () => {
+    const game = await activeGame();
+    await counter(game, 'w', 'L', 100, 60_000);
+    const ws = await socketFor(game, game.white);
+    const watcher = await socketFor(game, game.black);
+    const seen: { lat: number }[] = [];
+    watcher.addEventListener('message', (event) => {
+      const msg = JSON.parse(String((event as MessageEvent).data)) as { t: string; lat: number };
+      if (msg.t === 'opp_pos') seen.push(msg);
+    });
+
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1), travelM: 130, leg: 'L' });
+    // A few hundred milliseconds after the lift moved `last_pos_at`: this
+    // used to be dropped whole, and the opponent's dot sat where it was.
+    const e3 = squareAt(4, 2);
+    relay(ws, e3, 131, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    const first = await relayState(game, 'w');
+    expect(first.last_relay_at).toBeGreaterThan(Date.now() - 5_000);
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_seen_m: 131 });
+
+    // A second relay at once is still a client ignoring the send policy.
+    // Judged only if it really did land inside 1.5 s, which a loaded test
+    // run does not promise.
+    relay(ws, squareAt(4, 3), 140, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    if (Date.now() - first.last_relay_at! < 1_500) {
+      expect((await relayState(game, 'w')).last_relay_at).toBe(first.last_relay_at);
+      expect(await travelRow(game, 'w')).toMatchObject({ travel_seen_m: 131 });
+    }
+
+    for (let i = 0; i < 40 && seen.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(seen.length).toBeGreaterThanOrEqual(1);
+    expect(seen[0]!.lat).toBeCloseTo(e3.lat, 9);
+    ws.close();
+    watcher.close();
+  });
+
+  it('owes, rather than drops, what a relay just after a place was capped by (O-36)', async () => {
+    const game = await activeGame();
+    await counter(game, 'w', 'L', 100, 60_000);
+    const ws = await socketFor(game, game.white);
+    await sendAndSettle(ws, { t: 'lift', from: 'e2', pos: fix(4, 1), travelM: 130, leg: 'L' });
+    await backdate(game, 30_000);
+    await sendAndSettle(ws, { t: 'place', to: 'e4', pos: fix(4, 3), travelM: 150, leg: 'L' });
+    expect(await travelRow(game, 'w')).toMatchObject({ travel_m: 60, travel_seen_m: 150 });
+
+    // The place re-stamped the window, and the relay behind it carries a hop
+    // the phone confirmed just after: a ceiling of milliseconds for 10 m.
+    // Pinned to no ceiling at all, so a slow test run cannot widen it.
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(`UPDATE presence SET last_pos_at = ? WHERE color = 'w'`, Date.now() + 60_000);
+    });
+    relay(ws, squareAt(4, 3), 160, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    const clipped = await relayState(game, 'w');
+    expect(clipped.travel_m).toBe(60);
+    expect(clipped.travel_owed_m).toBeCloseTo(10, 6);
+
+    // The next relay, a window later, pays it before anything of its own.
+    await backdate(game, 5_000);
+    relay(ws, squareAt(4, 4), 161, 'L');
+    await sendAndSettle(ws, { t: 'sync' });
+    expect(await relayState(game, 'w')).toMatchObject({ travel_owed_m: 0 });
+    expect((await relayState(game, 'w')).travel_m).toBeCloseTo(71, 6);
+    ws.close();
+  });
+
+  it('pays nothing owed once the game is over', async () => {
+    const game = await activeGame();
+    await runInDurableObject(game.stub, (_instance, state) => {
+      state.storage.sql.exec(`UPDATE presence SET travel_owed_m = 25, travel_seen_m = 100, travel_leg = 'w-page' WHERE color = 'w'`);
+    });
+    await resign(game, game.black);
+    const ws = await socketFor(game, game.white);
+    await backdate(game, 60_000);
+    relay(ws, squareAt(4, 1), 100, 'w-page');
+    await sendAndSettle(ws, { t: 'sync' });
+    ws.close();
+    expect((await relayState(game, 'w')).travel_m).toBe(420);
+    expect((await readRecord(game.white)).recent[0]).toMatchObject({ travelM: 420 });
   });
 });
 

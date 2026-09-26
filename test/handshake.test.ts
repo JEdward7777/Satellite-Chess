@@ -94,14 +94,29 @@ describe('AutoReady (stage 7.2.1)', () => {
 
   it('sends `ready` after all when a relayed arrival is never confirmed', () => {
     // The relay was sent but counted for nothing — the server drops a `pos`
-    // inside its interval floor, which a refused `ready` just reset. Standing
-    // still, no second relay is coming, so only `ready` can rescue this.
+    // inside its interval floor after the last one. Standing still, no second
+    // relay is coming, so only `ready` can rescue this.
     const latch = new AutoReady();
     expect(latch.decide(input({ now: 100_000, relayed: true }))).toBe(false);
     expect(latch.decide(input({ now: 100_000 + RELAY_CONFIRM_MS - 1 }))).toBe(false);
     expect(latch.decide(input({ now: 100_000 + RELAY_CONFIRM_MS }))).toBe(true);
     // And then once only.
     expect(latch.decide(input({ now: 110_000 + RELAY_CONFIRM_MS }))).toBe(false);
+  });
+
+  it('sends the deferred `ready` from a once-a-second ticker, with no fix arriving (O-25)', () => {
+    // A handset standing still whose browser has stopped `watchPosition`: the
+    // relay is the last fix there will be, and only the 1 s ticker asks again.
+    const latch = new AutoReady();
+    expect(latch.decide(input({ now: 100_000, relayed: true }))).toBe(false);
+    const sentAt: number[] = [];
+    for (let s = 1; s <= 60; s++) {
+      const now = 100_000 + s * 1000;
+      if (latch.decide(input({ now }))) sentAt.push(now);
+    }
+    // Once, at the deadline, and never again: a refused `ready` keeps the latch
+    // for the episode (O-26), so a ticker does not turn it into a retry loop.
+    expect(sentAt).toEqual([100_000 + RELAY_CONFIRM_MS]);
   });
 
   it('says nothing away from the back rank, or with no fix', () => {

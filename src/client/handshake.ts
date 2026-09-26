@@ -112,10 +112,11 @@ export class AutoReady {
       // on their back rank with a snapshot. So give it a round trip to say so.
       //
       // Not a latch: a relay can be sent and still count for nothing. The server
-      // silently drops a `pos` inside its own interval floor, which a `ready`
-      // resets too, so a player refused one meter short who steps in straight
-      // away sends a relay that vanishes — and, standing still, never another.
-      // If no snapshot has agreed by the deadline, `ready` goes after all.
+      // silently drops a `pos` inside its own interval floor after the last one
+      // (a `ready` used to reset that floor too, until O-39), and a network that
+      // bunches two relays together drops the second — which, for a player
+      // standing still, is the last there will be. If no snapshot has agreed by
+      // the deadline, `ready` goes after all.
       this.relayedAt = input.now;
       return false;
     }

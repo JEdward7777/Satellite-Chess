@@ -20,7 +20,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -142,6 +142,14 @@ const STATEMENTS = [
      -- and is credited nothing on its first report.
      travel_leg     TEXT,
      travel_seen_m  REAL    NOT NULL DEFAULT 0,
+     -- What the sprint cap clipped off a report and has not yet paid, paid
+     -- under the next report's ceiling (O-36, decision 0047). Schema 6.
+     travel_owed_m  REAL    NOT NULL DEFAULT 0,
+     -- When a pos relay was last accepted, which is what the relay's own
+     -- rate limit is measured from (O-39, decision 0047). Not last_pos_at:
+     -- a lift, a place or a ready moves that, and the relay after one was
+     -- then dropped whole. NULL until the first relay. Schema 6.
+     last_relay_at  INTEGER,
      -- Whether the server last saw this player inside their own back rank, for
      -- the start and resume handshakes (decision 0005).
      in_start_zone  INTEGER NOT NULL DEFAULT 0
@@ -274,6 +282,14 @@ function upgradePresenceTable(sql: SqlStorage): void {
   if (!columns.has('travel_leg')) sql.exec(`ALTER TABLE presence ADD COLUMN travel_leg TEXT`);
   if (!columns.has('travel_seen_m')) {
     sql.exec(`ALTER TABLE presence ADD COLUMN travel_seen_m REAL NOT NULL DEFAULT 0`);
+  }
+  // Schema 6 (decision 0047). Nothing owed (0) and no relay yet (NULL), which
+  // is what a game that had just started would hold: no relay to wait on.
+  if (!columns.has('travel_owed_m')) {
+    sql.exec(`ALTER TABLE presence ADD COLUMN travel_owed_m REAL NOT NULL DEFAULT 0`);
+  }
+  if (!columns.has('last_relay_at')) {
+    sql.exec(`ALTER TABLE presence ADD COLUMN last_relay_at INTEGER`);
   }
   if (!adding) return;
   const [game] = [...sql.exec<{ status: string }>(`SELECT status FROM game WHERE id = 1`)];
