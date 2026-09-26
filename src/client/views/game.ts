@@ -54,11 +54,14 @@ import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import { pieceLook } from '../piece-look.js';
 import { pieceSvg } from '../pieces.js';
 import {
+  type BoardView,
   type Piece,
   type PieceType,
   type Projection,
   canvasSizePx,
   drawBoard,
+  hitsPlate,
+  inHandPlate,
   piecesFromFen,
   squareUnderFoot,
   zoomFrameFor,
@@ -235,6 +238,28 @@ export function carryPiece(guidance: CarryGuidance): Piece | null {
   return { type: type as PieceType, color: guidance.color };
 }
 
+/**
+ * Where to draw the piece in hand (O-44), or null to leave it on its origin.
+ *
+ * My own carry goes with my own fix, the optimistic lift included — the
+ * prediction is a snapshot like any other, so a fresh lift is already in hand.
+ * The opponent's goes with their dot, but **only while they are connected**.
+ * A hollow dot is the last place a phone that has since gone quiet was seen,
+ * and drawing their piece there would claim they are standing there holding
+ * it; so the piece stays faint on its origin, under the dashed "lifted"
+ * outline, until they are back. Silence alone is never staleness: a connected
+ * player who has not relayed lately is standing still, and that is where they
+ * are (see `render.ts`, `opponent`). No position at all means no dot to carry.
+ */
+export function carrierPosition(
+  guidance: Pick<CarryGuidance, 'mine'>,
+  myPos: LatLng | null,
+  opponent: { pos: LatLng; connected: boolean } | null,
+): LatLng | null {
+  if (guidance.mine) return myPos;
+  return opponent?.connected ? opponent.pos : null;
+}
+
 /** What to do next while someone is carrying, in one line. */
 export function carryPrompt(guidance: CarryGuidance): string {
   if (!guidance.mine) return 'Your opponent is carrying a piece.';
@@ -285,6 +310,11 @@ export interface GameViewDeps {
 
 /** How long a rejection stays on screen before it stops being useful. */
 const ERROR_LINGER_MS = 6_000;
+/** A hint is shorter than a refusal: it answers a tap the player just made. */
+const LOCAL_NOTICE_MS = 3_000;
+/** Said when my own piece-in-hand plate is tapped (O-44), which does nothing. */
+export const PLATE_TAP_HINT =
+  'That is the piece in your hand. Tap a square to place it, or tap Put it back.';
 
 /**
  * How often the clock readout is redrawn.
@@ -353,6 +383,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let gps: GpsState = deps.gps.state;
   let net: NetState = deps.connection.state;
   let projection: Projection | null = null;
+  /** What `projection` was drawn from, so a tap can be read against the same picture. */
+  let drawnView: BoardView | null = null;
+  /** A word from this phone rather than the server, shown like a refusal. */
+  let localNotice: { text: string; at: number } | null = null;
   let errorShownAt = 0;
   let lastErrorSeen: string | null = null;
   /** A place that is waiting on the promotion picker being answered. */
@@ -452,6 +486,22 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (!carry) return null;
     return carryGuidance(geometry(), hereNow(), reachNow(), carry, myColor());
   };
+
+  /**
+   * Was this tap on the piece-in-hand plate, as last drawn? Says why nothing
+   * happened when the piece is mine, because a player tapping their own piece
+   * in its bubble meant something by it — usually "put it back".
+   */
+  function tapOnPlate(x: number, y: number): boolean {
+    if (!projection || !drawnView) return false;
+    const { width, height } = canvasSizePx(canvas);
+    if (!hitsPlate(inHandPlate(drawnView, projection, width, height), x, y)) return false;
+    if (drawnView.carry?.mine) {
+      localNotice = { text: PLATE_TAP_HINT, at: Date.now() };
+      paint();
+    }
+    return true;
+  }
 
   function squareAtPointer(x: number, y: number): Square | null {
     if (!projection) return null;
@@ -554,6 +604,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     canvas,
     controls: root.querySelector<HTMLElement>('[data-zoom-controls]'),
     onTap: (at) => {
+      // The plate beside a carrier's dot only paints (O-44): the square under
+      // it is not what anybody tapping it meant, and for my own piece that
+      // square may be a legal destination. So a tap on it is no move at all.
+      if (tapOnPlate(at.x, at.y)) return;
       const square = squareAtPointer(at.x, at.y);
       if (square) onTap(square);
     },
@@ -704,6 +758,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const carry = guidanceNow();
     const dot = opponentTrack.at(Date.now());
     const them = net.game?.players?.[myColor() === 'w' ? 'b' : 'w'] ?? null;
+    const opponent = dot ? { pos: dot.pos, connected: them?.connected ?? false } : null;
 
     // The zoom is kept in screen pixels, which mean nothing once the board is
     // turned the other way up — as it is when the snapshot first says which
@@ -716,7 +771,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const { frame, base } = zoomFrameFor(geo, myColor(), width, height);
     const view = zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null);
 
-    projection = drawBoard(canvas, {
+    drawnView = {
       geo,
       zoom: view,
       orientation: myColor(),
@@ -724,11 +779,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
-      carry,
-      opponent: dot ? { pos: dot.pos, connected: them?.connected ?? false } : null,
+      carry: carry && {
+        ...carry,
+        piece: carryPiece(carry),
+        hand: carrierPosition(carry, fix?.pos ?? null, opponent),
+      },
+      opponent,
       look: looks.get(),
       lastMove: net.game?.lastMove ?? null,
-    });
+    };
+    projection = drawBoard(canvas, drawnView);
     syncAnimator(dot?.moving ?? false);
 
     const here = fix ? toBoardPoint(geo, fix.pos) : null;
@@ -837,8 +897,19 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         errorShownAt = Date.now();
       }
       const fresh = error !== null && Date.now() - errorShownAt < ERROR_LINGER_MS;
-      notice.hidden = !fresh;
-      notice.textContent = fresh ? error!.message : '';
+      // The hint is about a piece in hand; once it is put back or placed, it
+      // is about nothing.
+      if (!net.game?.carry) localNotice = null;
+      // The newer of the two says it: a tap on the plate after a refusal is
+      // answered, and a refusal after it replaces the hint.
+      const local =
+        localNotice !== null &&
+        Date.now() - localNotice.at < LOCAL_NOTICE_MS &&
+        (!fresh || localNotice.at >= errorShownAt)
+          ? localNotice.text
+          : null;
+      notice.hidden = !fresh && local === null;
+      notice.textContent = local ?? (fresh ? error!.message : '');
     }
   }
 

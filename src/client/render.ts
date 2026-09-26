@@ -61,7 +61,20 @@ export interface BoardView {
    * sending it at lift time means the client never needs a rules engine of its
    * own just to draw dots.
    */
-  carry?: { from: Square; destinations: Square[]; mine: boolean } | null;
+  carry?: {
+    from: Square;
+    destinations: Square[];
+    mine: boolean;
+    /** What is in hand, drawn beside the carrier's dot (O-44). */
+    piece?: Piece | null;
+    /**
+     * Where the carrier is, when that is known well enough to draw the piece
+     * there: my own fix, or the opponent's dot while it is live. Null leaves
+     * the piece dimmed on its origin and nowhere else — see `carrierPosition`
+     * in `views/game.ts` for when that is.
+     */
+    hand?: LatLng | null;
+  } | null;
   /**
    * Where the opponent is, already interpolated by `client/opponent.ts`.
    *
@@ -138,6 +151,19 @@ const PLAYER_EDGE = '#0d1117';
  * moves on its own has to be identifiable at a glance from ten metres away.
  */
 const OPPONENT_DOT = '#ff4d6d';
+/** The dots for the two players, in screen pixels. */
+const DOT_RADIUS_PX = 7;
+/**
+ * The plate a piece in hand is drawn on (O-44): the light square's cream, so
+ * both colors of piece in both looks stand off it exactly as they do on a
+ * light square, and it reads over the reach tint, the grass and the dot alike.
+ */
+const IN_HAND_PLATE = '#f4efdc';
+/**
+ * A piece still on the board but in someone's hand is drawn this faint, so its
+ * square reads as "lifted" while still saying what came from it.
+ */
+const LIFTED_PIECE_ALPHA = 0.35;
 
 /**
  * How much of a cell a piece's box fills. The art has its own margin inside
@@ -320,6 +346,8 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   drawDestinations(ctx, view, projection, here);
   drawOpponent(ctx, view, projection);
   if (here) drawPlayer(ctx, view, projection, here);
+  // Last of all, so the reach circle's tint never washes over it.
+  drawInHand(ctx, view, projection, width, height);
   return projection;
 }
 
@@ -688,11 +716,135 @@ function drawPieces(
 ): void {
   const box = pieceBoxPx(view.geo, projection);
   const look = view.look ?? 'standard';
+  // The server's position still has the carried piece on its origin until it
+  // is put down; the board shows it faint there, because it is in a hand.
+  const lifted = view.carry?.from ?? null;
   for (const [square, piece] of Object.entries(view.pieces)) {
     if (!piece) continue;
     const centre = squareCentrePx(view.geo, projection, fromSquare(square));
+    if (square === lifted) {
+      ctx.save();
+      ctx.globalAlpha = LIFTED_PIECE_ALPHA;
+      drawPiece(ctx, piece, look, centre.x, centre.y, box);
+      ctx.restore();
+      continue;
+    }
     drawPiece(ctx, piece, look, centre.x, centre.y, box);
   }
+}
+
+/**
+ * A piece in hand is sized like a board piece but held between these, the way
+ * the dots are kept at screen size under the zoom: at 6x a board piece is a
+ * few hundred pixels, and one that big beside the dot would hide the squares
+ * the carrier is walking to. The floor keeps it readable on a long, thin
+ * field, whose pieces can be ten pixels across.
+ */
+const IN_HAND_MIN_PX = 22;
+const IN_HAND_MAX_PX = 44;
+
+/**
+ * Where a piece in hand goes, relative to the carrier's dot at `dot`.
+ *
+ * Held beside the dot, up and to the right, rather than on it. On the dot it
+ * would cover the square under foot — for the carrier the likeliest place to
+ * put it down — and the dot itself. Straight above it covered the next square
+ * up, which for a pawn walked forward is exactly the destination whose dot the
+ * carrier is looking for. On the diagonal, at the size below, it sits over the
+ * corner between squares and, on a phone board at 1x, clears the centre of
+ * every square round a carrier standing mid-square (its own included), so no
+ * destination dot is hidden by it there.
+ *
+ * Screen directions, whichever seat is looking, so both phones show the same
+ * gesture. It flips below or to the left when it would otherwise leave the
+ * canvas, which is where a zoomed-in player on the far edge would lose it.
+ */
+export function inHandPlacement(
+  dot: { x: number; y: number },
+  boxPx: number,
+  canvas: { width: number; height: number },
+): { x: number; y: number; size: number; plateRadius: number } {
+  const size = Math.max(IN_HAND_MIN_PX, Math.min(IN_HAND_MAX_PX, boxPx * 0.85));
+  const plateRadius = size * 0.62;
+  // Along the diagonal, so the plate's nearest edge is 2 px clear of the dot.
+  const step = (DOT_RADIUS_PX + 2 + plateRadius) / Math.SQRT2;
+  const up = dot.y - step - plateRadius >= 0;
+  const right = dot.x + step + plateRadius <= canvas.width;
+  return {
+    x: right ? dot.x + step : dot.x - step,
+    y: up ? dot.y - step : dot.y + step,
+    size,
+    plateRadius,
+  };
+}
+
+/** Where a piece in hand's plate is on screen, and how big. */
+export interface InHandPlate {
+  x: number;
+  y: number;
+  size: number;
+  plateRadius: number;
+}
+
+/**
+ * The plate a piece in hand is drawn on, as this view would draw it, or null
+ * when nothing is drawn beside a dot.
+ *
+ * One function for the drawing and for the tap path in `views/game.ts`, which
+ * must ignore a tap on the plate: the plate only paints, so a tap there would
+ * otherwise land on whatever square is underneath it — and for a player
+ * tapping "their piece" to put it back, that is a legal square and a move
+ * nobody meant (see {@link hitsPlate}). `projection` is the zoomed one, the
+ * same that maps every tap to a square.
+ */
+export function inHandPlate(
+  view: BoardView,
+  projection: Projection,
+  width: number,
+  height: number,
+): InHandPlate | null {
+  const carry = view.carry;
+  if (!carry?.piece || !carry.hand) return null;
+  const dot = projection.toScreen(toBoardPoint(view.geo, carry.hand));
+  const at = inHandPlacement(dot, pieceBoxPx(view.geo, projection), { width, height });
+  // Nothing to draw for a carrier off the canvas; the origin still says it.
+  if (at.x < -at.plateRadius || at.x > width + at.plateRadius) return null;
+  if (at.y < -at.plateRadius || at.y > height + at.plateRadius) return null;
+  return at;
+}
+
+/** Does a tap at canvas point (`x`, `y`) land on the plate, ring included? */
+export function hitsPlate(plate: InHandPlate | null, x: number, y: number): boolean {
+  if (plate === null) return false;
+  // The ring is 3 px wide, centred on the rim.
+  return Math.hypot(x - plate.x, y - plate.y) <= plate.plateRadius + 1.5;
+}
+
+/**
+ * The carried piece, travelling with whoever carries it (O-44).
+ *
+ * On a plate ringed in the carrier's color — dark for me, the opponent's red
+ * for them — so it is plain whose hand it is in without reading the HUD.
+ */
+function drawInHand(
+  ctx: CanvasRenderingContext2D,
+  view: BoardView,
+  projection: Projection,
+  width: number,
+  height: number,
+): void {
+  const carry = view.carry;
+  const at = inHandPlate(view, projection, width, height);
+  if (!carry?.piece || at === null) return;
+
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, at.plateRadius, 0, Math.PI * 2);
+  ctx.fillStyle = IN_HAND_PLATE;
+  ctx.fill();
+  ctx.strokeStyle = carry.mine ? PLAYER_EDGE : OPPONENT_DOT;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  drawPiece(ctx, carry.piece, view.look ?? 'standard', at.x, at.y, at.size);
 }
 
 function drawPlayer(
@@ -726,7 +878,7 @@ function drawPlayer(
   // No heading indicator: a phone's course is meaningless below walking pace and
   // wrong when standing still, which is most of this game.
   ctx.beginPath();
-  ctx.arc(centre.x, centre.y, 7, 0, Math.PI * 2);
+  ctx.arc(centre.x, centre.y, DOT_RADIUS_PX, 0, Math.PI * 2);
   ctx.fillStyle = PLAYER_DOT;
   ctx.fill();
   ctx.strokeStyle = PLAYER_EDGE;
@@ -752,7 +904,7 @@ function drawOpponent(
   const centre = projection.toScreen(toBoardPoint(view.geo, opponent.pos));
 
   ctx.beginPath();
-  ctx.arc(centre.x, centre.y, 7, 0, Math.PI * 2);
+  ctx.arc(centre.x, centre.y, DOT_RADIUS_PX, 0, Math.PI * 2);
   if (opponent.connected) {
     ctx.fillStyle = OPPONENT_DOT;
     ctx.fill();

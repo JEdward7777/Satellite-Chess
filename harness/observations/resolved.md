@@ -409,3 +409,18 @@ window's ceiling, and the total never exceeds what the phone reported. In
 review, a 200-report random run credited 3413 m of 4241 m reported.
 **Left open:** a counter jump of more than 30 m in the short window just after
 a lift still loses the excess. It is rare, and 0047's "revisit if" covers it.
+
+### O-44 — The carried piece should travel with the dot on the 2D board
+**Resolved:** 2026-09-26, stage 10.10 (decision 0048)
+**Outcome:** Built. While a piece is lifted it is drawn faint on its origin
+and, on a cream plate, up and to the right of the carrier's dot: mine with a
+dark ring, the opponent's with their red. The opponent's goes with their dot
+only while they are connected; a hollow dot or no dot leaves it on its origin.
+It comes from the snapshot's `carry` and the relayed dot, so **no message
+changed**. A tap on either plate is ignored (my own says to tap a square or
+"Put it back"), because it would otherwise fall through to the square
+underneath. `scripts/check-carry.mjs` drives both seats. Open until the
+real-phone look (`10.10.3`).
+**Original report:** the owner, 2026-09-24: "it would be nice if you could
+see the person walking their piece, if the piece would be dragged along with
+the dot."

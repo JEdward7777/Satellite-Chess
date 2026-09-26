@@ -83,3 +83,4 @@ The conditions under which this should be reopened.
 | [0045](0045-pieces-are-the-standard-two-sided-set.md) | Pieces are the standard two-sided set (cburnett, BSD), on mid-tone squares; team discs behind a switch | accepted (supersedes 0011) |
 | [0046](0046-the-board-zooms-in-screen-space-and-a-drag-is-never-a-tap.md) | The board zooms in screen space (pinch, pan, follow, "Whole board"), and a drag is never a tap | accepted |
 | [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) | The sprint cap delays rather than discards, and the relay limit counts relays | accepted (amends 0040 rule 6) |
+| [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted |

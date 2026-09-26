@@ -751,14 +751,6 @@ is CC0, and there are Sketchfab Staunton sets) or pieces built in code.
 - The opponent's position is only the coarse relay. Never stream GPS for it.
 **Not doing yet because:** behind the current work.
 
-### O-44 — The carried piece should travel with the dot on the 2D board (idea, later phase)
-**Spotted:** 2026-09-24, the owner's idea
-**Why it matters:** while a piece is lifted, draw it on the carrier's dot and
-dim its origin square, so the carry is visible as a carry. This applies to your
-own carry (known locally) and to the opponent's (the server knows the lift, so
-show it on their relayed dot). No new traffic.
-**Not doing yet because:** a later phase; behind the current run.
-
 ### O-47 — `user-scalable=no` blocks accessibility zoom on every screen
 **Spotted:** 2026-09-24, stage 10.8
 **Why it matters:** `public/index.html` sets `user-scalable=no` so a pinch

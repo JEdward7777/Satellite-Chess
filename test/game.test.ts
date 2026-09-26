@@ -8,6 +8,7 @@ import {
   carryGuidance,
   carryPiece,
   carryPrompt,
+  carrierPosition,
   carryReadout,
   metres,
   myReachBonusSquares,
@@ -186,6 +187,33 @@ describe('carryPrompt', () => {
 
   it('says whose carry it is when it is not yours', () => {
     expect(promptFor({ color: 'b' })).toContain('opponent');
+  });
+});
+
+describe('carrierPosition (O-44)', () => {
+  const me = { lat: 1, lng: 2 };
+  const them = { lat: 3, lng: 4 };
+
+  it('puts my own carry, the optimistic one included, on my own fix', () => {
+    const pending = carryGuidance(GEO, at(4, 1), 8, carry({ destinations: [] }), 'w');
+    expect(pending.pending).toBe(true);
+    expect(carrierPosition(pending, me, { pos: them, connected: true })).toEqual(me);
+  });
+
+  it('leaves my carry on its origin before I have a fix', () => {
+    const mine = carryGuidance(GEO, null, 8, carry(), 'w');
+    expect(carrierPosition(mine, null, { pos: them, connected: true })).toBeNull();
+  });
+
+  it('puts the opponent’s carry on their dot while they are connected', () => {
+    const theirs = carryGuidance(GEO, at(4, 1), 8, carry({ color: 'b' }), 'w');
+    expect(carrierPosition(theirs, me, { pos: them, connected: true })).toEqual(them);
+  });
+
+  it('never draws it on a hollow dot, or where there is no dot at all', () => {
+    const theirs = carryGuidance(GEO, at(4, 1), 8, carry({ color: 'b' }), 'w');
+    expect(carrierPosition(theirs, me, { pos: them, connected: false })).toBeNull();
+    expect(carrierPosition(theirs, me, null)).toBeNull();
   });
 });
 

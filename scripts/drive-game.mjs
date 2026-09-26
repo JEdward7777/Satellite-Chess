@@ -245,7 +245,8 @@ const opponentDot = (page) =>
     let sy = 0;
     let n = 0;
     for (let i = 0; i < data.length; i += 4) {
-      // OPPONENT_DOT is #ff4d6d and nothing else on the board is near it.
+      // OPPONENT_DOT is #ff4d6d and nothing else on the board is near it,
+      // except the ring of the opponent's piece-in-hand plate (O-44) mid-carry.
       if (data[i] > 220 && data[i + 1] > 40 && data[i + 1] < 110 && data[i + 2] > 80 && data[i + 2] < 140) {
         const p = i / 4;
         sx += p % width;

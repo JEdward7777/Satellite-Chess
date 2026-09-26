@@ -4,31 +4,34 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 2 of the pipeline is under way** (six phases,
-`harness/pipeline/ratchet.md`). **Phase 1 is done**: stage `10.9`, a batch of
-seven small fixes from the observation list, reviewed clean in one round,
-committed and pushed (`2026-09-25-02`). It closed O-48 (the board opens at the
-top), O-46 (labels stay in view when zoomed), O-45 (a flaky test), O-29 (an
-expired dev account says so), O-25 (a deferred `ready` goes on the clock),
-O-39 (the relay limit counts relays) and O-36 (clipped meters are owed, not
-lost). Decision 0047 covers the last two, with schema 6 adding two `presence`
-columns.
-**Active stages**: `10.5`, `10.6`, `10.7` and `10.8`, each waiting only on a
-real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`).
-**Next action**: phase 2 of run 2, **O-44** (the carried piece drawn on the
-dot). Then O-21 (feet and miles), `8.3` (replay), `8.5.1`–`8.5.3` (the share
-card) and `8.5.4` (the head-to-head record). The coordinator deploys after
-each clean phase.
+`harness/pipeline/ratchet.md`). **Phases 1 and 2 are done.** Phase 1 was
+stage `10.9`, seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 is
+stage `10.10`, **O-44: the carried piece travels with the dot**
+(`2026-09-26-01`, decision 0048). It was reviewed clean in two rounds.
+While a piece is lifted it is drawn faint on its origin and on a plate beside
+the carrier's dot. The opponent's piece shows there only while they are connected. A tap on a plate
+is ignored. It is drawn from the snapshot's `carry` and the relayed dot, so
+**no message changed**.
+**Active stages**: `10.5`, `10.6`, `10.7`, `10.8` and `10.10`, each waiting
+only on a real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
+`10.10.3`).
+**Next action**: phase 3 of run 2, **O-21** (feet and miles). Then `8.3`
+(replay), `8.5.1`–`8.5.3` (the share card) and `8.5.4` (the head-to-head
+record). The coordinator deploys after each clean phase.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
-2026-09-25, version `58b81889`, at `53d684a`. That is everything up to and
-including `10.8`, and **not yet `10.9`**. That deploy created the `ARCHIVE` KV namespace; its id
-(`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The operator
-has authorized deploys during this run once a phase is reviewed clean.
-**1106 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-25
-`drive-game`, `check-resume`, `check-zoom`, `check-record` and `check-review`
-passed. **Run drivers from a new, uniquely named `--persist-to`** (O-19). Every
-driver takes `--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
+2026-09-25, version `62a982c3`, at `6533435`. That is everything up to and
+including `10.9`, and **not yet `10.10`**; the coordinator deploys it next.
+The `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned
+in `wrangler.jsonc`. The operator has authorized deploys during this run once
+a phase is reviewed clean.
+**1119 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-26
+`drive-game`, `check-resume`, `check-zoom`, `check-review` and the new
+`check-carry` passed. **Run drivers from a new, uniquely named
+`--persist-to`** (O-19). Every driver takes
+`--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
 `pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is no
-longer a tap (0046).
+longer a tap (0046). `drive-game`'s `opponentDot()` colour filter also matches
+the red ring of the opponent's piece-in-hand plate, so do not read it mid-carry.
 
 ## A finished game, a day later, in one paragraph
 
@@ -161,7 +164,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** 2026-09-25 (`58b81889`), `ARCHIVE` id pinned. Finished games
+1. **Deployed** 2026-09-25 (`62a982c3`, through `10.9`), `ARCHIVE` id pinned. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -174,6 +177,10 @@ game-rule work.
      visible in sun?
    - `10.8.4`: pinch zoom while walking. Are taps ever dropped, is a pan ever
      read as a tap, does follow feel right, do the buttons get in the way?
+   - `10.10.3`: does the carried piece read well outdoors? Can both players
+     read the piece beside the dot at arm's length in sun, does the plate
+     hide a square the carrier needs, and does it read as a carry rather than
+     a third dot?
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - sign-in and sign-out;
@@ -182,5 +189,4 @@ game-rule work.
 3. **Next candidates:**
    - **O-38**, the distance counter, once there are real-handset traces.
      **O-12** is still open too.
-   - **O-44**, the carried piece drawn on the dot: phase 2 of run 2, next.
    - **O-47**, `user-scalable=no` blocking accessibility zoom: the owner's call.

@@ -465,4 +465,10 @@ is; this says what will bite you when you touch it.*
   headline on the account screen: meters walked first and largest, games played
   in the sentence underneath (decision 0019), which is a rule about the screen
   that no unit test can hold.
+- **There is a driver for the piece in hand: `scripts/check-carry.mjs`**
+  (O-44, decision 0048). It reads pixels for the plate beside each carrier's
+  dot from both seats and in both looks, and checks that a tap on the plate
+  places nothing. **The plate only paints**: any tap handling that maps a
+  point to a square must first ask `hitsPlate(inHandPlate(...))`, or a tap on
+  "my piece" falls through to a legal square underneath and moves it.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

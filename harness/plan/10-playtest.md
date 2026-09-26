@@ -124,3 +124,20 @@ file. Expect most of it to be written after the first real game.
   - `10.9.7` done: What the sprint cap clips is owed and paid under later
     windows, up to 30 m, and never across a pause or after the result (O-36,
     decision 0047).
+
+- `10.10` active: The carried piece travels with the dot (O-44, decision 0048)
+  - The owner: "it would be nice if you could see the person walking their
+    piece". Drawn from the snapshot's `carry` and the relayed dot; no message
+    changed.
+  - `10.10.1` done: My own carry, the optimistic lift included, is drawn
+    beside my dot on a cream plate, and faint on its origin. Both looks,
+    screen-sized under the zoom, flipped to stay on the canvas. A tap on
+    either plate is ignored, and on my own it points at "Put it back".
+  - `10.10.2` done: The opponent's carry is drawn beside their dot, ringed in
+    their red, only while they are connected. A hollow dot or no dot leaves
+    it faint on its origin. A drop, a place, a capture and a suspend all end
+    it, because they clear `carry`. `scripts/check-carry.mjs` drives both
+    seats.
+  - `10.10.3` todo: On real phones outdoors: can both players read the piece
+    in hand at arm's length in sun, does the plate hide a square the carrier
+    needs, and does it read as a carry rather than a third dot?
