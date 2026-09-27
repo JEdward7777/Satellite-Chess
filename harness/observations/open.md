@@ -765,3 +765,40 @@ turn out to matter.
 **Not doing yet because:** it changes every screen, and the trade-off
 (accessibility against a stray zoom mid-game) is the owner's call. Stage 10.8
 left the meta alone.
+
+### O-49 — A field cannot be tried out before someone is asked to play on it
+**Spotted:** 2026-09-27, owner's request after a real game
+**Why it matters:** the only way to see how a calibrated field behaves is to
+start a game on it, which needs a second player there in person. If GPS
+scatter makes the board unplayable (reach too large, squares too small to
+tell apart, the board spilling past the usable ground), that is found out
+only after the opponent has come out, and their time is wasted. The
+calibration fit (decision 0028) catches a mis-tapped corner, not a board
+that plays badly. The survey screen (`views/survey.ts`) measures raw GPS
+and is behind a secret, so it is not an answer.
+**Fix, when wanted:** a solo preview from the field screen. Draw the board
+with this phone's live dot, the square it resolves to, and the reach and
+lift/place tolerances a game would use. Nothing goes to the server, since
+inbound messages cost requests. Also worth showing: the current accuracy,
+and whether the reach at that accuracy covers most of the board.
+**Not doing yet because:** new feature, behind run 2 of the pipeline.
+
+### O-50 — A game stuck on a broken field cannot be ended or removed
+**Spotted:** 2026-09-27, owner's report
+**Why it matters:** a game started on a field that turns out to be
+unplayable stays on the list with no way out. The server has resign and
+draw (stage `4.4`), but **the game screen has no button for either**. Its
+buttons are ready, put back, claim, after the game, pause and leave
+(`views/game.ts`). "Tidy up" refuses a game in play or suspended
+(`forgetIsRefused`, `shared/game-index.ts`), yet its message says such a
+game "can only be finished, claimed or resigned". The one real exit is to
+pause and have the opponent claim it, which takes 30 days
+(`CLAIM_AFTER_MS`). A game with moves and no result is never collected
+(decision 0025), so the row stays for good.
+**Fix, when wanted:** put Resign and Offer draw on the game screen. Then
+consider a mutual abort, or one-sided within the first few moves, that
+ends the game with no result and makes it removable. It needs a rule for
+the record (decision 0040), since an aborted game should probably not
+count as played. Related: O-41 (the archive cannot be deleted) and O-42.
+**Not doing yet because:** filed during run 2. Resign alone is small, and
+could be taken as a phase.
