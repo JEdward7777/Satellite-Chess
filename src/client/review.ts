@@ -20,6 +20,7 @@ import { buildPgn, pgnFileName } from '../shared/pgn.js';
 import { personalResult } from '../shared/record.js';
 import { type GameReport, type PlayerWalk, type ReportMove, walksOf } from '../shared/review.js';
 import type { Color } from '../shared/squares.js';
+import { type Units, boardNumber, boardWords } from '../shared/units.js';
 import { DISTANCE_HONESTY, crossingsWords, distanceWords } from './record.js';
 import { reasonWords } from './views/games.js';
 
@@ -85,9 +86,9 @@ export function pgnOf(report: GameReport): { text: string; fileName: string } {
  * 0019). Where nobody measured it the headline says so rather than showing a
  * zero — a zero is a claim about how far somebody walked (decision 0040).
  */
-export function headlineWords(walk: PlayerWalk | null): string {
+export function headlineWords(walk: PlayerWalk | null, units: Units = 'metric'): string {
   if (walk === null || walk.travelM === null) return 'Distance was not measured';
-  return `You covered ${distanceWords(walk.travelM)}`;
+  return `You covered ${distanceWords(walk.travelM, units)}`;
 }
 
 /**
@@ -97,9 +98,9 @@ export function headlineWords(walk: PlayerWalk | null): string {
  * there is not — "Distance was not measured playing chess" is not a sentence
  * anybody would send.
  */
-export function shareMessageWords(walk: PlayerWalk | null): string {
+export function shareMessageWords(walk: PlayerWalk | null, units: Units = 'metric'): string {
   if (walk === null || walk.travelM === null) return 'A game of Satellite Chess. Here it is.';
-  return `${headlineWords(walk)} playing chess. Here is the game.`;
+  return `${headlineWords(walk, units)} playing chess. Here is the game.`;
 }
 
 /** The line under it: what the distance was made of. */
@@ -135,11 +136,12 @@ export function colorWords(color: Color): string {
 export function walkWords(
   walk: PlayerWalk,
   you: Color | null,
+  units: Units = 'metric',
 ): { who: string; distance: string; detail: string } {
   const mine = you !== null && walk.color === you;
   const who = `${mine ? 'You' : 'Them'} · ${colorWords(walk.color)}`;
   const parts = [movesWords(walk.moves)];
-  if (walk.longestCarryM > 0) parts.push(`longest carry ${distanceWords(walk.longestCarryM)}`);
+  if (walk.longestCarryM > 0) parts.push(`longest carry ${distanceWords(walk.longestCarryM, units)}`);
   // No total of the carries here. It would repeat the floor under the distance
   // above (decision 0041) — the walk is never less than the carries — and on a
   // game where the floor is what set the figure, the two would read as the
@@ -148,7 +150,7 @@ export function walkWords(
   if (walk.crossings !== null && walk.crossings > 0) parts.push(crossingsWords(walk.crossings));
   return {
     who,
-    distance: walk.travelM === null ? 'not measured' : distanceWords(walk.travelM),
+    distance: walk.travelM === null ? 'not measured' : distanceWords(walk.travelM, units),
     detail: parts.join(' · '),
   };
 }
@@ -157,8 +159,9 @@ export function walkWords(
 export function walkRows(
   report: GameReport,
   you: Color | null,
+  units: Units = 'metric',
 ): { who: string; distance: string; detail: string }[] {
-  return walksOf(report, you).map((walk) => walkWords(walk, you));
+  return walksOf(report, you).map((walk) => walkWords(walk, you, units));
 }
 
 /**
@@ -182,10 +185,14 @@ export function resultWords(report: GameReport, you: Color | null): string {
   return `${verdict} — ${how}`;
 }
 
-/** "Riverside Park · a 64 m board", or the board alone for a field nobody named. */
-export function whereWords(report: GameReport): string {
-  const meters = Math.round(report.boardM);
-  const board = report.boardM > 0 ? `${articleFor(meters)} ${meters} m board` : null;
+/**
+ * "Riverside Park · a 64 m board", or "Riverside Park · an 80 yd board" in US
+ * units: the article follows the number the player reads. The board alone for
+ * a field nobody named.
+ */
+export function whereWords(report: GameReport, units: Units = 'metric'): string {
+  const size = boardNumber(report.boardM, units);
+  const board = report.boardM > 0 ? `${articleFor(size)} ${boardWords(report.boardM, units)} board` : null;
   return [report.fieldName, board].filter((part) => part !== null && part !== '').join(' · ');
 }
 
@@ -210,9 +217,12 @@ export function articleFor(n: number): 'a' | 'an' {
  * before stage 4.1.4, or one whose phone had no fix) says so rather than
  * showing a zero.
  */
-export function moveWords(move: ReportMove): { ply: string; san: string; detail: string } {
+export function moveWords(
+  move: ReportMove,
+  units: Units = 'metric',
+): { ply: string; san: string; detail: string } {
   const number = Math.floor((move.seq - 1) / 2) + 1;
-  const carried = move.carriedM > 0 ? distanceWords(move.carriedM) : null;
+  const carried = move.carriedM > 0 ? distanceWords(move.carriedM, units) : null;
   const took = move.carriedMs > 0 ? secondsWords(move.carriedMs) : null;
   return {
     ply: `${number}${move.color === 'w' ? '.' : '…'}`,

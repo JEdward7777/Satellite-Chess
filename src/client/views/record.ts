@@ -16,6 +16,8 @@
  */
 
 import type { RecordSummary } from '../../shared/record.js';
+import { type Units, boardWords } from '../../shared/units.js';
+import { type UnitsStore, displayUnits } from '../units.js';
 import {
   DISTANCE_HONESTY,
   type RecordTransport,
@@ -41,17 +43,28 @@ export function recordSectionHtml(): string {
  * has gone — the same `live` flag a join needs (`gotchas.md`), for the same
  * reason: a request outlives its screen.
  */
-export function mountRecord(root: HTMLElement, transport: RecordTransport): () => void {
+export function mountRecord(
+  root: HTMLElement,
+  transport: RecordTransport,
+  units: Pick<UnitsStore, 'get' | 'subscribe'> = displayUnits(),
+): () => void {
   let live = true;
   const body = root.querySelector<HTMLElement>('[data-record-body]');
   if (body === null) return () => undefined;
+  // Held so a change of units on the screen above redraws the record in place
+  // rather than asking the account for it again.
+  let shown: RecordSummary | null = null;
+  const offUnits = units.subscribe(() => {
+    if (live && shown !== null) body.innerHTML = recordHtml(shown, Date.now(), units.get());
+  });
 
   const load = (): void => {
     body.innerHTML = `<p class="dim" data-record-loading>Loading your record…</p>`;
     void transport.read().then((result) => {
       if (!live) return;
       if (result.kind === 'ok') {
-        body.innerHTML = recordHtml(result.record);
+        shown = result.record;
+        body.innerHTML = recordHtml(result.record, Date.now(), units.get());
         return;
       }
       body.innerHTML =
@@ -68,15 +81,20 @@ export function mountRecord(root: HTMLElement, transport: RecordTransport): () =
 
   return () => {
     live = false;
+    offUnits();
   };
 }
 
 /** The record itself. Pure, so a test can read what a player would. */
-export function recordHtml(record: RecordSummary, now: number = Date.now()): string {
+export function recordHtml(
+  record: RecordSummary,
+  now: number = Date.now(),
+  units: Units = 'metric',
+): string {
   const { totals } = record;
   const nothingYet = totals.games === 0 && record.recent.length === 0;
   if (nothingYet) {
-    return `<p class="record-headline" data-record-distance>${distanceWords(0)}</p>
+    return `<p class="record-headline" data-record-distance>${distanceWords(0, units)}</p>
       <p class="dim" data-record-empty>
         No finished games yet. Your record starts with your first one, and it
         leads with how far you walk.
@@ -87,25 +105,25 @@ export function recordHtml(record: RecordSummary, now: number = Date.now()): str
   const biggest =
     totals.biggestBoard === null
       ? '—'
-      : `${Math.round(totals.biggestBoard.boardM)} m${
+      : `${boardWords(totals.biggestBoard.boardM, units)}${
           totals.biggestBoard.fieldName ? ` · ${escapeHtml(totals.biggestBoard.fieldName)}` : ''
         }`;
 
-  return `<p class="record-headline" data-record-distance>${distanceWords(totals.travelM)}</p>
+  return `<p class="record-headline" data-record-distance>${distanceWords(totals.travelM, units)}</p>
     <p class="record-sub">walked playing chess</p>
-    <p class="dim" data-record-coverage>${escapeHtml(coverageWords(record))}</p>
+    <p class="dim" data-record-coverage>${escapeHtml(coverageWords(record, units))}</p>
     <dl class="record-stats">
       <div><dt>Results</dt><dd data-record-results>${resultsWords(totals)}</dd></div>
-      <div><dt>Longest carry</dt><dd data-record-carry>${distanceWords(totals.longestCarryM)}</dd></div>
+      <div><dt>Longest carry</dt><dd data-record-carry>${distanceWords(totals.longestCarryM, units)}</dd></div>
       <div><dt>Biggest board</dt><dd data-record-biggest>${biggest}</dd></div>
       <div><dt>Fields played on</dt><dd data-record-fields>${totals.fields}</dd></div>
     </dl>
-    ${fieldsHtml(record)}
-    ${recentHtml(record, now)}
+    ${fieldsHtml(record, units)}
+    ${recentHtml(record, now, units)}
     ${honestyHtml()}`;
 }
 
-function fieldsHtml(record: RecordSummary): string {
+function fieldsHtml(record: RecordSummary, units: Units): string {
   if (record.fields.length < 2) return '';
   return `<h3>By field</h3>
     <ul class="games" data-record-by-field>
@@ -113,7 +131,7 @@ function fieldsHtml(record: RecordSummary): string {
         .map(
           (field) => `<li>
             <strong>${escapeHtml(field.name ?? 'Unnamed field')}</strong>
-            <span class="dim">${distanceWords(field.travelM)} in ${field.games} game${
+            <span class="dim">${distanceWords(field.travelM, units)} in ${field.games} game${
               field.games === 1 ? '' : 's'
             }</span>
           </li>`,
@@ -122,13 +140,13 @@ function fieldsHtml(record: RecordSummary): string {
     </ul>`;
 }
 
-function recentHtml(record: RecordSummary, now: number): string {
+function recentHtml(record: RecordSummary, now: number, units: Units): string {
   if (record.recent.length === 0) return '';
   return `<h3>Recent games</h3>
     <ul class="games" data-record-games>
       ${record.recent
         .map((line) => {
-          const words = lineWords(line);
+          const words = lineWords(line, units);
           return `<li data-record-game="${escapeHtml(line.joinCode)}" data-standing="${line.standing}">
             <strong>${escapeHtml(words.title)}</strong>
             <span class="dim">${escapeHtml(words.detail)} · ${escapeHtml(dateWords(line.finishedAt, now))}</span>

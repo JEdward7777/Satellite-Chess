@@ -101,6 +101,16 @@ import {
   gameFromRow,
 } from './user-record.js';
 import { applyUserSchema } from './user-schema.js';
+import { type Units, asUnits } from '../shared/units.js';
+
+/**
+ * What the player has chosen (stage 2.3.8). A field left null has never been
+ * chosen, and the phone decides it for itself.
+ */
+export interface Settings {
+  /** Display units (decision 0049). Null until the player picks. */
+  units: Units | null;
+}
 
 /** The account, as anything outside the object sees it. */
 export interface Account {
@@ -174,6 +184,48 @@ export class UserDO extends DurableObject<Env> {
 
     this.sql.exec(`UPDATE account SET last_seen_at = ? WHERE id = 1`, now);
     return { ...existing, lastSeenAt: now };
+  }
+
+  /**
+   * The launch check's one call: stamp the visit, and say what the player has
+   * chosen. One call rather than `touch` and then a read, because `/api/me` is
+   * asked on every app start and a second call into the object would be a
+   * second billed request for the same answer.
+   */
+  async launch(sub: string, now: number = Date.now()): Promise<{ account: Account; settings: Settings }> {
+    const account = this.stamp(sub, now);
+    return { account, settings: this.readSettings() };
+  }
+
+  /**
+   * Remember the player's display units (decision 0049).
+   *
+   * Takes the `sub` and stamps for the same reason `syncFields` does: there is
+   * no sign-up step, so this may be the account's first request. Last write
+   * wins — the two phones are one person, and the later choice is the one they
+   * made.
+   */
+  async setUnits(sub: string, units: Units, now: number = Date.now()): Promise<Settings> {
+    this.ctx.storage.transactionSync(() => {
+      this.stamp(sub, now);
+      this.sql.exec(
+        `INSERT INTO settings (id, units, updated_at) VALUES (1, ?, ?)
+           ON CONFLICT (id) DO UPDATE SET units = excluded.units, updated_at = excluded.updated_at`,
+        units,
+        now,
+      );
+    });
+    return this.readSettings();
+  }
+
+  /** What the player has chosen, with every field null that they have not. */
+  async settings(): Promise<Settings> {
+    return this.readSettings();
+  }
+
+  private readSettings(): Settings {
+    const [row] = [...this.sql.exec<{ units: string | null }>(`SELECT units FROM settings WHERE id = 1`)];
+    return { units: asUnits(row?.units ?? null) };
   }
 
   /** The account as stored, or null if this object has never been touched. */

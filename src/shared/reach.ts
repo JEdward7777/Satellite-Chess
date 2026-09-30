@@ -8,6 +8,7 @@
 import { type LatLng, distanceM } from './geo.js';
 import { type FieldGeometry, clamp, distanceToSquareM } from './field.js';
 import { type Color, type Square, fromSquare, startZoneSquares } from './squares.js';
+import { type Units, accuracyWords, lengthWords } from './units.js';
 
 export interface ReachConfig {
   /**
@@ -180,11 +181,48 @@ export interface SquareReach {
 /** Machine-readable failure reasons. A subset of the protocol's `ErrorCode`. */
 export type ReachFailure = 'accuracy' | 'out_of_reach' | 'implausible';
 
+/**
+ * A refusal as figures, so that each phone can say it in its player's units
+ * (O-21, decision 0049).
+ *
+ * The server judges a move and the phone explains the judgement. The figures
+ * travel on the `error` message beside the server's own metric sentence, and
+ * the phone rebuilds the sentence from them with {@link refusalWords} — the
+ * same function the server used, so the two can only differ in their units.
+ * Outbound messages are free, and the setting never has to reach the game.
+ *
+ * Accuracies are `number | null` because JSON has no `Infinity`: a fix with no
+ * accuracy at all crosses the wire as null, and reads as "unknown".
+ */
+export type Refusal =
+  | {
+      kind: 'accuracy';
+      accuracyM: number | null;
+      maxAccuracyM: number;
+      /** Set when it was the fix at the *lift* that was too vague, found at the place. */
+      liftedFrom?: Square;
+    }
+  | {
+      kind: 'reach';
+      square: Square;
+      distanceM: number;
+      reachM: number;
+      accuracyM: number | null;
+      goodAccuracyM: number;
+      /** Set when it was the *lift* that was out of reach, found at the place. */
+      liftedFrom?: Square;
+    }
+  | { kind: 'back_rank'; nearestM: number; reachM: number; accuracyM: number | null; goodAccuracyM: number }
+  | { kind: 'implausible'; carriedM: number; carriedMs: number };
+
 export interface ReachVerdict {
   ok: boolean;
   /** Machine-readable failure, for the client to map to a specific message. */
   code?: ReachFailure;
+  /** The refusal in metric words. The server's, and every old client's. */
   message?: string;
+  /** The same refusal as figures, for a phone to say in its own units. */
+  refusal?: Refusal;
   reachM: number;
   squares: SquareReach[];
 }
@@ -199,15 +237,23 @@ export function checkSquareReach(
   return { square, distanceM, reachable: distanceM <= reachM };
 }
 
+/** JSON has no `Infinity`, so a missing accuracy is carried as null. */
+function wireAccuracy(accuracyM: number): number | null {
+  return Number.isFinite(accuracyM) ? accuracyM : null;
+}
+
 function accuracyVerdict(accuracyM: number, cfg: ReachConfig, reachM: number): ReachVerdict | null {
   if (!accuracyTooPoor(accuracyM, cfg)) return null;
-  const shown = Number.isFinite(accuracyM) ? `±${Math.round(accuracyM)} m` : 'unknown';
+  const refusal: Refusal = {
+    kind: 'accuracy',
+    accuracyM: wireAccuracy(accuracyM),
+    maxAccuracyM: cfg.maxAccuracyM,
+  };
   return {
     ok: false,
     code: 'accuracy',
-    message:
-      `Your position is only accurate to ${shown}, and moves need ±${cfg.maxAccuracyM} m or ` +
-      'better. Step into the open and wait for the fix to tighten.',
+    message: refusalWords(refusal),
+    refusal,
     reachM,
     squares: [],
   };
@@ -225,12 +271,99 @@ function accuracyVerdict(accuracyM: number, cfg: ReachConfig, reachM: number): R
  * Exported because every out-of-reach refusal gets it, including the server's
  * back-rank one (0043 point 4), and one wording is easier to keep honest.
  */
-export function outOfReachAdvice(walk: string, accuracyM: number, cfg: ReachConfig = DEFAULT_REACH): string {
-  if (!(accuracyM > cfg.goodAccuracyM)) return `${walk}.`;
+export function outOfReachAdvice(
+  walk: string,
+  accuracyM: number | null,
+  cfg: Pick<ReachConfig, 'goodAccuracyM'> = DEFAULT_REACH,
+  units: Units = 'metric',
+): string {
+  if (accuracyM === null || !(accuracyM > cfg.goodAccuracyM)) return `${walk}.`;
   return (
     `${walk}, or if you are already there, your position is only accurate to ` +
-    `±${Math.round(accuracyM)} m: hold the phone up in the open and wait for it to tighten.`
+    `${accuracyWords(accuracyM, units)}: hold the phone up in the open and wait for it to tighten.`
   );
+}
+
+/**
+ * A refusal in words, in the given units. Metric is the server's sentence,
+ * word for word.
+ */
+export function refusalWords(refusal: Refusal, units: Units = 'metric'): string {
+  switch (refusal.kind) {
+    case 'accuracy':
+      return liftPrefix(
+        refusal.liftedFrom,
+        `Your position is only accurate to ${accuracyWords(refusal.accuracyM, units)}, and moves ` +
+          `need ${accuracyWords(refusal.maxAccuracyM, units)} or better. Step into the open and ` +
+          'wait for the fix to tighten.',
+      );
+    case 'reach': {
+      const reach =
+        `You are ${lengthWords(refusal.distanceM, units, 1)} from ${refusal.square} and your ` +
+        `reach is ${lengthWords(refusal.reachM, units, 1)}. ` +
+        outOfReachAdvice('Walk closer', refusal.accuracyM, refusal, units);
+      return liftPrefix(refusal.liftedFrom, reach);
+    }
+    case 'back_rank':
+      return (
+        `You are ${lengthWords(refusal.nearestM, units, 0)} from your back rank and your reach is ` +
+        `${lengthWords(refusal.reachM, units, 1)}. ` +
+        outOfReachAdvice('Walk to your own end of the board', refusal.accuracyM, refusal, units)
+      );
+    case 'implausible':
+      return (
+        `That is ${lengthWords(refusal.carriedM, units, 0)} in ` +
+        `${(Math.max(0, refusal.carriedMs) / 1000).toFixed(1)} s. ` +
+        'Either your GPS jumped or something is wrong.'
+      );
+  }
+}
+
+/** "When you picked the piece up you were not at a1." before a lift's refusal, found at the place. */
+function liftPrefix(liftedFrom: Square | undefined, words: string): string {
+  return liftedFrom === undefined
+    ? words
+    : `When you picked the piece up you were not at ${liftedFrom}. ${words}`;
+}
+
+/**
+ * A refusal read back off the wire, or null for anything that is not one.
+ *
+ * Our own server sent it, but a phone running a newer or older build than the
+ * server may meet a shape it does not know, and the right answer then is the
+ * server's own sentence rather than a half-built one with "NaN" in it.
+ */
+export function refusalFromWire(value: unknown): Refusal | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const r = value as Record<string, unknown>;
+  const num = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+  const acc = (x: unknown): boolean => x === null || num(x);
+  const square = (x: unknown): x is Square => typeof x === 'string' && /^[a-h][1-8]$/.test(x);
+  switch (r.kind) {
+    case 'accuracy':
+      return acc(r.accuracyM) &&
+        num(r.maxAccuracyM) &&
+        (r.liftedFrom === undefined || square(r.liftedFrom))
+        ? (r as unknown as Refusal)
+        : null;
+    case 'reach':
+      return square(r.square) &&
+        num(r.distanceM) &&
+        num(r.reachM) &&
+        acc(r.accuracyM) &&
+        num(r.goodAccuracyM) &&
+        (r.liftedFrom === undefined || square(r.liftedFrom))
+        ? (r as unknown as Refusal)
+        : null;
+    case 'back_rank':
+      return num(r.nearestM) && num(r.reachM) && acc(r.accuracyM) && num(r.goodAccuracyM)
+        ? (r as unknown as Refusal)
+        : null;
+    case 'implausible':
+      return num(r.carriedM) && num(r.carriedMs) ? (r as unknown as Refusal) : null;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -253,12 +386,19 @@ export function checkReachTo(
 
   const sr = checkSquareReach(geo, pos, square, reachM);
   if (!sr.reachable) {
+    const refusal: Refusal = {
+      kind: 'reach',
+      square,
+      distanceM: sr.distanceM,
+      reachM,
+      accuracyM: wireAccuracy(accuracyM),
+      goodAccuracyM: cfg.goodAccuracyM,
+    };
     return {
       ok: false,
       code: 'out_of_reach',
-      message:
-        `You are ${sr.distanceM.toFixed(1)} m from ${square} and your reach is ` +
-        `${reachM.toFixed(1)} m. ${outOfReachAdvice('Walk closer', accuracyM, cfg)}`,
+      message: refusalWords(refusal),
+      refusal,
       reachM,
       squares: [sr],
     };
@@ -303,9 +443,19 @@ export function checkCarry(
 
   const liftVerdict = checkReachTo(geo, lift.pos, lift.accuracyM, from, cfg, bonusSquares);
   if (!liftVerdict.ok) {
+    // Either refusal — too far, or a fix too vague — is about the lift, so it
+    // carries the square, and the phone says the prefix in its own units too.
+    const refusal: Refusal | undefined =
+      liftVerdict.refusal?.kind === 'reach' || liftVerdict.refusal?.kind === 'accuracy'
+        ? { ...liftVerdict.refusal, liftedFrom: from }
+        : undefined;
     return {
       ...liftVerdict,
-      message: `When you picked the piece up you were not at ${from}. ${liftVerdict.message ?? ''}`.trim(),
+      message:
+        refusal !== undefined
+          ? refusalWords(refusal)
+          : `When you picked the piece up you were not at ${from}. ${liftVerdict.message ?? ''}`.trim(),
+      refusal,
       carriedM,
       carriedMs,
     };
@@ -317,12 +467,12 @@ export function checkCarry(
   }
 
   if (!isPlausibleStep(carriedM, carriedMs, lift.accuracyM + place.accuracyM)) {
+    const refusal: Refusal = { kind: 'implausible', carriedM, carriedMs };
     return {
       ok: false,
       code: 'implausible',
-      message:
-        `That is ${Math.round(carriedM)} m in ${(carriedMs / 1000).toFixed(1)} s. ` +
-        'Either your GPS jumped or something is wrong.',
+      message: refusalWords(refusal),
+      refusal,
       reachM,
       squares: [...liftVerdict.squares, ...placeVerdict.squares],
       carriedM,

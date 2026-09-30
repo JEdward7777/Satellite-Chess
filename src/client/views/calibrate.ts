@@ -28,10 +28,13 @@ import {
   checkCalibration,
   makeFieldSpec,
   recalibrate,
+  squareSizeWords,
 } from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
 import { accuracyTooPoor } from '../../shared/reach.js';
-import { type GpsFix, type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
+import { type GpsFix, type GpsProvider, type GpsState, gpsErrorWords, qualityLabel } from '../gps.js';
+import { ADVICE, type Units, accuracyWords, boardWords, lengthWords } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 import type { FieldStore } from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -73,11 +76,11 @@ export function emptyDraft(name = DEFAULT_FIELD_NAME): CalibrationDraft {
  * and every game on that field would inherit the error — so it is refused here
  * rather than warned about later.
  */
-export function tapRefusal(fix: GpsFix | null): string | null {
+export function tapRefusal(fix: GpsFix | null, units: Units = 'metric'): string | null {
   if (!fix) return 'Waiting for a position — stand still for a moment.';
   if (accuracyTooPoor(fix.accuracyM)) {
     return (
-      `Your fix is only good to ±${Math.round(fix.accuracyM)} m. A corner tapped now would put ` +
+      `Your fix is only good to ${accuracyWords(fix.accuracyM, units)}. A corner tapped now would put ` +
       'the whole board in the wrong place. Wait for it to tighten, or move into the open.'
     );
   }
@@ -108,14 +111,17 @@ export function renameDraft(draft: CalibrationDraft, name: string): CalibrationD
   return { ...draft, name };
 }
 
-/** The verdict on the corners, or null while any is still missing. */
-export function draftCheck(draft: CalibrationDraft): CalibrationCheck | null {
+/**
+ * The verdict on the corners, or null while any is still missing. `units`
+ * changes only the words of the warnings, never the verdict.
+ */
+export function draftCheck(draft: CalibrationDraft, units: Units = 'metric'): CalibrationCheck | null {
   const taps = CORNER_STEPS.map((name) => draft[name]);
   if (taps.some((tap) => tap === null)) return null;
   const [a1, h1, h8, a8] = taps as CornerTap[];
   return checkCalibration(
     { a1: a1.pos, h1: h1.pos, h8: h8.pos, a8: a8.pos },
-    { worstAccuracyM: Math.max(...taps.map((tap) => (tap as CornerTap).accuracyM)) },
+    { worstAccuracyM: Math.max(...taps.map((tap) => (tap as CornerTap).accuracyM)), units },
   );
 }
 
@@ -193,6 +199,19 @@ const CORNER_BRIEF: Record<Corner, string> = {
   a8: 'Last one: along Black’s back rank to a8, and the board is closed.',
 };
 
+/**
+ * How big a board to walk out, in round numbers of the player's own units
+ * (O-21, decision 0049): "5 to 10 yards", not "5.5 to 10.9 yards". Only
+ * advice — the board is fitted to wherever the corners are tapped, in meters,
+ * and the review says what it came out as.
+ */
+export function sizeHint(units: Units = 'metric'): string {
+  return (
+    `Squares of ${ADVICE.squareRange[units]} play well, so look for open ground about ` +
+    `${ADVICE.boardRange[units]} a side. Pace it out first if you like.`
+  );
+}
+
 /** "2 of 4", so nobody wonders how much walking is left. */
 function stepNumber(corner: Corner): string {
   return `${CORNER_STEPS.indexOf(corner) + 1} of ${CORNER_STEPS.length}`;
@@ -219,7 +238,9 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
   });
 
   function paint(): void {
-    const screen = draft.step === 'review' ? reviewHtml(draft) : cornerHtml(draft, gpsState);
+    const units = displayUnits().get();
+    const screen =
+      draft.step === 'review' ? reviewHtml(draft, units) : cornerHtml(draft, gpsState, units);
     root.innerHTML = deps.onCancel
       ? `${screen}<p><button data-cancel class="secondary">Not now</button></p>`
       : screen;
@@ -278,25 +299,32 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
   };
 }
 
-function cornerHtml(draft: CalibrationDraft, state: GpsState): string {
+function cornerHtml(draft: CalibrationDraft, state: GpsState, units: Units): string {
   const corner = draft.step as Corner;
   const fix = state.fix;
-  const refusal = tapRefusal(fix);
+  const refusal = tapRefusal(fix, units);
   const done = CORNER_STEPS.filter((name) => draft[name] !== null && name !== corner);
 
   return `
     <h1>Calibrate a field</h1>
     <p class="dim" data-step>Corner ${stepNumber(corner)}</p>
     <p data-brief>${escapeHtml(CORNER_BRIEF[corner])}</p>
+    ${
+      // Before the first tap only: once a corner is down, the board's size is
+      // already chosen, and the review says what it came out as.
+      corner === 'a1' && done.length === 0
+        ? `<p class="dim" data-size-hint>${escapeHtml(sizeHint(units))}</p>`
+        : ''
+    }
     <dl class="readout">
       <dt>Signal</dt>
       <dd class="quality-${state.quality}" data-quality>${
         fix ? qualityLabel(state.quality) : 'Waiting for a fix…'
       }</dd>
       <dt>Accuracy</dt>
-      <dd data-accuracy>${fix ? `±${fix.accuracyM.toFixed(0)} m` : '—'}</dd>
+      <dd data-accuracy>${fix ? accuracyWords(fix.accuracyM, units) : '—'}</dd>
     </dl>
-    ${state.error ? notice(state.error.message) : ''}
+    ${state.error ? notice(gpsErrorWords(state.error, units)) : ''}
     ${refusal && fix ? notice(refusal) : ''}
     <p>
       <button data-tap ${refusal ? 'disabled' : ''}>
@@ -313,25 +341,21 @@ function cornerHtml(draft: CalibrationDraft, state: GpsState): string {
   `;
 }
 
-function reviewHtml(draft: CalibrationDraft): string {
-  const check = draftCheck(draft);
+function reviewHtml(draft: CalibrationDraft, units: Units): string {
+  const check = draftCheck(draft, units);
   if (!check) return '';
 
   return `
     <h1>Does this look right?</h1>
     <dl class="readout">
       <dt>Squares</dt>
-      <dd data-square>${
-        Math.abs(check.fileM - check.rankM) < 0.1
-          ? `${check.fileM.toFixed(1)} m across`
-          : `${check.fileM.toFixed(1)} m along the files, ${check.rankM.toFixed(1)} m along the ranks`
-      }</dd>
+      <dd data-square>${squareSizeWords(check.fileM, check.rankM, units)}</dd>
       <dt>Board</dt>
-      <dd data-board>${check.boardM.toFixed(0)} m across</dd>
+      <dd data-board>${boardWords(check.boardM, units)} across</dd>
       <dt>Facing</dt>
       <dd data-bearing>${check.bearingDeg.toFixed(0)}° (a→h)</dd>
       <dt>Corner fit</dt>
-      <dd data-residual>±${check.residualM.toFixed(1)} m</dd>
+      <dd data-residual>±${lengthWords(check.residualM, units, 1)}</dd>
     </dl>
     ${check.errors.map(notice).join('')}
     ${check.warnings.map(warning).join('')}

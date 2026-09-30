@@ -110,6 +110,10 @@ const check = (ok, what, detail = '') => {
 const browser = await chromium.launch({ executablePath: findChromium() });
 const context = await browser.newContext({
   viewport: { width: 480, height: 900 },
+  // A metric locale, because this driver reads meters off the screen and an
+  // account that has never chosen follows its browser's locale (decision 0049);
+  // headless Chromium is en-US. `check-units.mjs` is the driver for feet.
+  locale: 'en-GB',
   // Chromium needs the permission granted or `writeText` rejects, which would
   // make the clipboard tier look broken when it is only unasked.
   permissions: ['clipboard-read', 'clipboard-write'],

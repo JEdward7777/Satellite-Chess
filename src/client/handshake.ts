@@ -26,6 +26,7 @@ import type { LatLng } from '../shared/geo.js';
 import type { GameSnapshot, GameStatus } from '../shared/protocol.js';
 import { DEFAULT_REACH, inStartZone } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
+import { type Units, lengthWords } from '../shared/units.js';
 
 /**
  * The fewest milliseconds between two automatic `ready`s.
@@ -129,9 +130,9 @@ export class AutoReady {
   }
 }
 
-/** A distance to walk, as the game screen writes every distance. */
-function walk(m: number): string {
-  return m < 10 ? `${m.toFixed(1)} m` : `${Math.round(m)} m`;
+/** A distance to walk, as the game screen writes every distance (decision 0049). */
+function walk(m: number, units: Units): string {
+  return lengthWords(m, units);
 }
 
 /**
@@ -162,13 +163,14 @@ export function walkToBackRankM(
 export function myHandshakeLine(
   serverSaysInZone: boolean,
   mine: { inZone: boolean; walkM: number } | null,
+  units: Units = 'metric',
 ): string {
   if (serverSaysInZone) return 'You are on your back rank.';
   if (mine === null) return 'Walk to your own back rank.';
   // The server has not agreed yet. Usually for the length of one round trip;
   // if it disagrees, its own message says by how much, and the button is there.
   if (mine.inZone) return 'On your back rank — checking with the server…';
-  return `Walk to your own back rank — ${walk(mine.walkM)} to go.`;
+  return `Walk to your own back rank — ${walk(mine.walkM, units)} to go.`;
 }
 
 /**
@@ -182,11 +184,12 @@ export function myHandshakeLine(
 export function opponentHandshakeLine(
   them: { connected: boolean; inStartZone: boolean } | null,
   distance: { inZone: boolean; walkM: number } | null,
+  units: Units = 'metric',
 ): string {
   if (them === null) return 'Waiting for an opponent to join.';
   if (!them.connected) return 'Waiting for your opponent to come back.';
   if (them.inStartZone) return 'Your opponent is on their back rank.';
   if (distance === null) return 'Waiting for your opponent to reach their back rank.';
   if (distance.inZone) return 'Your opponent is nearly on their back rank.';
-  return `Waiting for your opponent to reach their back rank — about ${walk(distance.walkM)} away.`;
+  return `Waiting for your opponent to reach their back rank — about ${walk(distance.walkM, units)} away.`;
 }

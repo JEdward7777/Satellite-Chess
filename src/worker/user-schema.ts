@@ -25,7 +25,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const USER_SCHEMA_VERSION = 2;
+export const USER_SCHEMA_VERSION = 3;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one account, and the CHECK
@@ -172,6 +172,23 @@ const STATEMENTS = [
      board_m          REAL    NOT NULL,
      diagonal_m       REAL    NOT NULL,
      recorded_at      INTEGER NOT NULL
+   )`,
+
+  // The player's settings (stage 2.3.8, decision 0049). Schema 3. A table of
+  // its own rather than a column on `account`, so that it arrives on an
+  // existing account by `CREATE TABLE IF NOT EXISTS` with no upgrade step, and
+  // so that a later setting is a column here rather than another table.
+  //
+  // **Absent means never chosen**, and is not the same as metric: a phone
+  // asks its browser's locale for an account with no row (and no `units`), so
+  // an American who has never opened the account screen still reads feet. The
+  // row is written the first time the player picks, and only then.
+  `CREATE TABLE IF NOT EXISTS settings (
+     id          INTEGER PRIMARY KEY CHECK (id = 1),
+     -- 'metric' or 'us'. Display only: nothing stored anywhere else changes
+     -- unit because of it.
+     units       TEXT,
+     updated_at  INTEGER NOT NULL
    )`,
 
   `CREATE TABLE IF NOT EXISTS meta (

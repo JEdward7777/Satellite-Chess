@@ -84,7 +84,10 @@ const consoleErrors = [];
 
 try {
   console.log(`screenshots -> ${OUT}`);
-  const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // A metric locale, because this driver reads meters off the screen and an
+  // account that has never chosen follows its browser's locale (decision 0049);
+  // headless Chromium is en-US. `check-units.mjs` is the driver for feet.
+  const context = await browser.newContext({ viewport: { width: 480, height: 900 }, locale: 'en-GB' });
   // Sign-in is mandatory since stage 2.5.1, so a context that has not signed in
   // reaches the gate and nothing else — and the failure would present as
   // `[data-calibrate]` never appearing, which reads as a broken home screen.

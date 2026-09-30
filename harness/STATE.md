@@ -3,35 +3,51 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Run 2 of the pipeline is under way** (six phases,
-`harness/pipeline/ratchet.md`). **Phases 1 and 2 are done.** Phase 1 was
-stage `10.9`, seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 is
-stage `10.10`, **O-44: the carried piece travels with the dot**
-(`2026-09-26-01`, decision 0048). It was reviewed clean in two rounds.
-While a piece is lifted it is drawn faint on its origin and on a plate beside
-the carrier's dot. The opponent's piece shows there only while they are connected. A tap on a plate
-is ignored. It is drawn from the snapshot's `carry` and the relayed dot, so
-**no message changed**.
+**Tree state**: clean. **Run 2 of the pipeline is under way**
+(`harness/pipeline/ratchet.md`). **Phases 1–3 are done.** Phase 1 was `10.9`,
+seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
+**O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
+0048). Phase 3 is stage `2.3.8`, **O-21: display units, metric or US**
+(`2026-09-30-01`, decision 0049), reviewed clean in one round.
+**Order from here** (the operator added two mid-run): **O-50** (Resign, Offer
+draw, Abort), **O-49** (a solo field preview), `8.3` (replay), `8.5.1`–`8.5.3`
+(the share card), `8.5.4` (the head-to-head record).
 **Active stages**: `10.5`, `10.6`, `10.7`, `10.8` and `10.10`, each waiting
 only on a real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
 `10.10.3`).
-**Next action**: phase 3 of run 2, **O-21** (feet and miles). Then `8.3`
-(replay), `8.5.1`–`8.5.3` (the share card) and `8.5.4` (the head-to-head
-record). The coordinator deploys after each clean phase.
-**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, deployed
-2026-09-25, version `62a982c3`, at `6533435`. That is everything up to and
-including `10.9`, and **not yet `10.10`**; the coordinator deploys it next.
-The `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned
-in `wrangler.jsonc`. The operator has authorized deploys during this run once
-a phase is reviewed clean.
-**1119 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-26
-`drive-game`, `check-resume`, `check-zoom`, `check-review` and the new
-`check-carry` passed. **Run drivers from a new, uniquely named
-`--persist-to`** (O-19). Every driver takes
-`--base=http://127.0.0.1:<port>/?sim=1`. **Drivers tap with a
-`pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is no
-longer a tap (0046). `drive-game`'s `opponentDot()` colour filter also matches
-the red ring of the opponent's piece-in-hand plate, so do not read it mid-carry.
+**Next action**: phase 4 of run 2, **O-50**.
+**Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
+`d4020d13`, at `4276306`: everything through `10.10`, and **not yet `2.3.8`**;
+the coordinator deploys it next. The `ARCHIVE` KV namespace id
+(`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
+operator has authorized deploys during this run once a phase is reviewed clean.
+**1195 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-30
+`drive-game`, `check-account`, `check-record`, `check-review`, `check-invite`,
+`check-calibrate`, `check-resume` and the new `check-units` passed. **Run
+drivers from a new, uniquely named `--persist-to`** (O-19). Drivers take
+`--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite` and
+`check-calibrate`, which take `--origin=http://127.0.0.1:<port>`. **Drivers
+tap with a `pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone
+`pointerup` is no longer a tap (0046). **Drivers that read metric text pin
+`locale: 'en-GB'`**, because headless Chromium is `en-US` and an account that
+never chose its units follows the locale. `drive-game`'s `opponentDot()`
+colour filter also matches the red ring of the opponent's piece-in-hand plate,
+so do not read it mid-carry.
+
+## Units, in one paragraph
+
+What a player reads is in their **account's** units, metric or US (decision
+0049). The choice is a `settings` row on the UserDO, written by `POST
+/api/settings` and returned on `/api/me` in the same object call as the launch
+touch. The phone caches it (words, never a door) and holds an offline choice as
+pending until a launch can send it: last delivered wins. An account that never
+chose follows the browser's locale. **Everything underneath is metric**,
+including the protocol's numbers, the archive and the PGN. `src/shared/units.ts`
+is the only formatter: feet for short things, yards for a board, yards then
+miles walked. Server refusals that name a distance carry a `Refusal` of figures
+beside the metric `message`, and the phone rebuilds the sentence with
+`refusalWords`. **The rule most likely to be broken**: a new on-screen distance
+or server sentence written in meters directly. O-22 (spelling) is still open.
 
 ## A finished game, a day later, in one paragraph
 
@@ -143,7 +159,7 @@ Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
 carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
-built. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
+built, and since `2.3.8` so are display units. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -164,7 +180,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** 2026-09-25 (`62a982c3`, through `10.9`), `ARCHIVE` id pinned. Finished games
+1. **Deployed** `d4020d13` (through `10.10`), `ARCHIVE` id pinned; `2.3.8` is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -183,10 +199,15 @@ game-rule work.
      a third dot?
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
+   - `2.3.8.5`: does the units default come up US on the owner's phone,
+     do the numbers read naturally, and does a 10-yard board paced by eye
+     read as "30 ft" squares on the review?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **Next candidates:**
+3. **The rest of run 2**: O-50, O-49, `8.3`, `8.5.1`–`8.5.3`, `8.5.4`.
+4. **Next candidates after that:**
+   - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.
      **O-12** is still open too.
    - **O-47**, `user-scalable=no` blocking accessibility zoom: the owner's call.

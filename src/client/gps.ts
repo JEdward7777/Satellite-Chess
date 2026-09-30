@@ -16,6 +16,7 @@
  */
 
 import { type LatLng, distanceM, fromLocal, toLocal } from '../shared/geo.js';
+import type { Units } from '../shared/units.js';
 import {
   DEFAULT_REACH,
   type ReachConfig,
@@ -90,6 +91,12 @@ export interface GpsError {
   message: string;
   /** True when nothing further will arrive until the player changes something. */
   fatal: boolean;
+  /**
+   * The phone the message was written for, so a screen can say it again in
+   * the player's units ({@link gpsErrorWords}). Optional only so that an error
+   * built by hand in a test need not name one.
+   */
+  platform?: Platform;
 }
 
 export type Platform = 'ios' | 'android' | 'other';
@@ -109,7 +116,28 @@ export function detectPlatform(userAgent: string, maxTouchPoints = 0): Platform 
  * field with a dead board needs the actual toggle, on the actual phone they are
  * holding, which is why these are per-platform.
  */
-export function describeGpsError(code: GpsErrorCode, platform: Platform = 'other'): GpsError {
+export function describeGpsError(
+  code: GpsErrorCode,
+  platform: Platform = 'other',
+  units: Units = 'metric',
+): GpsError {
+  return { ...describeFor(code, platform, units), platform };
+}
+
+/**
+ * An error's message in the player's units (decision 0049). Only the coarse
+ * fix names a distance, and it is a rough one — "about a kilometer" is "about
+ * half a mile", not "0.62 mi".
+ */
+export function gpsErrorWords(error: GpsError, units: Units): string {
+  return units === 'metric'
+    ? error.message
+    : describeFor(error.code, error.platform ?? 'other', units).message;
+}
+
+function describeFor(code: GpsErrorCode, platform: Platform, units: Units): Omit<GpsError, 'platform'> {
+  // Roughly a kilometer; the sentence is about scale, not about a figure.
+  const vague = units === 'metric' ? 'a kilometer' : 'half a mile';
   switch (code) {
     case 'unsupported':
       return {
@@ -169,17 +197,17 @@ export function describeGpsError(code: GpsErrorCode, platform: Platform = 'other
         fatal: false,
         message:
           platform === 'ios'
-            ? 'Your phone is only giving an approximate location — accurate to about a ' +
-              'kilometer, which is a hundred boards wide. Turn on Settings → Privacy & ' +
+            ? 'Your phone is only giving an approximate location — accurate to about ' +
+              `${vague}, which is a hundred boards wide. Turn on Settings → Privacy & ` +
               'Security → Location Services → Safari Websites → Precise Location. If you ' +
               'added this game to your home screen, look for Satellite Chess in that list ' +
               'instead of Safari.'
             : platform === 'android'
-              ? 'Your phone is only giving an approximate location, accurate to about a ' +
-                'kilometer. Turn on Settings → Location → Location Services → Google ' +
+              ? 'Your phone is only giving an approximate location, accurate to about ' +
+                `${vague}. Turn on Settings → Location → Location Services → Google ` +
                 'Location Accuracy, and allow this site precise location.'
-              : 'Your phone is only giving an approximate location, accurate to about a ' +
-                'kilometer. Look for a "precise location" setting for this site and turn it on.',
+              : 'Your phone is only giving an approximate location, accurate to about ' +
+                `${vague}. Look for a "precise location" setting for this site and turn it on.`,
       };
   }
 }

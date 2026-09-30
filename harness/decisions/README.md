@@ -71,7 +71,7 @@ The conditions under which this should be reopened.
 | [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md) | The game writes the index; the phone only ever reads it | accepted |
 | [0034](0034-the-google-flow-is-verified-on-the-deployed-worker.md) | Local dev signs in through the seam; Google is verified on the deployed Worker | accepted |
 | [0035](0035-the-gate-opens-when-the-server-cannot-be-asked.md) | The gate opens when the server cannot be asked, and a seat is a `sub` or nothing | accepted |
-| [0036](0036-american-spelling-in-anything-a-player-reads.md) | American spelling in anything a player reads; metric units stay | accepted (supersedes the spelling rule in AGENTS.md §9) |
+| [0036](0036-american-spelling-in-anything-a-player-reads.md) | American spelling in anything a player reads; metric units stay | accepted (supersedes the spelling rule in AGENTS.md §9); units rule superseded by 0049 |
 | [0037](0037-the-phone-says-ready-once-and-the-evidence-ends-with-the-socket.md) | The phone says `ready` once per arrival; a back rank is forgotten when the socket goes | accepted |
 | [0038](0038-a-cold-start-finds-its-game-through-the-index.md) | A cold start finds its game through the game index, not `localStorage` | accepted |
 | [0039](0039-the-phone-remembers-who-it-is-but-never-decides-with-it.md) | The phone remembers who it is, but never decides anything with it | accepted |
@@ -84,3 +84,4 @@ The conditions under which this should be reopened.
 | [0046](0046-the-board-zooms-in-screen-space-and-a-drag-is-never-a-tap.md) | The board zooms in screen space (pinch, pan, follow, "Whole board"), and a drag is never a tap | accepted |
 | [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) | The sprint cap delays rather than discards, and the relay limit counts relays | accepted (amends 0040 rule 6) |
 | [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted |
+| [0049](0049-display-units-are-an-account-setting.md) | Display units (metric or US) are an account setting; everything underneath stays metric | accepted (supersedes rule 2 of 0036) |

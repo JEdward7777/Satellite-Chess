@@ -471,4 +471,13 @@ is; this says what will bite you when you touch it.*
   places nothing. **The plate only paints**: any tap handling that maps a
   point to a square must first ask `hitsPlate(inHandPlate(...))`, or a tap on
   "my piece" falls through to a legal square underneath and moves it.
+- **Distances on screen are in the account's units** (decision 0049, O-21).
+  `src/shared/units.ts` is the only formatter; a `toFixed(1)} m` written
+  anywhere else is a US player reading meters. A server refusal that names a
+  distance sends a `Refusal` beside its metric `message`, and the phone says it
+  with `refusalWords`. **An account that never chose follows the browser's
+  locale, and headless Chromium is `en-US`**, so a driver that reads meters
+  off the screen must open its context with `locale: 'en-GB'` (check-calibrate,
+  -invite, -record, -resume and -review do). `scripts/check-units.mjs` is the
+  driver for feet. The PGN stays metric (0041).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

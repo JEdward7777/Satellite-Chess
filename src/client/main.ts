@@ -25,6 +25,7 @@ import {
   browserGeolocationOptions,
   createGeolocationGps,
   detectPlatform,
+  gpsErrorWords,
   qualityLabel,
   simRequested,
 } from './gps.js';
@@ -56,6 +57,14 @@ import {
   writeCachedIdentity,
 } from './account.js';
 import { homeHeaderHtml, mountAccount, sessionNoticeHtml } from './views/account.js';
+import { displayUnits } from './units.js';
+import {
+  METERS_PER_MILE,
+  METERS_PER_YARD,
+  type Units,
+  accuracyWords,
+  walkedWords,
+} from '../shared/units.js';
 import { browserRecordTransport } from './record.js';
 import { browserReviewTransport } from './review.js';
 import { mountSignIn } from './views/signin.js';
@@ -171,7 +180,8 @@ async function boot(): Promise<void> {
   // server's answer alone. See `account.ts`.
   const identityStorage = browserIdentityStorage();
   const remembered = readCachedIdentity(identityStorage);
-  const launch = resolveLaunch(await loadSession(), remembered, Date.now());
+  const session = await loadSession();
+  const launch = resolveLaunch(session, remembered, Date.now());
   if (launch.kind === 'gate') {
     // The server said 401, so what the phone remembered belongs to an account
     // that is no longer this phone's. Forgotten here as well as on sign-out,
@@ -215,6 +225,10 @@ async function boot(): Promise<void> {
   if (launch.confirmed && launch.identity !== null) {
     writeCachedIdentity(identityStorage, launch.identity);
   }
+  // Display units (decision 0049): the account's answer when the server gave
+  // one, else what this phone remembers, else its locale. After the forgetting
+  // above, so a switched account does not inherit the last one's choice.
+  displayUnits().launched(session.kind === 'signed_in' ? session.units : undefined);
   const { identity, confirmed } = launch;
 
   // Local first, account second (decision 0013). The store the screens use
@@ -749,6 +763,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
 
   const paint = (state: GpsState) => {
     const fix = state.fix;
+    const units = displayUnits().get();
     root.innerHTML = `
       ${homeHeaderHtml(deps.identity, deps.confirmed)}
       ${
@@ -767,15 +782,15 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
           fix ? qualityLabel(state.quality) : 'Waiting for a fix…'
         }</dd>
         <dt>Accuracy</dt>
-        <dd data-accuracy>${fix ? `±${fix.accuracyM.toFixed(0)} m` : '—'}</dd>
+        <dd data-accuracy>${fix ? accuracyWords(fix.accuracyM, units) : '—'}</dd>
         <dt>Walked</dt>
-        <dd data-distance>${formatDistance(state.distanceM)}</dd>
+        <dd data-distance>${formatDistance(state.distanceM, units)}</dd>
       </dl>
-      ${state.error ? `<p class="notice" data-error="${state.error.code}">${state.error.message}</p>` : ''}
+      ${state.error ? `<p class="notice" data-error="${state.error.code}">${gpsErrorWords(state.error, units)}</p>` : ''}
       ${gamesSectionHtml(deps, allGames)}
       <h2>Your fields</h2>
       <ul class="fields" data-fields>
-        ${deps.fields.map(fieldItem).join('')}
+        ${deps.fields.map((spec) => fieldItem(spec, units)).join('')}
       </ul>
       ${
         deps.fields.length === 0
@@ -907,7 +922,7 @@ function scanAdviceHtml(deps: HomeDeps): string {
   return advice === null ? '' : `<p class="dim" data-scan-advice>${escapeHtml(advice)}</p>`;
 }
 
-function fieldItem(spec: FieldSpec): string {
+function fieldItem(spec: FieldSpec, units: Units): string {
   const geo = deriveGeometry(spec);
   // Ground you have never walked reads exactly like ground you have, unless it
   // is labelled — and since stage 6.4 a phone can acquire fields two ways
@@ -918,13 +933,24 @@ function fieldItem(spec: FieldSpec): string {
       : ` · ${spec.origin.via === 'game' ? 'from a game' : 'shared with you'}`;
   return `<li data-field="${spec.id}" tabindex="0" role="button">
     <strong>${escapeHtml(spec.name)}</strong>
-    <span class="dim">${describeSquares(geo)}${from}</span>
+    <span class="dim">${describeSquares(geo, units)}${from}</span>
   </li>`;
 }
 
-/** Metres until it is silly, then kilometres. */
-export function formatDistance(metres: number): string {
-  return metres < 1000 ? `${metres.toFixed(0)} m` : `${(metres / 1000).toFixed(2)} km`;
+/**
+ * The phone's own distance counter, on home: metres until it is silly, then
+ * kilometres to two places — or yards, then miles (decision 0049). Two places
+ * rather than the headline's one, because this is a live instrument and the
+ * point of watching it is to see it move.
+ */
+export function formatDistance(metres: number, units: Units = 'metric'): string {
+  if (units === 'metric') {
+    return metres < 1000 ? `${metres.toFixed(0)} m` : `${(metres / 1000).toFixed(2)} km`;
+  }
+  const yards = Math.max(0, metres) / METERS_PER_YARD;
+  return Math.round(yards) < 1760
+    ? walkedWords(metres, units)
+    : `${(metres / METERS_PER_MILE).toFixed(2)} mi`;
 }
 
 function escapeHtml(text: string): string {

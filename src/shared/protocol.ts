@@ -19,7 +19,7 @@
 
 import type { FieldSnapshot } from './field.js';
 import type { ClockState } from './clock.js';
-import type { ReachConfig } from './reach.js';
+import type { ReachConfig, Refusal } from './reach.js';
 import type { Color, Square } from './squares.js';
 
 export const PROTOCOL_VERSION = 1;
@@ -338,6 +338,12 @@ export interface ErrorMsg {
   message: string;
   /** Echoes the rejected move so the client can un-highlight the right thing. */
   move?: { from?: Square; to?: Square };
+  /**
+   * A reach, accuracy or plausibility refusal as figures (decision 0049), so
+   * the phone can say it in its player's units with `refusalWords`. `message`
+   * is the same refusal in metric, for a phone that cannot read these.
+   */
+  refusal?: Refusal;
 }
 
 export type ServerMsg = StateMsg | OppPosMsg | ErrorMsg;

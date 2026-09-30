@@ -424,3 +424,20 @@ real-phone look (`10.10.3`).
 **Original report:** the owner, 2026-09-24: "it would be nice if you could
 see the person walking their piece, if the piece would be dragged along with
 the dot."
+
+### O-21 — Every distance on screen is metric, and the owner is American
+**Resolved:** 2026-09-30, stage 2.3.8 (decision 0049, which supersedes 0036's units rule)
+**Outcome:** Built. The player chooses Metric or US on the account screen. The
+choice lives on the account (a `settings` table on the UserDO, `POST
+/api/settings`, read back on `/api/me`), so it follows them to a second phone.
+An account that never chose follows its browser's locale. Everything underneath
+stays metric: geometry, storage, the protocol's numbers, the archive and the PGN.
+`src/shared/units.ts` is the only place a meter becomes a foot: feet for short
+things, yards for a board, yards then miles walked. Server refusals that name a
+distance send figures beside the metric words, and the phone says them in feet.
+Advice is round in the player's units ("15 ft", "5 to 10 yards"), as this
+observation's design note asked. `scripts/check-units.mjs` drives it. Open until
+the owner's phone check (in the outdoor checklist in `STATE.md`).
+**Not included:** the spelling half, **O-22**, which stays open. Identifiers and
+stored names are unchanged.
+**Original report:** the owner, 2026-09-16, reading the word "metre" on screen.

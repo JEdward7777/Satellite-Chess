@@ -42,6 +42,8 @@ import {
 } from '../review.js';
 import { type ShareOutcome, copyText, sharePgn } from '../share.js';
 import { walksOf } from '../../shared/review.js';
+import type { Units } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 
 export interface ReviewViewDeps {
   joinCode: string;
@@ -91,7 +93,8 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     // nothing left to await. This is the whole reason the screen holds a report
     // rather than fetching one when the button is tapped.
     const pgn = pgnOf(report);
-    body.innerHTML = reviewHtml(report, you, pgn, deps.joinCode);
+    const units = displayUnits().get();
+    body.innerHTML = reviewHtml(report, you, pgn, deps.joinCode, units);
 
     const say = (words: string): void => {
       const line = body.querySelector<HTMLElement>('[data-review-said]');
@@ -123,8 +126,8 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
       void (deps.share ?? sharePgn)({
         fileName: pgn.fileName,
         text: pgn.text,
-        title: `${whereWords(report) || 'Satellite Chess'} — a game of Satellite Chess`,
-        message: shareMessageWords(walksOf(report, you)[0] ?? null),
+        title: `${whereWords(report, units) || 'Satellite Chess'} — a game of Satellite Chess`,
+        message: shareMessageWords(walksOf(report, you)[0] ?? null, units),
       }).then((outcome) => {
         if (live) sayOutcome(outcome, 'Sent.');
       });
@@ -154,14 +157,15 @@ export function reviewHtml(
   you: Color | null,
   pgn: { text: string; fileName: string },
   joinCode: string,
+  units: Units = 'metric',
 ): string {
   const mine = walksOf(report, you)[0] ?? null;
-  const rows = walkRows(report, you);
-  const moves = report.moves.map(moveWords);
+  const rows = walkRows(report, you, units);
+  const moves = report.moves.map((move) => moveWords(move, units));
 
   return `<p class="review-result" data-review-result>${escapeHtml(resultWords(report, you))}</p>
-    <p class="dim" data-review-where>${escapeHtml(whereWords(report))}</p>
-    <p class="record-headline" data-review-distance>${keepUnit(escapeHtml(headlineWords(mine)))}</p>
+    <p class="dim" data-review-where>${escapeHtml(whereWords(report, units))}</p>
+    <p class="record-headline" data-review-distance>${keepUnit(escapeHtml(headlineWords(mine, units)))}</p>
     <p class="dim" data-review-coverage>${escapeHtml(headlineDetailWords(mine))}</p>
     <dl class="record-stats" data-review-walks>
       ${rows
@@ -217,7 +221,7 @@ export function reviewHtml(
  * only thing it can introduce is the entity.
  */
 function keepUnit(html: string): string {
-  return html.replace(/(\d) (km|m|min|s)\b/g, '$1&nbsp;$2');
+  return html.replace(/(\d) (km|m|mi|yd|ft|min|s)\b/g, '$1&nbsp;$2');
 }
 
 function escapeHtml(text: string): string {

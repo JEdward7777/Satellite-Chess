@@ -25,6 +25,8 @@ import {
   deriveGeometry,
   isSquareBoard,
 } from '../../shared/field.js';
+import { boardWords, lengthWords } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 import { type FieldLink, encodeFieldLink, fieldUrl } from '../../shared/fieldlink.js';
 import { encodeQr, qrSvg } from '../../shared/qr.js';
 import type { FieldOffer } from '../fields.js';
@@ -64,6 +66,7 @@ export interface FieldDeps {
 export function mountField(root: HTMLElement, deps: FieldDeps): () => void {
   const spec = deps.field;
   const geo = deriveGeometry(spec);
+  const units = displayUnits().get();
   const origin = deps.origin ?? location.origin;
 
   // A blob, or nothing. The only way this throws is geometry no calibration
@@ -88,10 +91,10 @@ export function mountField(root: HTMLElement, deps: FieldDeps): () => void {
     <dl class="readout">
       <dt>Squares</dt><dd data-square>${
         isSquareBoard(geo)
-          ? `${geo.fileM.toFixed(1)} m across`
-          : `${geo.fileM.toFixed(1)} m along the files, ${geo.rankM.toFixed(1)} m along the ranks`
+          ? `${lengthWords(geo.fileM, units, 1)} across`
+          : `${lengthWords(geo.fileM, units, 1)} along the files, ${lengthWords(geo.rankM, units, 1)} along the ranks`
       }</dd>
-      <dt>Board</dt><dd data-board>${Math.round(boardSizeM(geo))} m across</dd>
+      <dt>Board</dt><dd data-board>${boardWords(boardSizeM(geo), units)} across</dd>
       <dt>Facing</dt><dd data-bearing>${geo.bearingDeg.toFixed(0)}° (a→h)</dd>
     </dl>
 
@@ -225,7 +228,8 @@ export interface FieldOfferDeps {
  */
 export function mountFieldOffer(root: HTMLElement, deps: FieldOfferDeps): () => void {
   const { incoming } = deps.offer;
-  const check = checkCalibration({ a1: incoming.a1, h8: incoming.h8 });
+  const units = displayUnits().get();
+  const check = checkCalibration({ a1: incoming.a1, h8: incoming.h8 }, { units });
   const name = incoming.name || 'A field';
 
   const heading =
@@ -243,8 +247,8 @@ export function mountFieldOffer(root: HTMLElement, deps: FieldOfferDeps): () => 
     </div>
 
     <dl class="readout">
-      <dt>Squares</dt><dd data-square>${check.squareM.toFixed(1)} m across</dd>
-      <dt>Board</dt><dd data-board>${check.boardM.toFixed(0)} m a side</dd>
+      <dt>Squares</dt><dd data-square>${lengthWords(check.squareM, units, 1)} across</dd>
+      <dt>Board</dt><dd data-board>${boardWords(check.boardM, units)} a side</dd>
       <dt>Facing</dt><dd data-bearing>${check.bearingDeg.toFixed(0)}° (a→h)</dd>
     </dl>
 

@@ -20,6 +20,7 @@ import type { GameReport } from '../shared/review.js';
 import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
+import { asUnits } from '../shared/units.js';
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
@@ -153,7 +154,10 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
         devSeam: devSeamEnabled(env, url),
       });
     }
-    const account = await userFor(env, identity.sub).touch(identity.sub);
+    // `launch` rather than `touch`: the same stamp, and the player's settings
+    // in the same call, so the phone learns its display units (decision 0049)
+    // without a second request on every app start.
+    const { account, settings } = await userFor(env, identity.sub).launch(identity.sub);
     // `serverNow` travels beside `expiresAt` because the phone's clock is not
     // this one (`gotchas.md`): the client turns the pair into "expires in N"
     // and never compares our timestamp with its own `Date.now()` (stage 2.2.3).
@@ -171,7 +175,7 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
       const token = readCookie(request, SESSION_COOKIE);
       if (token !== null) headers['set-cookie'] = sessionCookieHeader(SESSION_COOKIE, token, url);
     }
-    return json({ ...identity, serverNow: now, account }, { headers });
+    return json({ ...identity, serverNow: now, account, units: settings.units }, { headers });
   }
 
   // Sign out (stage 2.2.5).
@@ -190,6 +194,11 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   }
   if (path === '/api/games/forget') {
     return forgetGames(request, env, url);
+  }
+
+  // The player's settings (stage 2.3.8): display units, for now.
+  if (path === '/api/settings') {
+    return writeSettings(request, env, url);
   }
 
   // The permanent record (stage 2.3.5): what this account has done, added up.
@@ -354,6 +363,42 @@ async function readRecord(request: Request, env: Env, url: URL): Promise<Respons
     return apiError('unauthenticated', 'Not signed in.', 401);
   }
   return json({ record: await userFor(env, identity.sub).record() });
+}
+
+/**
+ * Change a setting on the account (stage 2.3.8, decision 0049).
+ *
+ * Only display units so far. A write and nothing else: the phone reads the
+ * settings from `/api/me`, which it asks on every launch anyway, so there is
+ * no read route to spend a request on. A plain HTTP request rather than a
+ * socket message, because it is the account's and not a game's, and because
+ * an inbound socket message is billed and would reach a game that has no use
+ * for it.
+ *
+ * Same-origin only, like signing out. The cookie is `SameSite=Lax`, so a
+ * cross-site POST carries no session and could change nothing — the check is
+ * the second lock, and costs a header read.
+ */
+async function writeSettings(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const origin = request.headers.get('origin');
+  if (origin !== null && origin !== url.origin) {
+    return apiError('forbidden', 'Settings have to come from this app.', 403);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+  const body = await readJson(request);
+  if (body === null) return apiError('bad_message', 'Expected a JSON body.', 400);
+  const units = asUnits(body.units);
+  if (units === null) {
+    return apiError('bad_message', '`units` must be "metric" or "us".', 400);
+  }
+  const settings = await userFor(env, identity.sub).setUnits(identity.sub, units);
+  return json({ units: settings.units });
 }
 
 /**

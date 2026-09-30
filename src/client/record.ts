@@ -14,6 +14,7 @@
  */
 
 import type { RecordLine, RecordSummary } from '../shared/record.js';
+import { type Units, lengthWords, walkedWords } from '../shared/units.js';
 import { reasonWords } from './views/games.js';
 
 /** What a read came back with. */
@@ -48,17 +49,16 @@ export function browserRecordTransport(): RecordTransport {
 }
 
 /**
- * A distance as the headline says it: "840 m", "2.4 km", "126 km".
+ * A distance as the headline says it: "840 m", "2.4 km", "126 km" — or "920 yd",
+ * "1.4 mi" in US units (decision 0049).
  *
- * Metric (decision 0036). One decimal under a hundred kilometers, because
- * "2.4 km" is the thing people repeat to their friends and "2.43 km" is a
- * reading off an instrument.
+ * One decimal of the long unit, because "2.4 km" is the thing people repeat to
+ * their friends and "2.43 km" is a reading off an instrument. The rule itself
+ * is `walkedWords` in `shared/units.ts`, which the review and anything later
+ * that shows a walk share.
  */
-export function distanceWords(meters: number): string {
-  const m = Number.isFinite(meters) && meters > 0 ? meters : 0;
-  if (m < 1000) return `${Math.round(m)} m`;
-  const km = m / 1000;
-  return km < 100 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+export function distanceWords(meters: number, units: Units = 'metric'): string {
+  return walkedWords(Number.isFinite(meters) ? meters : 0, units);
 }
 
 /** "3.1 board crossings", "1 board crossing", "no board crossings yet". */
@@ -83,7 +83,7 @@ export function resultsWords(totals: Pick<RecordSummary['totals'], 'wins' | 'dra
  * which games were left out of it, because a total that silently omits games
  * reads as a total that lost them.
  */
-export function coverageWords(record: RecordSummary): string {
+export function coverageWords(record: RecordSummary, units: Units = 'metric'): string {
   const counted = record.totals.games;
   const parts = [
     counted === 0
@@ -92,7 +92,7 @@ export function coverageWords(record: RecordSummary): string {
   ];
   if (record.practiceGames > 0) {
     parts.push(
-      `${countWords(record.practiceGames)} on squares under ${record.smallSquareM} m ` +
+      `${countWords(record.practiceGames)} on squares under ${floorWords(record.smallSquareM, units)} ` +
         `${record.practiceGames === 1 ? 'is' : 'are'} kept as practice and not counted.`,
     );
   }
@@ -113,19 +113,24 @@ export function coverageWords(record: RecordSummary): string {
   return parts.join(' ');
 }
 
+/** The practice floor, "4 m" — or "13 ft". Whole when it is whole, as it is today. */
+function floorWords(meters: number, units: Units): string {
+  return lengthWords(meters, units, Number.isInteger(meters) ? 0 : 1);
+}
+
 /** "One game" / "3 games" — the subject of a sentence, so it leads with a word. */
 function countWords(n: number): string {
   return n === 1 ? 'One game' : `${n} games`;
 }
 
 /** One line of history: "Riverside Park" over "Won — checkmate · 840 m". */
-export function lineWords(line: RecordLine): { title: string; detail: string } {
+export function lineWords(line: RecordLine, units: Units = 'metric'): { title: string; detail: string } {
   const verdict = line.result === 'win' ? 'Won' : line.result === 'loss' ? 'Lost' : 'Drawn';
   const counted =
     line.standing === 'counted'
-      ? distanceWords(line.travelM ?? 0)
+      ? distanceWords(line.travelM ?? 0, units)
       : line.standing === 'practice'
-        ? `practice, not counted — ${line.squareM.toFixed(1)} m squares`
+        ? `practice, not counted — ${lengthWords(line.squareM, units, 1)} squares`
         : line.standing === 'unmeasured'
           ? 'distance was not measured for this game'
           : 'nobody moved, not counted';

@@ -350,58 +350,6 @@ consistent with state being the whole story but does not rule out an independent
 race on top. **If it ever fails again on a verified-clean run, treat it as its own
 bug rather than assuming this observation came back.**
 
-### O-21 — Every distance on screen is metric, and the owner is American
-**Spotted:** 2026-09-16, by the owner reading the word "metre" on screen
-**Why it matters:** Distance is not a detail here, it is *the currency*
-(decision 0019) — "you have walked 47 km playing chess" is the headline of the
-permanent record `2.3.5` is about to build, and it is the most player-facing
-number in the project. Square size, reach, field dimensions and the calibration
-review are all in metres too. An owner who thinks in yards is reading their own
-game in a foreign unit.
-
-**Two separate questions, and conflating them would be expensive:**
-
-1. **Display units** (metres vs yards/feet). A *display* concern only. Everything
-   underneath must stay metric and would not change: `shared/geo.ts` works in
-   metres because GPS does, the affine board is fitted in metres, and distance is
-   accumulated in metres. A conversion anywhere below the view layer would be a
-   bug factory. There is already a precedent for unit-free design that went well:
-   decision 0031 made reach a count of **fractional squares**, so the game's main
-   dial has no units at all and needs no conversion.
-2. **British spelling** (`metre`/`normalise`/`centre`). A deliberate project
-   convention — `harness/AGENTS.md` §9 mandates it in prose *and identifiers*.
-   That is a different change with a different cost, and it reaches into function
-   names and stored field names rather than into rendered strings.
-
-**Not doing yet because:** the owner said "that is for later", and it is a
-feature rather than a fault. Worth scoping alongside `2.3.5`, which is what makes
-the number prominent enough to care about. When it is scoped: the setting belongs
-on the **account** (UserDO), not the device, for the same reason fields do — it
-should follow the player to their second phone. The call sites are few and
-findable: `formatDistance` (`client/main.ts`), `describeSquares`
-(`shared/field.ts`), the reach readout in `client/views/game.ts`, the calibration
-review, and the reach and handicap notes on the create screen.
-
-**The spelling half is cheaper now than later**, and gets more expensive with
-every identifier added, so it is worth an explicit decision rather than drift —
-the convention is documented, so changing it should supersede §9 rather than
-quietly diverge from it.
-
-**One design note for whoever scopes this, because it makes the change bigger
-than a format string.** If the game goes imperial, the natural square size is
-probably *not* a converted metric one. 8 m is 8.7 yd, which is a silly number to
-read on a screen or to pace out; an American laying out a pitch would far more
-likely want a round **10 yards**, which is a football field's own unit and is
-pace-able. So the honest version of this is not "render metres as yards", it is
-"offer field sizes that are round in the player's own units" — and that reaches
-the calibration review and the create screen, not just `formatDistance`.
-
-The good news is that decision 0031 already did the hard part: reach is a count of
-**fractional squares**, not a distance, so it needs no conversion and no second
-set of constants whatever the square turns out to be. The board geometry is fitted
-in metres and stays that way; only what is *offered* and what is *displayed*
-changes.
-
 ### O-22 — The codebase is half British, half American, on purpose for now
 **Spotted:** 2026-09-16, decision 0036
 **Why it matters:** Every string a player reads is American as of today, which was

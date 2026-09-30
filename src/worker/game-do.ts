@@ -54,8 +54,9 @@ import {
   type ReachConfig,
   checkCarry,
   checkReachTo,
+  type Refusal,
   inStartZone,
-  outOfReachAdvice,
+  refusalWords,
 } from '../shared/reach.js';
 import {
   DISCONNECT_GRACE_MS,
@@ -973,13 +974,21 @@ export class GameDO extends DurableObject<Env> {
       // did nothing visible at all (found by `check-resume.mjs`, stage 7.2.3).
       this.bumpRev();
       this.broadcastState();
+      // Figures as well as words, so the phone can say it in its player's
+      // units (decision 0049). The words stay metric, and are what an older
+      // phone shows.
+      const refusal: Refusal = {
+        kind: 'back_rank',
+        nearestM: zone.nearestM,
+        reachM: zone.reachM,
+        accuracyM: Number.isFinite(pos.acc) ? pos.acc : null,
+        goodAccuracyM: this.reachOf(game).goodAccuracyM,
+      };
       this.send(ws, {
         t: 'error',
         code: 'out_of_reach',
-        message:
-          `You are ${zone.nearestM.toFixed(0)} m from your back rank and your reach is ` +
-          `${zone.reachM.toFixed(1)} m. ` +
-          outOfReachAdvice('Walk to your own end of the board', pos.acc, this.reachOf(game)),
+        message: refusalWords(refusal),
+        refusal,
       });
       return;
     }
@@ -1149,6 +1158,7 @@ export class GameDO extends DurableObject<Env> {
         t: 'error',
         code: verdict.code ?? 'out_of_reach',
         message: verdict.message ?? 'Out of reach.',
+        ...(verdict.refusal ? { refusal: verdict.refusal } : {}),
         move: { from },
       });
       return;
@@ -1270,6 +1280,7 @@ export class GameDO extends DurableObject<Env> {
         t: 'error',
         code: verdict.code ?? 'out_of_reach',
         message: verdict.message ?? 'Out of reach.',
+        ...(verdict.refusal ? { refusal: verdict.refusal } : {}),
         move: { from: carry.from_sq as Square, to: to as Square },
       });
       return;

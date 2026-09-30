@@ -28,6 +28,8 @@ import { PIECE_ART_CREDIT, PIECE_ART_LICENSE, type PieceLook, pieceSvg } from '.
 import type { RecordTransport } from '../record.js';
 import { type SignOutResult, signInHref } from '../session.js';
 import { mountRecord, privacyHtml, recordSectionHtml } from './record.js';
+import { asUnits } from '../../shared/units.js';
+import { type UnitsStatus, type UnitsStore, displayUnits } from '../units.js';
 
 export interface AccountDeps {
   identity: KnownIdentity | null;
@@ -45,6 +47,8 @@ export interface AccountDeps {
   record: RecordTransport;
   /** The phone's piece look. The page's own store when omitted. */
   looks?: PieceLookStore;
+  /** The account's display units (decision 0049). The page's own store when omitted. */
+  units?: UnitsStore;
 }
 
 export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
@@ -66,6 +70,7 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
       ${sessionNoticeHtml(sessionNotice(identity, deps.confirmed, now), deps.next)}
       ${recordSectionHtml()}
       ${privacyHtml()}
+      ${unitsSectionHtml()}
       ${boardSectionHtml()}
       <h2>Sign out</h2>
       <p class="dim">
@@ -113,14 +118,68 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   const offLook = looks.subscribe(syncLook);
   syncLook();
 
+  const units = deps.units ?? displayUnits();
+  const unitButtons = root.querySelectorAll<HTMLButtonElement>('[data-units]');
+  const unitsStatus = root.querySelector<HTMLElement>('[data-units-status]');
+  const syncUnits = () => {
+    for (const choice of unitButtons) {
+      const on = choice.dataset.units === units.get();
+      choice.classList.toggle('is-on', on);
+      choice.setAttribute('aria-pressed', String(on));
+    }
+    if (unitsStatus) {
+      unitsStatus.dataset.unitsStatus = units.status();
+      unitsStatus.textContent = unitsStatusWords(units.status());
+    }
+  };
+  for (const choice of unitButtons) {
+    choice.addEventListener('click', () => {
+      const picked = asUnits(choice.dataset.units);
+      if (picked !== null) void units.choose(picked);
+    });
+  }
+  const offUnits = units.subscribe(syncUnits);
+  syncUnits();
+
   const record = root.querySelector<HTMLElement>('[data-record]');
-  const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record);
+  const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record, units);
 
   return () => {
+    offUnits();
     offLook();
     stopRecord();
     root.innerHTML = '';
   };
+}
+
+/**
+ * Metric or US (O-21, decision 0049).
+ *
+ * An account setting, unlike the piece look below, so it says "your account":
+ * it follows the player to their other phones. It changes how distances are
+ * written and nothing else — the game, the record and the PGN are kept in
+ * meters whatever this says, which is why switching back and forth is free.
+ */
+export function unitsSectionHtml(): string {
+  return `<h2>Units</h2>
+    <p class="dim">How distances are shown. Kept on your account, so your other phones use it too.</p>
+    <p class="look-choices">
+      <button class="secondary" data-units="us">US: feet, yards, miles</button>
+      <button class="secondary" data-units="metric">Metric: meters, kilometers</button>
+    </p>
+    <p class="dim" data-units-status></p>`;
+}
+
+/** Whether the account has the choice yet, or whether anybody has made one. */
+export function unitsStatusWords(status: UnitsStatus): string {
+  switch (status) {
+    case 'saved':
+      return 'Saved to your account.';
+    case 'pending':
+      return 'Changed on this phone. Your account gets it the next time you open the app with a connection.';
+    case 'default':
+      return 'Picked from this phone’s language setting. Choose one to keep it on your account.';
+  }
 }
 
 /**

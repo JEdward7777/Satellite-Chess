@@ -53,6 +53,15 @@ import {
   unitFromBearing,
 } from './geo.js';
 import { type FileRank, type Square, fromSquare } from './squares.js';
+import {
+  ADVICE,
+  type Units,
+  accuracyWords,
+  boardWords,
+  lengthNumber,
+  lengthUnit,
+  lengthWords,
+} from './units.js';
 
 /** Centre-to-centre distance from a1 to h8, in units of one square. */
 const DIAGONAL_SQUARES = 7 * Math.SQRT2;
@@ -554,7 +563,8 @@ export function boardDiagonalM(geo: FieldGeometry): number {
 }
 
 /**
- * "8.0 m squares · 64 m a side", or "10.0 x 6.0 m squares · 80 m across".
+ * "8.0 m squares · 64 m a side", or "10.0 x 6.0 m squares · 80 m across" — or,
+ * in US units, "26 ft squares · 70 yd a side" (decision 0049).
  *
  * One place, because three screens said this and each would otherwise have to
  * decide for itself what to do when the two steps differ. A board whose squares
@@ -562,11 +572,23 @@ export function boardDiagonalM(geo: FieldGeometry): number {
  * exactly the misreport that would send someone to a field expecting one shape
  * and finding another.
  */
-export function describeSquares(geo: FieldGeometry): string {
-  const boardM = Math.round(boardSizeM(geo));
+export function describeSquares(geo: FieldGeometry, units: Units = 'metric'): string {
+  const board = boardWords(boardSizeM(geo), units);
+  const unit = lengthUnit(units);
   return isSquareBoard(geo)
-    ? `${geo.fileM.toFixed(1)} m squares · ${boardM} m a side`
-    : `${geo.fileM.toFixed(1)} × ${geo.rankM.toFixed(1)} m squares · ${boardM} m across`;
+    ? `${lengthNumber(geo.fileM, units, 1)} ${unit} squares · ${board} a side`
+    : `${lengthNumber(geo.fileM, units, 1)} × ${lengthNumber(geo.rankM, units, 1)} ${unit} squares · ${board} across`;
+}
+
+/**
+ * A square's size for a readout: "8.0 m across", or "12.1 m along the files,
+ * 6.0 m along the ranks" when the two steps differ by a tenth of a meter or
+ * more. The calibration review and the field screen both say it this way.
+ */
+export function squareSizeWords(fileM: number, rankM: number, units: Units = 'metric'): string {
+  return Math.abs(fileM - rankM) < 0.1
+    ? `${lengthWords(fileM, units, 1)} across`
+    : `${lengthWords(fileM, units, 1)} along the files, ${lengthWords(rankM, units, 1)} along the ranks`;
 }
 
 /** Within a tenth of a metre and a degree of being the square board of old. */
@@ -645,8 +667,13 @@ export const SMALL_SQUARE_M = 4;
  */
 export function checkCalibration(
   spec: Pick<FieldSpec, 'a1' | 'h8' | 'h1' | 'a8'>,
-  opts: { worstAccuracyM?: number } = {},
+  opts: { worstAccuracyM?: number; units?: Units } = {},
 ): CalibrationCheck {
+  // The thresholds are meters and stay meters; only the sentences are said in
+  // the player's units, and the advice in them is rounded in those units rather
+  // than converted (decision 0049).
+  const units = opts.units ?? 'metric';
+  const len = (m: number, places?: number) => lengthWords(m, units, places);
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -678,24 +705,24 @@ export function checkCalibration(
   // 3 m ranks is as ambiguous as a 3 m board, and the mean would hide that.
   if (smallest < 2) {
     errors.push(
-      `Squares would be ${smallest.toFixed(1)} m across at the narrowest. That is smaller than ` +
-        'GPS can resolve — pick a bigger field (at least 25 m corner to corner).',
+      `Squares would be ${len(smallest, 1)} across at the narrowest. That is smaller than ` +
+        `GPS can resolve — pick a bigger field (at least ${ADVICE.smallestBoard[units]} corner to corner).`,
     );
   } else if (smallest < SMALL_SQUARE_M) {
     warnings.push(
-      `Squares are only ${smallest.toFixed(1)} m across at the narrowest. Expect ambiguity ` +
-        'about which square you are on. 5 m or more plays much better.',
+      `Squares are only ${len(smallest, 1)} across at the narrowest. Expect ambiguity ` +
+        `about which square you are on. ${ADVICE.goodSquare[units]} or more plays much better.`,
     );
   }
 
   if (squareM > 40) {
     errors.push(
-      `Squares would be ${Math.round(squareM)} m across — a ${Math.round(boardM)} m board. ` +
+      `Squares would be ${len(squareM, 0)} across — a ${boardWords(boardM, units)} board. ` +
         'That is almost certainly a mis-tap.',
     );
   } else if (squareM > 20) {
     warnings.push(
-      `Squares are ${Math.round(squareM)} m across, so the board is ${Math.round(boardM)} m ` +
+      `Squares are ${len(squareM, 0)} across, so the board is ${boardWords(boardM, units)} ` +
         'a side. Crossing it will take a while — consider a shorter clock or a smaller field.',
     );
   }
@@ -707,7 +734,7 @@ export function checkCalibration(
   if (ratio > 2.5) {
     warnings.push(
       `This board is ${ratio.toFixed(1)}x longer one way than the other — ` +
-        `${fileM.toFixed(1)} m along the files against ${rankM.toFixed(1)} m along the ranks. ` +
+        `${len(fileM, 1)} along the files against ${len(rankM, 1)} along the ranks. ` +
         'That plays, but a move sideways costs much more than a move forward.',
     );
   }
@@ -715,7 +742,7 @@ export function checkCalibration(
   const acc = opts.worstAccuracyM;
   if (acc != null && smallest > 0 && acc > smallest * 0.75) {
     warnings.push(
-      `Your GPS accuracy at calibration was ±${Math.round(acc)} m against ${smallest.toFixed(1)} m ` +
+      `Your GPS accuracy at calibration was ${accuracyWords(acc, units)} against ${len(smallest, 1)} ` +
         'squares. The corners you tapped may be well off. Re-calibrate in the open if you can.',
     );
   }
@@ -726,7 +753,7 @@ export function checkCalibration(
   // square and a half from where it should be.
   if (residualM > Math.max(2, smallest * 0.35)) {
     warnings.push(
-      `Your four corners are ${residualM.toFixed(1)} m from making a straight-sided board. ` +
+      `Your four corners are ${len(residualM, 1)} from making a straight-sided board. ` +
         'Check you tapped them in order, going round the edge rather than across it.',
     );
   }

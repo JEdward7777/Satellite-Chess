@@ -213,4 +213,9 @@ them, **match the file you are editing** — a `myColor` sitting beside a
 `myColour` in the same function is worse than either convention. Prefer American
 in a genuinely new module.
 
-Units are **metric** and stay that way (decision 0036). Metres, not yards.
+Units are **metric underneath** and stay that way: GPS, geometry, storage, the
+protocol, the archive and the PGN. What a player *reads* is in their account's
+chosen units, metric or US (decision 0049, superseding 0036's units rule), and
+**`src/shared/units.ts` is the only place a meter becomes a foot**. A new
+distance on screen goes through it; a new server refusal that names a distance
+sends a `Refusal`, not a metric sentence.

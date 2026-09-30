@@ -36,6 +36,7 @@
 
 import { type SyncJournal, emptyJournalState } from './field-sync.js';
 import type { SessionState } from './session.js';
+import { clearCachedUnits } from './units.js';
 
 type SignedIn = Extract<SessionState, { kind: 'signed_in' }>;
 
@@ -163,6 +164,10 @@ export function forgetAccount(
   journal: Pick<SyncJournal, 'write'>,
 ): void {
   clearCachedIdentity(storage);
+  // The account's display units go with it (decision 0049), and so does a
+  // choice still waiting to reach it: pushed after a switch, it would land on
+  // the next account.
+  clearCachedUnits(storage);
   try {
     journal.write(emptyJournalState());
   } catch {

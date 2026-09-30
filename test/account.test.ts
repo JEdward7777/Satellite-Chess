@@ -63,7 +63,7 @@ function known(overrides: Partial<KnownIdentity> = {}): KnownIdentity {
 describe('remembering who the phone is (2.2.4)', () => {
   it('puts the server’s duration on this phone’s clock', () => {
     const identity = identityFromSession(
-      { kind: 'signed_in', sub: 'alice', via: 'google', email: null, expiresInMs: 10 * DAY },
+      { kind: 'signed_in', sub: 'alice', via: 'google', email: null, expiresInMs: 10 * DAY, units: null },
       NOW,
     );
     expect(identity).toEqual({
@@ -77,7 +77,7 @@ describe('remembering who the phone is (2.2.4)', () => {
 
   it('keeps no expiry when the server gave none, rather than inventing one', () => {
     const identity = identityFromSession(
-      { kind: 'signed_in', sub: 'alice', via: 'dev', email: null, expiresInMs: null },
+      { kind: 'signed_in', sub: 'alice', via: 'dev', email: null, expiresInMs: null, units: null },
       NOW,
     );
     expect(identity.expiresAt).toBeNull();
@@ -151,6 +151,7 @@ describe('the launch, with a memory (decision 0035 rule 2, strengthened by 2.2.4
         via: 'google',
         email: 'bob@example.com',
         expiresInMs: 30 * DAY,
+        units: null,
       },
       known(),
       NOW,
@@ -307,7 +308,7 @@ describe('forgetting an account (decision 0039, rule 4)', () => {
 describe('noticing a switched account (decision 0039, rule 4, the third route)', () => {
   const confirmedAs = (sub: string) =>
     resolveLaunch(
-      { kind: 'signed_in', sub, via: 'google', email: null, expiresInMs: 30 * DAY },
+      { kind: 'signed_in', sub, via: 'google', email: null, expiresInMs: 30 * DAY, units: null },
       null,
       NOW,
     );

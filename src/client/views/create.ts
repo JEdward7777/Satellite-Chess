@@ -14,6 +14,8 @@
 
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, type TimeControl } from '../../shared/clock.js';
 import { type FieldSpec, deriveGeometry, describeSquares } from '../../shared/field.js';
+import { type Units, lengthWords } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 import {
   DEFAULT_REACH,
   MAX_HANDICAP_SQUARES,
@@ -183,7 +185,7 @@ export function mountCreate(root: HTMLElement, deps: CreateDeps): () => void {
   let creating = false;
 
   function paint(): void {
-    root.innerHTML = html(draft, deps.fields);
+    root.innerHTML = html(draft, deps.fields, displayUnits().get());
     wire();
   }
 
@@ -248,7 +250,7 @@ export function mountCreate(root: HTMLElement, deps: CreateDeps): () => void {
   };
 }
 
-function html(draft: CreateDraft, fields: FieldSpec[]): string {
+function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
   const refusal = createRefusal(draft, fields);
   const selected = draftField(draft, fields);
 
@@ -269,7 +271,7 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
           .join('')}
       </select>
     </p>
-    ${selected ? `<p class="dim" data-field-size>${fieldSummary(selected)}</p>` : ''}
+    ${selected ? `<p class="dim" data-field-size>${fieldSummary(selected, units)}</p>` : ''}
 
     <h2>Time control</h2>
     <p>
@@ -310,7 +312,7 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
         clampReach(draft.reachSquares) >= MAX_REACH_SQUARES ? 'disabled' : ''
       } aria-label="More reach">+</button>
     </div>
-    <p class="dim" data-reach-note>${escapeHtml(reachNote(draft, draftField(draft, fields)))}</p>
+    <p class="dim" data-reach-note>${escapeHtml(reachNote(draft, draftField(draft, fields), units))}</p>
 
     <h2>Extra reach</h2>
     <div class="choices" data-handicaps>
@@ -347,9 +349,9 @@ function html(draft: CreateDraft, fields: FieldSpec[]): string {
   `;
 }
 
-function fieldSummary(field: FieldSpec): string {
+function fieldSummary(field: FieldSpec, units: Units): string {
   const geo = deriveGeometry(field);
-  return describeSquares(geo);
+  return describeSquares(geo, units);
 }
 
 function colourNote(choice: ColourChoice): string {
@@ -369,14 +371,19 @@ function formatSquares(squares: number): string {
 /**
  * What the reach dial means on the ground.
  *
- * Squares are the unit the rule is written in (decision 0031), but metres are
- * what a player can picture, so say both. The metres depend on the field, which
- * is why this needs one.
+ * Squares are the unit the rule is written in (decision 0031), but a distance
+ * is what a player can picture, so say both — in the player's units (decision
+ * 0049). The distance depends on the field, which is why this needs one.
  */
-function reachNote(draft: CreateDraft, field: FieldSpec | undefined): string {
+export function reachNote(
+  draft: CreateDraft,
+  field: FieldSpec | undefined,
+  units: Units = 'metric',
+): string {
   const squares = clampReach(draft.reachSquares);
   const metres = field ? deriveGeometry(field).meanSquareM * squares : null;
-  const onThisField = metres === null ? '' : ` — about ${metres.toFixed(1)} m on this field`;
+  const onThisField =
+    metres === null ? '' : ` — about ${lengthWords(metres, units, 1)} on this field`;
   const character =
     squares <= 0.5
       ? 'You must stand on or beside a square to touch it, so every move is a walk.'

@@ -14,6 +14,8 @@ import { type Color, toSquare } from '../../shared/squares.js';
 import { toBoardPoint } from '../../shared/field.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import { pieceLook } from '../piece-look.js';
+import { accuracyWords, lengthWords } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 import {
   type Projection,
   canvasSizePx,
@@ -82,6 +84,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
 
   const paint = () => {
     const fix = state.fix;
+    const units = displayUnits().get();
     const accuracyM = fix?.accuracyM ?? 0;
     const reachM = effectiveReachM(geo.meanSquareM);
     const { width, height } = canvasSizePx(canvas);
@@ -105,9 +108,12 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
     // number there would imply the game would accept a move.
     set(
       '[data-reach]',
-      !fix ? '—' : accuracyTooPoor(accuracyM, DEFAULT_REACH) ? 'too vague' : `${reachM.toFixed(1)} m`,
+      !fix ? '—' : accuracyTooPoor(accuracyM, DEFAULT_REACH) ? 'too vague' : lengthWords(reachM, units, 1),
     );
-    set('[data-quality]', fix ? `${qualityLabel(state.quality)} ±${accuracyM.toFixed(0)} m` : 'waiting');
+    set(
+      '[data-quality]',
+      fix ? `${qualityLabel(state.quality)} ${accuracyWords(accuracyM, units)}` : 'waiting',
+    );
   };
 
   const set = (selector: string, text: string) => {

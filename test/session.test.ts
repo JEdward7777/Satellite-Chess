@@ -49,7 +49,17 @@ describe('loading the session', () => {
       // a live session rather than an unreadable one.
       email: null,
       expiresInMs: null,
+      // And no display units: never chosen, which the phone reads as "ask the
+      // locale" (decision 0049), not as metric.
+      units: null,
     });
+  });
+
+  it('carries the account’s display units, and nothing it does not recognize', async () => {
+    const us = await loadSession({ fetch: answers(200, { sub: 'alice', via: 'google', units: 'us' }) });
+    expect(us).toMatchObject({ kind: 'signed_in', units: 'us' });
+    const odd = await loadSession({ fetch: answers(200, { sub: 'alice', via: 'google', units: 'imperial' }) });
+    expect(odd).toMatchObject({ kind: 'signed_in', units: null });
   });
 
   it('turns the server’s expiry into a duration, so the two clocks are never compared', async () => {

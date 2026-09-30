@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { deriveGeometry, makeFieldSpec, snapshotField, squareCentreLatLng } from '../../src/shared/field.js';
 import { fromLocal } from '../../src/shared/geo.js';
 import { CLAIM_AFTER_MS, POS_SERVER_MIN_INTERVAL_MS } from '../../src/shared/protocol.js';
+import { type Refusal, refusalWords } from '../../src/shared/reach.js';
 import { fromSquare } from '../../src/shared/squares.js';
 import type { GameDO } from '../../src/worker/game-do.js';
 
@@ -258,6 +259,11 @@ describe('the start handshake', () => {
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('out_of_reach');
     expect(String(err.message)).toMatch(/your own end of the board/);
+    // The figures ride beside the words, so a phone can say it in feet
+    // (decision 0049); the words are the same refusal in meters.
+    expect(err.refusal).toMatchObject({ kind: 'back_rank', goodAccuracyM: 5 });
+    expect(refusalWords(err.refusal as Refusal)).toBe(err.message);
+    expect(refusalWords(err.refusal as Refusal, 'us')).toMatch(/ft from your back rank/);
     // The refusal must be the last word. A client clears its error when a
     // snapshot lands, so a snapshot sent after it erased it unread (7.2.3).
     await new Promise((r) => setTimeout(r, 50));
@@ -349,6 +355,8 @@ describe('lifting a piece', () => {
     const err = await white.next((m) => m.t === 'error');
     expect(err.code).toBe('out_of_reach');
     expect(String(err.message)).toMatch(/from a2/);
+    expect(err.refusal).toMatchObject({ kind: 'reach', square: 'a2' });
+    expect(refusalWords(err.refusal as Refusal)).toBe(err.message);
     white.close();
     black.close();
   });

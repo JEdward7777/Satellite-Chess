@@ -1,7 +1,7 @@
 # 0036 — American spelling in anything a player reads; metric units stay
 
 - **Date:** 2026-09-16
-- **Status:** accepted
+- **Status:** accepted; rule 2 (units stay metric) superseded by [0049](0049-display-units-are-an-account-setting.md) for what a player reads
 - **Stage:** 2.5.1 (owner feedback, not part of the stage)
 - **Supersedes:** the spelling rule in [`AGENTS.md`](../AGENTS.md) §9
 

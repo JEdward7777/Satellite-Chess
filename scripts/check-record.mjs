@@ -109,7 +109,10 @@ function check(ok, what, detail = '') {
 const step = (n, msg) => console.log(`\n${n}. ${msg}`);
 
 async function newPhone(browser, name) {
-  const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // A metric locale, because this driver reads meters off the screen and an
+  // account that has never chosen follows its browser's locale (decision 0049);
+  // headless Chromium is en-US. `check-units.mjs` is the driver for feet.
+  const context = await browser.newContext({ viewport: { width: 480, height: 900 }, locale: 'en-GB' });
   await signIn(context, `sim-record-${name}-${Date.now()}`, new URL(BASE).origin, name);
   await context.addInitScript(
     ({ field }) => {

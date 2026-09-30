@@ -260,6 +260,32 @@ HTTPS origin for the OAuth redirect, which phase 1.9 already provides.
       `mountFieldOffer`. The key is *inherited, never re-derived*, so A → B → C
       still matches A; re-deriving it at each hop stops the matching after one
       forward and is the obvious wrong simplification.
+  - `2.3.8` done: Display units — metric or US — as an account setting (O-21,
+    decision 0049)
+    Everything underneath stays metric, the PGN included. `shared/units.ts` is
+    the one formatter, built so replay (8.3), the share card (8.5) and
+    head-to-head (8.5.4) can reuse it. `scripts/check-units.mjs` drives it.
+    - `2.3.8.1` done: The setting on the account: a `settings` table on the
+      UserDO (schema 3), written by `POST /api/settings`, read back on
+      `/api/me`. The phone caches it (words, never a door), holds an offline
+      choice as pending until a launch can send it, and asks the browser's
+      locale for an account that never chose.
+    - `2.3.8.2` done: Every distance a player reads goes through the formatter:
+      home, calibration, the field screens, create, the board and game
+      readouts, the handshake, the review, the record, and the GPS "coarse
+      fix" help. Feet for short things, yards for a board, yards then miles
+      walked.
+    - `2.3.8.3` done: Server refusals that name a distance send their figures
+      beside the metric words, and the phone says them in its player's units.
+    - `2.3.8.4` done: Sizes offered as advice are round in the player's units
+      ("15 ft", "5 to 10 yards"), including a new size hint before the first
+      calibration tap.
+    - `2.3.8.5` dropped: On the owner's phone: does the default come up US, do
+      the numbers read naturally outdoors, and does a 10-yard board paced out
+      by eye read as "30 ft" squares on the review?
+      Folded into the next outdoor checklist in `STATE.md` rather than held
+      open here, so the stage could close (reviewed clean in one round).
+      It is still to be done.
 
 - `2.4` done: KV namespace creation, secret setup, and documenting both
   Done 2026-09-16, and **it was never the operator-only step STATE.md said it

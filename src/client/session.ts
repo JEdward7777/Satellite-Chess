@@ -28,6 +28,8 @@
  * account and no network at all (decision 0013) — still works.
  */
 
+import { type Units, asUnits } from '../shared/units.js';
+
 /** What `/api/me` said, or what we assume when it could not say anything. */
 export type SessionState =
   /** A live session. `sub` is the account key; it is never shown to an opponent. */
@@ -44,6 +46,12 @@ export type SessionState =
        * the server's (`gotchas.md`). Null from a server too old to say.
        */
       expiresInMs: number | null;
+      /**
+       * The display units the account holds (decision 0049), or null when the
+       * player has never chosen — which is not the same as metric: the phone
+       * then asks its locale. Null too from a server too old to say.
+       */
+      units: Units | null;
     }
   /**
    * The server said 401. The gate closes.
@@ -107,6 +115,7 @@ export async function loadSession(options: SessionOptions = {}): Promise<Session
     email?: unknown;
     expiresAt?: unknown;
     serverNow?: unknown;
+    units?: unknown;
   };
   try {
     body = (await response.json()) as typeof body;
@@ -126,6 +135,7 @@ export async function loadSession(options: SessionOptions = {}): Promise<Session
       isFiniteNumber(body.expiresAt) && isFiniteNumber(body.serverNow)
         ? body.expiresAt - body.serverNow
         : null,
+    units: asUnits(body.units),
   };
 }
 

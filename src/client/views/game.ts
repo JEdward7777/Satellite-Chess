@@ -28,8 +28,14 @@ import {
   toBoardPoint,
 } from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
-import type { CarryState, GameSnapshot } from '../../shared/protocol.js';
-import { DEFAULT_REACH, accuracyTooPoor, effectiveReachM } from '../../shared/reach.js';
+import type { CarryState, ErrorMsg, GameSnapshot } from '../../shared/protocol.js';
+import {
+  DEFAULT_REACH,
+  accuracyTooPoor,
+  effectiveReachM,
+  refusalFromWire,
+  refusalWords,
+} from '../../shared/reach.js';
 import { type Color, type Square, fromSquare, toSquare } from '../../shared/squares.js';
 import {
   type AlertLevel,
@@ -41,6 +47,8 @@ import {
 } from '../clock.js';
 import { clockDebugText, readClockDebug, writeClockDebug } from '../clock-debug.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
+import { type Units, lengthWords } from '../../shared/units.js';
+import { displayUnits } from '../units.js';
 import {
   AutoReady,
   awaitingHandshake,
@@ -210,9 +218,25 @@ export function suspendedPrompt(suspension: GameSnapshot['suspension']): string 
   return 'You paused this game. Both walk to your own back ranks to resume.';
 }
 
-/** Distances are read while walking, so they are short and never reflow. */
-export function metres(m: number): string {
-  return m < 10 ? `${m.toFixed(1)} m` : `${Math.round(m)} m`;
+/**
+ * Distances are read while walking, so they are short and never reflow. In
+ * the player's units (decision 0049): "4.3 m", "42 m" — or "14 ft", "136 ft".
+ */
+export function metres(m: number, units: Units = 'metric'): string {
+  return lengthWords(m, units);
+}
+
+/**
+ * A refusal from the server, in the player's units (decision 0049).
+ *
+ * The server writes its sentence in meters and sends the figures beside it;
+ * the phone says it again from the figures, with the same function. An error
+ * with no figures, or with figures this build does not recognize, is shown as
+ * the server wrote it.
+ */
+export function errorWords(error: Pick<ErrorMsg, 'message' | 'refusal'>, units: Units): string {
+  const refusal = refusalFromWire(error.refusal);
+  return refusal === null ? error.message : refusalWords(refusal, units);
 }
 
 /**
@@ -221,14 +245,14 @@ export function metres(m: number): string {
  * Words only. The piece itself is drawn beside it from the board's own art
  * ({@link carryPiece}), so the HUD and the board cannot show different pieces.
  */
-export function carryReadout(guidance: CarryGuidance | null): string {
+export function carryReadout(guidance: CarryGuidance | null, units: Units = 'metric'): string {
   if (!guidance) return '—';
   const what = guidance.from;
   if (!guidance.mine) return `${what} · theirs`;
   if (guidance.pending) return `${what} · in hand`;
   if (guidance.inReach.length > 0) return `${what} · ${guidance.inReach.length} in reach`;
   if (!guidance.nearest) return `${what} · no fix`;
-  return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM)}`;
+  return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM, units)}`;
 }
 
 /** The piece in hand, as the board draws it. Null for a letter this client does not know. */
@@ -261,7 +285,7 @@ export function carrierPosition(
 }
 
 /** What to do next while someone is carrying, in one line. */
-export function carryPrompt(guidance: CarryGuidance): string {
+export function carryPrompt(guidance: CarryGuidance, units: Units = 'metric'): string {
   if (!guidance.mine) return 'Your opponent is carrying a piece.';
   // Said while the lift is still in flight. It names what happened rather than
   // what to do, because for the moment it takes to confirm there is nothing to
@@ -271,7 +295,7 @@ export function carryPrompt(guidance: CarryGuidance): string {
   if (guidance.inReach.length > 0) {
     return `Carrying. Tap a bright dot to place — ${guidance.inReach.length} in reach.`;
   }
-  return `Carrying. Walk ${metres(guidance.nearest.walkM)} to ${guidance.nearest.square}, or to any other marked square.`;
+  return `Carrying. Walk ${metres(guidance.nearest.walkM, units)} to ${guidance.nearest.square}, or to any other marked square.`;
 }
 
 export interface GameViewDeps {
@@ -409,6 +433,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let clockDebug = readClockDebug(browserFlagStorage());
   /** The phone's piece look (decision 0045), shared with the simulator panel. */
   const looks = pieceLook();
+  /** The player's display units (decision 0049), read at every paint. */
+  const units = displayUnits();
   /** What the carry and promotion icons last drew, so a repaint can skip them. */
   let shownCarryIcon = '';
   let shownPromotionIcons = '';
@@ -475,8 +501,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       ? walkToBackRankM(geometry(), game, theirColor, { lat: seen.lat, lng: seen.lng })
       : null;
     return {
-      mine: myHandshakeLine(game.players[game.you]?.inStartZone ?? false, myBackRank()),
-      theirs: opponentHandshakeLine(them, distance),
+      mine: myHandshakeLine(game.players[game.you]?.inStartZone ?? false, myBackRank(), units.get()),
+      theirs: opponentHandshakeLine(them, distance, units.get()),
     };
   }
 
@@ -673,7 +699,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (game.status === 'suspended') return suspendedPrompt(game.suspension);
 
     const carry = guidanceNow();
-    if (carry) return carryPrompt(carry);
+    if (carry) return carryPrompt(carry, units.get());
     if (game.clock.active !== myColor()) return 'Your opponent to move.';
     return 'Your move — tap a piece you can reach.';
   }
@@ -798,7 +824,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       '[data-reach]',
       !fix ? '—' : accuracyTooPoor(accuracyM, net.game?.reach ?? DEFAULT_REACH)
         ? 'too vague'
-        : `${reachM.toFixed(1)} m · ${qualityLabel(gps.quality)}`,
+        : `${lengthWords(reachM, units.get(), 1)} · ${qualityLabel(gps.quality)}`,
     );
     set(
       '[data-turn]',
@@ -811,7 +837,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     // The carry line earns its space only while there is something in hand;
     // a permanent "Carrying —" is a row of screen spent saying nothing.
-    set('[data-carry-text]', carryReadout(carry));
+    set('[data-carry-text]', carryReadout(carry, units.get()));
     // Rewritten only when it changes: this runs up to ten times a second while
     // the opponent's dot glides, and the icon is a few hundred bytes of SVG.
     const inHand = carry ? carryPiece(carry) : null;
@@ -909,7 +935,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           ? localNotice.text
           : null;
       notice.hidden = !fresh && local === null;
-      notice.textContent = local ?? (fresh ? error!.message : '');
+      notice.textContent = local ?? (fresh ? errorWords(error!, units.get()) : '');
     }
   }
 

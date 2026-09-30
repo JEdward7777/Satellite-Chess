@@ -143,7 +143,10 @@ async function openPage(context, name) {
 }
 
 async function newPhone(browser, name, opts) {
-  const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
+  // A metric locale, because this driver reads meters off the screen and an
+  // account that has never chosen follows its browser's locale (decision 0049);
+  // headless Chromium is en-US. `check-units.mjs` is the driver for feet.
+  const context = await browser.newContext({ viewport: { width: 480, height: 900 }, locale: 'en-GB' });
   await signIn(context, `sim-resume-${name}-${Date.now()}`, new URL(BASE).origin, name);
   await instrument(context, opts);
   return { context, page: await openPage(context, name), name };
