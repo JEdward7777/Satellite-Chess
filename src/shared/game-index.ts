@@ -28,6 +28,7 @@
  * game you need help finding.
  */
 
+import { isOver } from './endings.js';
 import { CLAIM_AFTER_MS, type GameResult, type GameStatus } from './protocol.js';
 import type { Color } from './squares.js';
 
@@ -122,10 +123,13 @@ export function claimStateFor(
  * worse: the join code is the only handle on the game (decision 0007), so
  * deleting the row while the game is still decidable destroys the only way
  * either player could ever finish it. There is always an exit that does not
- * need this button, and it is the one decision 0025 designed: claim the win
- * once the month is up, or resign, both of which are offered inside the game
- * and both of which end it properly. Tidying up is for games that are already
- * over.
+ * need this button: inside the game, resign, offer a draw, or abort — alone
+ * before each side has moved, or together after (decision 0050) — or claim
+ * the win once decision 0025's month is up. Each of those ends the game, and
+ * then this lets it go. Tidying up is for games that are already over.
+ *
+ * `aborted` is removable: it is over, with no result, and nothing is left to
+ * decide (decision 0050).
  *
  * `waiting` is removable because it is the one status with no game behind it:
  * nobody ever took the second seat, and the object deletes itself after thirty
@@ -136,6 +140,7 @@ export function forgetIsRefused(
 ): 'in_play' | 'suspended' | null {
   switch (entry.status) {
     case 'finished':
+    case 'aborted':
     case 'waiting':
       return null;
     case 'suspended':
@@ -163,7 +168,7 @@ export function listedGame(entry: GameIndexEntry, now: number = Date.now()): Lis
  * to find the one they suspended at lunchtime.
  */
 export function byMostWanted(a: GameIndexEntry, b: GameIndexEntry): number {
-  const live = (entry: GameIndexEntry) => (entry.status === 'finished' ? 1 : 0);
+  const live = (entry: GameIndexEntry) => (isOver(entry.status) ? 1 : 0);
   const byLive = live(a) - live(b);
   if (byLive !== 0) return byLive;
   return lastTouched(b) - lastTouched(a);

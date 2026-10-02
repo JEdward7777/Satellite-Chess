@@ -26,7 +26,7 @@ position only at the two moments that matter (decision 0008).
 |---|---|---|
 | Position relay | ~250–450 typical, **599 ceiling** | Only on >2 m movement, at most 1 per 2.5 s |
 | `lift` + `place` | ~80 | Two per move, ~40 moves |
-| `ready` / `sync` / control | ~10 | Handshakes, reconnects, resign, draw |
+| `ready` / `sync` / control | ~10 | Handshakes, reconnects, resign, draw, abort — one message per explicit tap, never periodic (decision 0050) |
 | Keepalive | **0** | `setWebSocketAutoResponse` never wakes the object |
 | **Total** | **~350–550** | |
 

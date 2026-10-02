@@ -441,3 +441,21 @@ the owner's phone check (in the outdoor checklist in `STATE.md`).
 **Not included:** the spelling half, **O-22**, which stays open. Identifiers and
 stored names are unchanged.
 **Original report:** the owner, 2026-09-16, reading the word "metre" on screen.
+
+### O-50 — A game stuck on a broken field cannot be ended or removed
+**Resolved:** 2026-10-01, stage 10.11 (decision 0050)
+**Outcome:** Built. The board has "End game…": resign, offer a draw, and
+abort. Anything that ends the game is confirmed on a second screen whose
+button is dead for a second. Resign works while active or suspended with the
+opponent gone. A draw offer lapses with the next move. Either player may
+abort alone until each side has moved (a handshake that never completed
+included); after that an abort is an offer the opponent accepts. An aborted
+game has no result, writes no record line, is never archived, can be tidied
+off the list (home offers the tidy-up at once), and is collected like an
+unplayed game. A fallen flag is settled before any action on a running game,
+so a late alarm cannot be dodged by pausing or aborting. The tidy-up refusal
+now says how to end a game. `scripts/check-endings.mjs` drives it. Open until
+the owner's phone check (in the outdoor checklist in `STATE.md`).
+**Not included:** O-41 (deleting an archive), O-49 (a solo field preview).
+**Original report:** the owner, 2026-09-27, after a game on a field that
+could not be played.

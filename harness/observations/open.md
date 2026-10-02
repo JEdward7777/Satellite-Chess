@@ -731,22 +731,31 @@ inbound messages cost requests. Also worth showing: the current accuracy,
 and whether the reach at that accuracy covers most of the board.
 **Not doing yet because:** new feature, behind run 2 of the pipeline.
 
-### O-50 — A game stuck on a broken field cannot be ended or removed
-**Spotted:** 2026-09-27, owner's report
-**Why it matters:** a game started on a field that turns out to be
-unplayable stays on the list with no way out. The server has resign and
-draw (stage `4.4`), but **the game screen has no button for either**. Its
-buttons are ready, put back, claim, after the game, pause and leave
-(`views/game.ts`). "Tidy up" refuses a game in play or suspended
-(`forgetIsRefused`, `shared/game-index.ts`), yet its message says such a
-game "can only be finished, claimed or resigned". The one real exit is to
-pause and have the opponent claim it, which takes 30 days
-(`CLAIM_AFTER_MS`). A game with moves and no result is never collected
-(decision 0025), so the row stays for good.
-**Fix, when wanted:** put Resign and Offer draw on the game screen. Then
-consider a mutual abort, or one-sided within the first few moves, that
-ends the game with no result and makes it removable. It needs a rule for
-the record (decision 0040), since an aborted game should probably not
-count as played. Related: O-41 (the archive cannot be deleted) and O-42.
-**Not doing yet because:** filed during run 2. Resign alone is small, and
-could be taken as a phase.
+### O-51 — `check-games` fails its home-height check with seven games
+**Spotted:** 2026-09-30, phase 4 of run 2 (O-50); confirmed at `d3f5fa3`, before that work
+**Why it matters:** step 7 of `scripts/check-games.mjs` asserts that home
+still fits in two screens with seven games listed. It measures 1807 px
+against a 900 px screen and fails, every run, at HEAD as well as with
+O-50's change. Home has grown since the check was written (units advice,
+the record and account lines), so either the screen has got too long or the
+threshold is stale. Nobody has looked at which.
+**Also:** `check-games` takes `--origin`, not `--base`, and defaults to port
+8799 when it is not given, so a run against another port silently hits
+whatever is on 8799.
+**Fix, when wanted:** screenshot home with seven games and decide: shorten
+home (fewer lines per game, the fields section collapsed), or re-set the
+threshold to what home is meant to be.
+**Not doing yet because:** found while verifying O-50, and unrelated to it.
+
+### O-52 — Two record tests race the object with `sendAndSettle`
+**Spotted:** 2026-09-30, phase 4 of run 2
+**Why it matters:** in `test/worker/record.test.ts`, "re-baselines a reload
+between the lift and the place, as a relay would" (around line 1029) and
+the O-39 relay test near line 1133 fail about one full run in seven. Both
+send over a socket and then read or backdate stored rows, relying on
+`sendAndSettle` having waited long enough for the object to finish; on a
+slow run it has not. They predate O-50's change and touch none of it.
+**Fix, when wanted:** wait on the state the test needs (the snapshot
+carrying the move, or the presence row having changed) instead of a
+settle, as `closeAndSettle` in `carry.test.ts` waits on the timer row (O-09).
+**Not doing yet because:** flaky, not wrong; a rerun passes.

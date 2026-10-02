@@ -480,4 +480,18 @@ is; this says what will bite you when you touch it.*
   off the screen must open its context with `locale: 'en-GB'` (check-calibrate,
   -invite, -record, -resume and -review do). `scripts/check-units.mjs` is the
   driver for feet. The PGN stays metric (0041).
+- **`check-games` takes `--origin`, not `--base`, and defaults to port 8799**
+  (as `check-invite` and `check-calibrate` do). Given nothing, it drives
+  whatever is listening on 8799, which may be somebody else's server. Its
+  home-height check fails at present (O-51).
+- **`aborted` is a status, and it is over without a result** (decision 0050).
+  Anything that asks "is this game over?" must ask `isOver` in
+  `shared/endings.ts`, not `status === 'finished'`: a check written the old
+  way puts an aborted game among the live ones on home, keeps its clocks on
+  screen, or refuses to tidy it. It has `result_reason = 'aborted'` and no
+  outcome, so `snapshot.result` is null. It writes no record line and is
+  never archived; collection treats it as unplayed (`collectionKind`).
+  **Abort alone is allowed only before each side has moved**; after that it
+  is an offer. Relaxing that turns abort into a resignation that costs
+  nothing. `scripts/check-endings.mjs` is the driver.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

@@ -36,7 +36,13 @@ export type GameStatus =
   | 'active'
   /** Frozen: someone dropped, or a player asked for a break. */
   | 'suspended'
-  | 'finished';
+  | 'finished'
+  /**
+   * Ended with **no result** (decision 0050): abandoned by one player before
+   * each side had moved, or by both together after. Writes no record line, is
+   * never archived, and may be tidied off the list.
+   */
+  | 'aborted';
 
 export type ResultOutcome = '1-0' | '0-1' | '1/2-1/2';
 
@@ -50,6 +56,15 @@ export type ResultReason =
   | 'fifty_move_rule'
   | 'agreement'
   | 'abandoned';
+
+/**
+ * Why a game stopped: a result's reason, or `aborted`, which has no result.
+ *
+ * Kept apart from {@link ResultReason} on purpose. A `GameResult` always has an
+ * outcome, and an aborted game never has one; putting `aborted` in that union
+ * would let a result be "1-0, aborted", which nothing should ever say.
+ */
+export type EndReason = ResultReason | 'aborted';
 
 export interface GameResult {
   outcome: ResultOutcome;
@@ -166,8 +181,16 @@ export interface GameSnapshot {
   /** Set while someone is walking with a piece in hand. */
   carry: CarryState | null;
   result: GameResult | null;
-  /** Set when the opponent has offered a draw and it is still open. */
+  /**
+   * Who has offered a draw that is still open, or null. It lapses when the
+   * next move is placed, by either side, and when the game ends (decision 0050).
+   */
   drawOfferFrom: Color | null;
+  /**
+   * Who has offered to abort, once an abort needs both players, or null.
+   * Lapses exactly as a draw offer does (decision 0050).
+   */
+  abortOfferFrom: Color | null;
   /**
    * Present while suspended: when it froze, who stopped it, and whether the
    * receiving player may claim the win yet (decision 0025).
@@ -257,9 +280,29 @@ export interface ResignMsg {
   t: 'resign';
 }
 
+/**
+ * Offer, accept or decline a draw. An offer stands until the opponent answers
+ * it, or until the next move is placed by either side (decision 0050).
+ */
 export interface DrawMsg {
   t: 'draw';
   action: 'offer' | 'accept' | 'decline';
+}
+
+/**
+ * End the game with no result (decision 0050).
+ *
+ * With no `action`, it means "I want this game aborted", and the server applies
+ * the rule: before each side has moved (`shared/endings.ts`) it ends the game
+ * at once; after that it is an offer the opponent must accept, unless the
+ * opponent has already offered, in which case it is agreement. `accept` and
+ * `decline` answer the opponent's open offer.
+ *
+ * One tap, one message, never periodic: it is inbound and billed.
+ */
+export interface AbortMsg {
+  t: 'abort';
+  action?: 'accept' | 'decline';
 }
 
 /** Ask for a break. Freezes both clocks; resuming needs the back-rank handshake. */
@@ -291,6 +334,7 @@ export type ClientMsg =
   | ReadyMsg
   | ResignMsg
   | DrawMsg
+  | AbortMsg
   | PauseMsg
   | ClaimMsg
   | SyncMsg;
@@ -324,6 +368,8 @@ export type ErrorCode =
   | 'not_a_player'
   | 'bad_message'
   | 'no_draw_offer'
+  /** Answered an abort offer that is not there. */
+  | 'no_abort_offer'
   | 'implausible'
   /** Tried to place without carrying anything, or lift while already carrying. */
   | 'not_carrying'

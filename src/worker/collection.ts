@@ -21,6 +21,10 @@
  *   0042), and the review screen reads that instead. The day is for the evening
  *   after the game, when the board is still worth opening.
  *
+ * An **aborted** game (decision 0050) goes on the unplayed terms, whether or
+ * not it has moves: its players ended it with no result, so there is nothing
+ * to archive and no claim to wait for.
+ *
  * **A game with moves on it and no result is never collected**, however long
  * it sits suspended. That is decision 0025 unchanged: the claim button waits
  * for as long as it takes, and a timer that deleted the game would take the
@@ -150,6 +154,12 @@ export function collectionKind(facts: CollectionFacts): CollectionKind | null {
       return facts.plies === 0 && facts.suspendedBy === null ? 'unplayed' : null;
     case 'finished':
       return 'finished';
+    case 'aborted':
+      // Over, with no result (decision 0050): nothing to archive, no record
+      // line to wait for, and no claim to protect — the players ended it
+      // themselves. So it goes on exactly an unplayed game's terms, moves or
+      // not: a month after anybody last looked, with both index rows dropped.
+      return 'unplayed';
     default:
       // `active`: somebody is playing it.
       return null;

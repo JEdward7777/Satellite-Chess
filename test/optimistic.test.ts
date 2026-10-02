@@ -57,6 +57,7 @@ function snapshot(over: Partial<GameSnapshot> = {}): GameSnapshot {
     carry: null,
     result: null,
     drawOfferFrom: null,
+    abortOfferFrom: null,
     createdAt: 0,
     ...over,
   };

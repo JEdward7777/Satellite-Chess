@@ -141,3 +141,22 @@ file. Expect most of it to be written after the first real game.
   - `10.10.3` todo: On real phones outdoors: can both players read the piece
     in hand at arm's length in sun, does the plate hide a square the carrier
     needs, and does it read as a carry rather than a third dot?
+
+- `10.11` active: Resign, Offer draw and Abort on the board (O-50, decision 0050)
+  - The owner's game on an unplayable field could not be ended or removed.
+    The server had resign and draw since `4.4`; the screen had neither.
+  - `10.11.1` done: "End game…" on the board: resign, offer a draw, abort.
+    Everything that ends the game asks first, on a button dead for 1 s.
+    Offers from the opponent show under the board, with Accept and Decline.
+  - `10.11.2` done: Abort on the server (`abort`, schema 7): alone before
+    each side has moved, handshake included; after that an offer the
+    opponent accepts. Offers lapse on the next move, by either side. A
+    fallen flag is settled before any action on a running game (lift, drop,
+    place, pause, resign, draw, abort) and before a disconnect suspension.
+  - `10.11.3` done: An aborted game: no result, no record line, no archive,
+    removable from "Your games" (which offers the tidy-up at once), and
+    collected like an unplayed game. The file says `*` and why.
+  - `10.11.4` done: `scripts/check-endings.mjs`: the four ways out, on two
+    phones, including the opponent gone and the game suspended.
+  - `10.11.5` todo: On real phones: is "End game…" findable when stuck, and
+    never hit by accident while walking?

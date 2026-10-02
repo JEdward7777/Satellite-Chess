@@ -27,7 +27,7 @@
  * that travels does not.
  */
 
-import type { ResultOutcome, ResultReason } from './protocol.js';
+import type { EndReason, ResultOutcome } from './protocol.js';
 import type { Color } from './squares.js';
 
 /**
@@ -80,7 +80,11 @@ export interface GameReport {
   /** When it ended, or null while it is still going. */
   finishedAt: number | null;
   outcome: ResultOutcome | null;
-  reason: ResultReason | null;
+  /**
+   * Why it ended, or null while it is still going. `aborted` comes with no
+   * outcome (decision 0050): an aborted game is over and has no result.
+   */
+  reason: EndReason | null;
   /**
    * The time control, as the game was created with it.
    *

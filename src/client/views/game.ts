@@ -75,6 +75,17 @@ import {
   zoomFrameFor,
 } from '../render.js';
 import { BOARD_FRAME_HTML, attachBoardZoom } from './board-gestures.js';
+import { isOver } from '../../shared/endings.js';
+import {
+  type EndingAction,
+  endingActions,
+  endingConfirm,
+  endingHint,
+  incomingOffers,
+  myOfferLine,
+  offerEndedNotice,
+  offerSentNotice,
+} from '../endings.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
 
 // ---------------------------------------------------------------------------
@@ -336,6 +347,15 @@ export interface GameViewDeps {
 const ERROR_LINGER_MS = 6_000;
 /** A hint is shorter than a refusal: it answers a tap the player just made. */
 const LOCAL_NOTICE_MS = 3_000;
+/** News about an offer (declined, lapsed, sent) is read, so it stays a while. */
+const OFFER_NOTICE_MS = 6_000;
+/**
+ * How long a button that ends the game stays dead after it appears (decision
+ * 0050). Long enough that the tap which opened the question — or a second tap
+ * of a double one, or a thumb brushing the screen while walking — cannot also
+ * answer it; short enough that nobody who means it notices.
+ */
+export const ENDING_ARM_MS = 1_000;
 /** Said when my own piece-in-hand plate is tapped (O-44), which does nothing. */
 export const PLATE_TAP_HINT =
   'That is the piece in your hand. Tap a square to place it, or tap Put it back.';
@@ -354,6 +374,18 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     <div class="board-screen">
       ${BOARD_FRAME_HTML}
       <div class="board-status">
+        ${(['abort', 'draw'] as const)
+          .map(
+            (kind) => `
+        <div class="offer" data-offer="${kind}" hidden>
+          <p data-offer-text></p>
+          <p>
+            <button data-offer-accept="${kind}">Accept</button>
+            <button data-offer-decline="${kind}" class="secondary">Decline</button>
+          </p>
+        </div>`,
+          )
+          .join('')}
         <div class="clocks" data-clocks hidden>
           <div class="clock" data-clock-side="mine">
             <span class="clock-label">You</span>
@@ -366,23 +398,39 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         </div>
         <pre class="clock-debug" data-clock-debug hidden></pre>
         <dl class="readout">
-          <dt>On</dt><dd data-square>—</dd>
-          <dt>Reach</dt><dd data-reach>—</dd>
-          <dt>Turn</dt><dd data-turn>—</dd>
+          <dt data-square-label>On</dt><dd data-square>—</dd>
+          <dt data-reach-label>Reach</dt><dd data-reach>—</dd>
+          <dt data-turn-label>Turn</dt><dd data-turn>—</dd>
           <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden><span class="piece-icon" data-carry-icon></span><span data-carry-text>—</span></dd>
           <dt>Pieces</dt><dd><button class="look-toggle" data-look-toggle aria-label="Switch piece look">—</button></dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
         <p data-handshake class="dim" hidden></p>
         <p data-notice class="notice" hidden></p>
+        <p data-my-offer class="dim" hidden></p>
         <p>
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
           <button data-claim hidden>Claim the win</button>
           <button data-review-open hidden>After the game</button>
           <button data-pause class="secondary" hidden>Pause</button>
+          <button data-end class="secondary" hidden>End game…</button>
           <button data-leave class="secondary">Leave</button>
         </p>
+      </div>
+      <div class="endings" data-endings hidden>
+        <div class="endings-step" data-endings-menu>
+          <p class="endings-title">End this game?</p>
+          <p class="dim" data-endings-hint></p>
+          <div class="endings-choices" data-endings-choices></div>
+          <button data-endings-cancel class="secondary">Keep playing</button>
+        </div>
+        <div class="endings-step" data-endings-confirm hidden>
+          <p class="endings-title" data-confirm-title></p>
+          <p class="dim" data-confirm-body></p>
+          <button data-confirm-no class="secondary">Keep playing</button>
+          <button data-confirm-yes class="danger"></button>
+        </div>
       </div>
       <div class="promotion" data-promotion hidden>
         <p data-promotion-title>Promote to</p>
@@ -409,8 +457,22 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let projection: Projection | null = null;
   /** What `projection` was drawn from, so a tap can be read against the same picture. */
   let drawnView: BoardView | null = null;
-  /** A word from this phone rather than the server, shown like a refusal. */
-  let localNotice: { text: string; at: number } | null = null;
+  /**
+   * A word from this phone rather than the server, shown like a refusal. A
+   * `plate` hint is about a piece in hand and goes with it; an `offer` note
+   * (sent, declined, lapsed) stays its own while.
+   */
+  let localNotice: { text: string; at: number; kind: 'plate' | 'offer' } | null = null;
+  /** "End game…" is open, and on which step (decision 0050). */
+  let endingsOpen = false;
+  /** The ending being confirmed, and when the question appeared. */
+  let confirming: { action: EndingAction; at: number } | null = null;
+  /** When each incoming offer's banner first appeared, so Accept arms after it. */
+  const offerShownAt = new Map<string, number>();
+  /** The last snapshot, to tell a declined offer from a lapsed one. */
+  let previousGame: NetState['game'] = null;
+  /** The repaint that arms a confirming button; cleared on teardown. */
+  let armTimer: ReturnType<typeof setTimeout> | null = null;
   let errorShownAt = 0;
   let lastErrorSeen: string | null = null;
   /** A place that is waiting on the promotion picker being answered. */
@@ -523,7 +585,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const { width, height } = canvasSizePx(canvas);
     if (!hitsPlate(inHandPlate(drawnView, projection, width, height), x, y)) return false;
     if (drawnView.carry?.mine) {
-      localNotice = { text: PLATE_TAP_HINT, at: Date.now() };
+      localNotice = { text: PLATE_TAP_HINT, at: Date.now(), kind: 'plate' };
       paint();
     }
     return true;
@@ -669,6 +731,79 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     pendingPromotion = null;
     paint();
   });
+  // Ending a game early (stage 10.11, decision 0050). Every inbound message
+  // here is one explicit tap: nothing repeats, nothing is sent on a timer.
+  /** Send an ending, or put one that ends the game behind its question. */
+  function choose(action: EndingAction): void {
+    if (action.pending) return;
+    if (action.ends) {
+      endingsOpen = true;
+      confirming = { action, at: Date.now() };
+      // Repaint when the answer arms, rather than at the next second's tick.
+      if (armTimer !== null) clearTimeout(armTimer);
+      armTimer = setTimeout(() => {
+        armTimer = null;
+        paint();
+      }, ENDING_ARM_MS + 20);
+    } else {
+      deps.connection.send(action.msg);
+      endingsOpen = false;
+      confirming = null;
+      localNotice = { text: offerSentNotice(action.kind), at: Date.now(), kind: 'offer' };
+    }
+    paint();
+  }
+  /**
+   * Whether an ending is still there to be taken, asked of the game as it is
+   * now rather than as it was when the question opened: an offer lapses with
+   * a move, or is taken back by a decline. The server would refuse a stale
+   * one anyway, but the screen should not ask about, or send, what it can
+   * already see has gone.
+   */
+  function stillOnOffer(action: EndingAction): boolean {
+    const msg = JSON.stringify(action.msg);
+    return [...endingActions(net.game), ...incomingOffers(net.game).map((o) => o.accept)].some(
+      (a) => a.ends && JSON.stringify(a.msg) === msg,
+    );
+  }
+  function closeEndings(): void {
+    endingsOpen = false;
+    confirming = null;
+    paint();
+  }
+  root.querySelector<HTMLButtonElement>('[data-end]')?.addEventListener('click', () => {
+    endingsOpen = true;
+    confirming = null;
+    paint();
+  });
+  root.querySelector('[data-endings-choices]')?.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-ending]');
+    if (!button || button.disabled) return;
+    const action = endingActions(net.game).find((a) => a.kind === button.dataset.ending);
+    if (action) choose(action);
+  });
+  root.querySelector<HTMLButtonElement>('[data-endings-cancel]')?.addEventListener('click', closeEndings);
+  root.querySelector<HTMLButtonElement>('[data-confirm-no]')?.addEventListener('click', closeEndings);
+  root.querySelector<HTMLButtonElement>('[data-confirm-yes]')?.addEventListener('click', () => {
+    const asked = confirming;
+    if (!asked || Date.now() - asked.at < ENDING_ARM_MS) return;
+    if (stillOnOffer(asked.action)) deps.connection.send(asked.action.msg);
+    closeEndings();
+  });
+  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-offer-accept]')) {
+    button.addEventListener('click', () => {
+      const offer = incomingOffers(net.game).find((o) => o.kind === button.dataset.offerAccept);
+      if (!offer || button.disabled) return;
+      choose(offer.accept);
+    });
+  }
+  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-offer-decline]')) {
+    button.addEventListener('click', () => {
+      const offer = incomingOffers(net.game).find((o) => o.kind === button.dataset.offerDecline);
+      if (offer) deps.connection.send(offer.decline);
+    });
+  }
+
   root.querySelector<HTMLButtonElement>('[data-ready]')?.addEventListener('click', () => {
     const fix = fixNow();
     // The server checks the back rank itself and says how far off you are, so
@@ -692,6 +827,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (net.gone === 'missing') return "This game isn't on the server, or you're signed out. Tap Leave to go home.";
     if (net.status !== 'open' && net.status !== 'idle') return 'Reconnecting…';
     if (!game) return 'Connecting…';
+    if (game.status === 'aborted') {
+      return 'Game aborted — no result. You can remove it from Your games.';
+    }
     if (game.result) {
       return `${game.result.outcome} — ${game.result.reason.replace(/_/g, ' ')}.`;
     }
@@ -722,7 +860,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // Nothing to show before the first snapshot, and nothing worth showing once
     // the game is over — the result line says everything at that point.
     const debug = root.querySelector<HTMLElement>('[data-clock-debug]');
-    if (!game || net.gameAt === null || game.result !== null) {
+    if (!game || net.gameAt === null || game.result !== null || isOver(game.status)) {
       clocks.hidden = true;
       if (debug) debug.hidden = true;
       return;
@@ -776,6 +914,87 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     }
   }
 
+  /**
+   * "End game…", its choices and question, the opponent's offers and my own
+   * (decision 0050). Everything here is decided by `client/endings.ts` from
+   * the snapshot; this only shows it.
+   */
+  function paintEndings(): void {
+    const game = net.game ?? null;
+    const actions = endingActions(game);
+    const endButton = root.querySelector<HTMLButtonElement>('[data-end]');
+    if (endButton) endButton.hidden = actions.length === 0;
+
+    // A question about a game that can no longer be ended — it just was, by
+    // either player — or about an offer that has since lapsed closes itself.
+    if (actions.length === 0) {
+      endingsOpen = false;
+      confirming = null;
+    } else if (confirming !== null && !stillOnOffer(confirming.action)) {
+      endingsOpen = false;
+      confirming = null;
+    }
+
+    const now = Date.now();
+    const overlay = root.querySelector<HTMLElement>('[data-endings]');
+    if (overlay) overlay.hidden = !endingsOpen;
+    const menu = root.querySelector<HTMLElement>('[data-endings-menu]');
+    if (menu) menu.hidden = confirming !== null;
+    const confirm = root.querySelector<HTMLElement>('[data-endings-confirm]');
+    if (confirm) confirm.hidden = confirming === null;
+    if (endingsOpen && confirming === null) {
+      set('[data-endings-hint]', endingHint(game));
+      const choices = root.querySelector<HTMLElement>('[data-endings-choices]');
+      const key = actions.map((a) => `${a.kind}:${a.label}:${a.pending}`).join('|');
+      if (choices && choices.dataset.key !== key) {
+        choices.dataset.key = key;
+        choices.innerHTML = actions
+          .map(
+            (a) =>
+              `<button data-ending="${a.kind}" class="${a.kind === 'resign' ? 'danger' : ''}" ${
+                a.pending ? 'disabled' : ''
+              }>${a.label}</button>`,
+          )
+          .join('');
+      }
+    }
+    if (confirming) {
+      const words = endingConfirm(confirming.action);
+      set('[data-confirm-title]', words.title);
+      set('[data-confirm-body]', words.body);
+      set('[data-confirm-yes]', words.yes);
+      const yes = root.querySelector<HTMLButtonElement>('[data-confirm-yes]');
+      if (yes) yes.disabled = now - confirming.at < ENDING_ARM_MS;
+    }
+
+    const offers = incomingOffers(game);
+    for (const kind of ['abort', 'draw'] as const) {
+      const box = root.querySelector<HTMLElement>(`[data-offer="${kind}"]`);
+      const offer = offers.find((o) => o.kind === kind);
+      if (!offer) offerShownAt.delete(kind);
+      else if (!offerShownAt.has(kind)) offerShownAt.set(kind, now);
+      if (!box) continue;
+      box.hidden = offer === undefined;
+      if (!offer) continue;
+      const text = box.querySelector('[data-offer-text]');
+      if (text) text.textContent = offer.text;
+      const accept = box.querySelector<HTMLButtonElement>('[data-offer-accept]');
+      if (accept) {
+        accept.textContent = offer.accept.label;
+        // Not live the instant it appears: a banner that slides in under a
+        // thumb must not take the tap that thumb was already making.
+        accept.disabled = now - (offerShownAt.get(kind) ?? now) < ENDING_ARM_MS;
+      }
+    }
+
+    const mine = myOfferLine(game);
+    const mineLine = root.querySelector<HTMLElement>('[data-my-offer]');
+    if (mineLine) {
+      mineLine.hidden = mine === null;
+      mineLine.textContent = mine ?? '';
+    }
+  }
+
   function paint(): void {
     const geo = geometry();
     const fix = gps.fix;
@@ -805,6 +1024,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
+      over: net.game ? isOver(net.game.status) : false,
       carry: carry && {
         ...carry,
         piece: carryPiece(carry),
@@ -830,6 +1050,15 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       '[data-turn]',
       net.game ? (net.game.clock.active === myColor() ? 'yours' : 'theirs') : '—',
     );
+    // Once the game is over, finished or aborted, nobody's turn is coming,
+    // nothing is in reach, and nobody else is coming to join it: the square
+    // underfoot, the reach, the turn and the invitation all go.
+    const over = net.game ? isOver(net.game.status) : false;
+    for (const el of root.querySelectorAll<HTMLElement>(
+      '[data-square], [data-square-label], [data-reach], [data-reach-label], [data-turn], [data-turn-label], .invite-again',
+    )) {
+      el.hidden = over;
+    }
     set('[data-prompt]', prompt());
     // So a snapshot's arrival shows on the clock immediately rather than at the
     // next tick — most visibly the increment landing as a move is accepted.
@@ -886,6 +1115,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const claimButton = root.querySelector<HTMLButtonElement>('[data-claim]');
     if (claimButton) claimButton.hidden = net.game?.suspension?.canClaim !== true;
 
+    paintEndings();
+
     // The way on to the post-game screen, and the only one from here. It
     // appears with the result rather than replacing anything: the board is
     // still worth looking at for a moment after a mate.
@@ -925,12 +1156,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       const fresh = error !== null && Date.now() - errorShownAt < ERROR_LINGER_MS;
       // The hint is about a piece in hand; once it is put back or placed, it
       // is about nothing.
-      if (!net.game?.carry) localNotice = null;
+      if (!net.game?.carry && localNotice?.kind === 'plate') localNotice = null;
       // The newer of the two says it: a tap on the plate after a refusal is
       // answered, and a refusal after it replaces the hint.
       const local =
         localNotice !== null &&
-        Date.now() - localNotice.at < LOCAL_NOTICE_MS &&
+        Date.now() - localNotice.at <
+          (localNotice.kind === 'offer' ? OFFER_NOTICE_MS : LOCAL_NOTICE_MS) &&
         (!fresh || localNotice.at >= errorShownAt)
           ? localNotice.text
           : null;
@@ -952,6 +1184,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let leftForReview = false;
   const offNet = deps.connection.subscribe((state) => {
     net = state;
+    // An offer of mine that has gone without ending the game was declined, or
+    // lapsed with a move; the server sends only the snapshot, so say which.
+    const ended = offerEndedNotice(previousGame, state.game);
+    if (ended) localNotice = { text: ended, at: Date.now(), kind: 'offer' };
+    if (state.game) previousGame = state.game;
     // Archived while this board was up: the review is where the game lives now.
     // Once, and after this subscriber returns, since it replaces this screen.
     if (state.gone === 'archived' && deps.onReview !== undefined && !leftForReview) {
@@ -1036,6 +1273,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     offNet();
     clearInterval(ticker);
     clearInterval(clockTicker);
+    if (armTimer !== null) clearTimeout(armTimer);
     alerts.dispose();
     syncAnimator(false);
     removeEventListener('resize', onResize);

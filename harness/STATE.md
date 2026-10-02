@@ -4,35 +4,51 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 2 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phases 1–3 are done.** Phase 1 was `10.9`,
+(`harness/pipeline/ratchet.md`). **Phases 1–4 are done.** Phase 1 was `10.9`,
 seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 **O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
-0048). Phase 3 is stage `2.3.8`, **O-21: display units, metric or US**
-(`2026-09-30-01`, decision 0049), reviewed clean in one round.
-**Order from here** (the operator added two mid-run): **O-50** (Resign, Offer
-draw, Abort), **O-49** (a solo field preview), `8.3` (replay), `8.5.1`–`8.5.3`
-(the share card), `8.5.4` (the head-to-head record).
-**Active stages**: `10.5`, `10.6`, `10.7`, `10.8` and `10.10`, each waiting
-only on a real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
-`10.10.3`).
-**Next action**: phase 4 of run 2, **O-50**.
+0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
+decision 0049). Phase 4 is `10.11`, **O-50: Resign, Offer draw and Abort on
+the board** (`2026-10-01-01`, decision 0050), clean after three review rounds.
+**Order from here**: **O-49** (a solo field preview), `8.3` (replay),
+`8.5.1`–`8.5.3` (the share card), `8.5.4` (the head-to-head record).
+**Active stages**: `10.5`, `10.6`, `10.7`, `10.8`, `10.10` and `10.11`, each
+waiting only on a real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
+`10.10.3`, `10.11.5`).
+**Next action**: phase 5 of run 2, **O-49**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`d4020d13`, at `4276306`: everything through `10.10`, and **not yet `2.3.8`**;
-the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`3738eefd`, at `d3f5fa3`: everything through `2.3.8`, and **not yet
+`10.11`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1195 tests pass**. Typecheck and `plan:check` are clean. On 2026-09-30
-`drive-game`, `check-account`, `check-record`, `check-review`, `check-invite`,
-`check-calibrate`, `check-resume` and the new `check-units` passed. **Run
-drivers from a new, uniquely named `--persist-to`** (O-19). Drivers take
-`--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite` and
-`check-calibrate`, which take `--origin=http://127.0.0.1:<port>`. **Drivers
-tap with a `pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone
-`pointerup` is no longer a tap (0046). **Drivers that read metric text pin
-`locale: 'en-GB'`**, because headless Chromium is `en-US` and an account that
-never chose its units follows the locale. `drive-game`'s `opponentDot()`
-colour filter also matches the red ring of the opponent's piece-in-hand plate,
-so do not read it mid-carry.
+**1246 tests pass** (two record tests are flaky, O-52; a rerun passes).
+Typecheck and `plan:check` are clean. On 2026-10-01 `drive-game`,
+`check-resume`, `check-record`, `check-review` and the new `check-endings`
+passed; `check-games` fails its home-height check, as it does at `d3f5fa3`
+(O-51). **Run drivers from a new, uniquely named `--persist-to`** (O-19).
+Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
+`check-calibrate` and `check-games`, which take
+`--origin=http://127.0.0.1:<port>` and default to 8799. **Drivers tap with a
+`pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is
+no longer a tap (0046). **Drivers that read metric text pin `locale:
+'en-GB'`**, because headless Chromium is `en-US` and an account that never
+chose its units follows the locale. `drive-game`'s `opponentDot()` colour
+filter also matches the red ring of the opponent's piece-in-hand plate, so do
+not read it mid-carry. **The scratchpad is shared between agents in a run**:
+name helper scripts per agent, since another agent may overwrite a generic
+`restart.sh`.
+
+## Ending a game early, in one paragraph
+
+"End game…" on the board offers resign, a draw, and abort (decision 0050).
+Anything that ends the game asks first, on a button dead for a second.
+**Abort alone only before each side has moved**; after that it is an offer.
+An aborted game has status `aborted` and no result: no record line, no
+archive, removable from the list, collected like an unplayed game. **A fallen
+flag is settled before any action on a running game** (lift, drop, place,
+pause, resign, draw, abort) and before a disconnect suspension, so a late
+alarm cannot be dodged. **The rule most likely to be broken**: asking
+`status === 'finished'` for "is it over?" instead of `isOver`.
 
 ## Units, in one paragraph
 
@@ -159,7 +175,8 @@ Phases 0 and 1 are done bar `1.9.2` (PWA install and wake lock on a phone) and
 carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
-built, and since `2.3.8` so are display units. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
+built, and since `2.3.8` so are display units. Since `10.11` a game can be
+resigned, drawn or aborted from the board. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -180,7 +197,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `d4020d13` (through `10.10`), `ARCHIVE` id pinned; `2.3.8` is next. Finished games
+1. **Deployed** `3738eefd` (through `2.3.8`), `ARCHIVE` id pinned; `10.11` is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -202,10 +219,13 @@ game-rule work.
    - `2.3.8.5`: does the units default come up US on the owner's phone,
      do the numbers read naturally, and does a 10-yard board paced by eye
      read as "30 ft" squares on the review?
+   - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
+     when stuck, and never hit by accident while walking? Does an offer get
+     noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: O-50, O-49, `8.3`, `8.5.1`–`8.5.3`, `8.5.4`.
+3. **The rest of run 2**: O-49, `8.3`, `8.5.1`–`8.5.3`, `8.5.4`.
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

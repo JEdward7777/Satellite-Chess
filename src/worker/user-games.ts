@@ -139,7 +139,14 @@ export function entryFromRow(row: GameIndexRow): GameIndexEntry {
   };
 }
 
-const STATUSES: readonly string[] = ['waiting', 'staging', 'active', 'suspended', 'finished'];
+const STATUSES: readonly string[] = [
+  'waiting',
+  'staging',
+  'active',
+  'suspended',
+  'finished',
+  'aborted',
+];
 
 /**
  * A stored status, or `finished` for one this version does not know.

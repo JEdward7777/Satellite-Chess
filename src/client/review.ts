@@ -173,6 +173,9 @@ export function walkRows(
  * something true to say either way.
  */
 export function resultWords(report: GameReport, you: Color | null): string {
+  // Over, with no result (decision 0050). The app offers no review of one,
+  // but the report is still built for it and should not call it "playing".
+  if (report.reason === 'aborted') return 'Aborted — no result';
   if (report.outcome === null || report.reason === null) return 'Still playing';
   const how = reasonWords(report.reason);
   if (you === null) {

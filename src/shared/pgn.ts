@@ -26,7 +26,7 @@
  * without this file learning anything about Durable Objects.
  */
 
-import type { ResultReason } from './protocol.js';
+import type { EndReason } from './protocol.js';
 import type { GameReport, ReportMove, ReportPosition } from './review.js';
 
 /** Longest line a PGN writer should emit. From the export-format standard. */
@@ -103,7 +103,12 @@ function tagPairs(report: GameReport, now: number): [string, string][] {
   return tags;
 }
 
-/** `1-0`, `0-1`, `1/2-1/2`, or `*` for a game still going. */
+/**
+ * `1-0`, `0-1`, `1/2-1/2`, or `*` for a game still going — and for one that
+ * was aborted, which the standard's `*` also covers ("abandoned, or result
+ * otherwise unknown"). An aborted game says why in `Termination`,
+ * `SatelliteEnd` and a closing comment (decision 0050).
+ */
 export function resultToken(report: Pick<GameReport, 'outcome'>): string {
   return report.outcome ?? '*';
 }
@@ -136,6 +141,8 @@ function moveText(report: GameReport): string {
     const comment = moveComment(move);
     if (comment !== null) tokens.push(...comment.split(' '));
   }
+  // An aborted game has no result, and `*` alone reads as "still going".
+  if (report.reason === 'aborted') tokens.push(...ABORTED_COMMENT.split(' '));
   tokens.push(resultToken(report));
 
   const lines: string[] = [];
@@ -184,13 +191,17 @@ function position(pos: ReportPosition): string {
  * Everything that is chess ending normally is "normal", including a
  * resignation and an agreed draw. A flag fall is "time forfeit" and a game
  * nobody came back to is "abandoned" — which is exactly what `ResultReason`
- * calls it.
+ * calls it. An aborted game is "abandoned" too: it is the standard's word for
+ * a game that stopped without a result, and `SatelliteEnd` says which kind.
  */
-export function termination(reason: ResultReason): string {
+export function termination(reason: EndReason): string {
   if (reason === 'timeout') return 'time forfeit';
-  if (reason === 'abandoned') return 'abandoned';
+  if (reason === 'abandoned' || reason === 'aborted') return 'abandoned';
   return 'normal';
 }
+
+/** Said before the `*` of an aborted game (decision 0050). */
+export const ABORTED_COMMENT = '{Aborted by the players: no result.}';
 
 /**
  * `600+5`, in seconds, as the standard spells a sudden-death control — or `?`,

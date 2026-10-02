@@ -68,12 +68,14 @@ import {
   PROTOCOL_VERSION,
   CLAIM_AFTER_MS,
   type PlayerView,
+  type EndReason,
   type PosFix,
   type ResultOutcome,
   type ResultReason,
   type ServerMsg,
 } from '../shared/protocol.js';
 import { type Color, isSquare } from '../shared/squares.js';
+import { abortsAlone, canAbort, canOfferDraw, canResign, isOver } from '../shared/endings.js';
 import { isArchived, readArchive, toArchive, writeArchive } from './archive.js';
 import {
   ARCHIVE_MAX_ATTEMPTS,
@@ -147,6 +149,7 @@ interface GameRow {
   black_reach_bonus_sq: number;
   reach_json: string | null;
   draw_offer_from: Color | null;
+  abort_offer_from: Color | null;
   suspended_at: number | null;
   suspended_by: Color | null;
   result_outcome: string | null;
@@ -656,12 +659,19 @@ export class GameDO extends DurableObject<Env> {
         await this.onReady(ws, who, msg as { pos: PosFix });
         return;
 
+      // Every message that acts on a running game settles a fallen flag first
+      // (decision 0050, rule 7): with the alarm late, a move, a pause or an
+      // ending must not be played on a clock that has already run out. The
+      // walk a lift or place reports is credited first — it happened while
+      // the game was active.
       case 'lift':
         this.creditCarry(who, msg as TravelReport);
+        if (await this.settleFallenFlag(ws)) return;
         await this.onLift(ws, who, msg as { from: string; pos: PosFix });
         return;
 
       case 'drop':
+        if (await this.settleFallenFlag(ws)) return;
         await this.onDrop(ws, who);
         return;
 
@@ -670,18 +680,30 @@ export class GameDO extends DurableObject<Env> {
         // writes the result, and the record line with it, inside `onPlace`, and
         // the walk that carried the mating piece has to be in that line.
         this.creditCarry(who, msg as TravelReport);
+        if (await this.settleFallenFlag(ws)) return;
         await this.onPlace(ws, who, msg as { to: string; promotion?: string; pos: PosFix });
         return;
 
       case 'resign':
+        if (await this.settleFallenFlag(ws)) return;
         await this.onResign(ws, who);
         return;
 
       case 'draw':
+        if (await this.settleFallenFlag(ws)) return;
         await this.onDraw(ws, who, msg as { action?: string });
         return;
 
+      case 'abort':
+        if (await this.settleFallenFlag(ws)) return;
+        await this.onAbort(ws, who, msg as { action?: unknown });
+        return;
+
       case 'pause':
+        // Above all here: a pause banks `max(0, …)`, so a pause on a fallen
+        // flag would freeze a lost clock at zero, and before the second move
+        // an abort alone could then follow it.
+        if (await this.settleFallenFlag(ws)) return;
         await this.onPause(ws, who);
         return;
 
@@ -837,9 +859,11 @@ export class GameDO extends DurableObject<Env> {
     // from the old rule) into one that reads as measured, and puts the phone's
     // whole counter into the review, the PGN and, on the next re-push, the
     // permanent record. So nothing about distance is written once it is over.
-    // Only `finished`: staging and a suspension still need their baselines
-    // moved, which is how the walk to the back rank is kept out.
-    if (game?.status === 'finished') {
+    // Only a game that is over — `finished`, or `aborted`, whose figures only
+    // an unoffered file would ever show (decision 0050): staging and a
+    // suspension still need their baselines moved, which is how the walk to
+    // the back rank is kept out.
+    if (game?.status === 'finished' || game?.status === 'aborted') {
       return {
         creditM: 0,
         leg: row?.travel_leg ?? null,
@@ -1321,7 +1345,8 @@ export class GameDO extends DurableObject<Env> {
     this.sql.exec(
       `UPDATE game
           SET fen = ?, active_color = ?, white_ms_remaining = ?, black_ms_remaining = ?,
-              last_clock_start_at = ?, draw_offer_from = NULL, updated_at = ?
+              last_clock_start_at = ?, draw_offer_from = NULL, abort_offer_from = NULL,
+              updated_at = ?
         WHERE id = 1`,
       chess.fen(),
       clockAfter.active,
@@ -1369,10 +1394,16 @@ export class GameDO extends DurableObject<Env> {
   }
 
   private async finish(outcome: ResultOutcome, reason: ResultReason, now: number): Promise<void> {
+    // Belt and braces (decision 0050): every caller has already checked the
+    // status, but a result written over a result — or over an abort — would
+    // rewrite a game both players have already been told is over.
+    const game = this.game();
+    if (game === null || isOver(game.status)) return;
     this.sql.exec(
       `UPDATE game
           SET status = 'finished', result_outcome = ?, result_reason = ?, result_at = ?,
-              last_clock_start_at = NULL, updated_at = ?
+              last_clock_start_at = NULL, draw_offer_from = NULL, abort_offer_from = NULL,
+              updated_at = ?
         WHERE id = 1`,
       outcome,
       reason,
@@ -1536,11 +1567,18 @@ export class GameDO extends DurableObject<Env> {
   private async onResign(ws: WebSocket, who: SocketAttachment): Promise<void> {
     const game = this.game();
     if (game === null) return;
-    if (game.status !== 'active' && game.status !== 'suspended') {
+    // Active or suspended, and nothing about the opponent: a player whose
+    // opponent has gone, and whose game is frozen, must be able to get out on
+    // their own (O-50). Not staging, where nobody has moved and abort is the
+    // honest way out.
+    if (!canResign(game.status)) {
       this.send(ws, {
         t: 'error',
         code: 'not_active',
-        message: `The game is ${game.status}.`,
+        message:
+          game.status === 'staging'
+            ? 'Nobody has moved yet, so there is nothing to resign. Abort the game instead.'
+            : `The game is ${game.status}.`,
       });
       return;
     }
@@ -1565,7 +1603,7 @@ export class GameDO extends DurableObject<Env> {
   ): Promise<void> {
     const game = this.game();
     if (game === null) return;
-    if (game.status !== 'active' && game.status !== 'suspended') {
+    if (!canOfferDraw(game.status)) {
       this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
       return;
     }
@@ -1625,6 +1663,128 @@ export class GameDO extends DurableObject<Env> {
 
   private setDrawOffer(color: Color | null): void {
     this.sql.exec(`UPDATE game SET draw_offer_from = ?, updated_at = ? WHERE id = 1`, color, Date.now());
+  }
+
+  // -------------------------------------------------------------------------
+  // Abort: the game ends with no result (stage 10.11, decision 0050)
+  // -------------------------------------------------------------------------
+
+  /**
+   * "I want this game aborted", or an answer to the opponent's offer.
+   *
+   * Before each side has moved, one player is enough, and that includes a
+   * handshake that never completed — the owner's game on a field nobody could
+   * play (O-50). After that it takes both: a bare `abort` is an offer, and an
+   * `abort` into the opponent's open offer is agreement, exactly as for a draw.
+   * Otherwise abort would be a resignation that costs nothing.
+   *
+   * The status check and the write that ends the game happen with nothing
+   * awaited between them, so a move, a flag or a resignation arriving in the
+   * same instant cannot finish a game this then also aborts.
+   */
+  private async onAbort(
+    ws: WebSocket,
+    who: SocketAttachment,
+    msg: { action?: unknown },
+  ): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    const action = msg?.action;
+    if (action !== undefined && action !== 'accept' && action !== 'decline') {
+      this.send(ws, {
+        t: 'error',
+        code: 'bad_message',
+        message: 'An abort takes no action, or an action of accept or decline.',
+      });
+      return;
+    }
+    if (!canAbort(game.status)) {
+      this.send(ws, {
+        t: 'error',
+        code: 'not_active',
+        message:
+          game.status === 'waiting'
+            ? 'Nobody has joined yet. The code expires by itself, and you can remove it from Your games.'
+            : `The game is ${game.status}.`,
+      });
+      return;
+    }
+
+    const offer = game.abort_offer_from as Color | null;
+    if (action === 'accept' || action === 'decline') {
+      if (offer === null || offer === who.color) {
+        this.send(ws, {
+          t: 'error',
+          code: 'no_abort_offer',
+          message: 'There is no offer to abort from your opponent to answer.',
+        });
+        return;
+      }
+      if (action === 'accept') {
+        await this.abortGame(Date.now());
+        return;
+      }
+      this.setAbortOffer(null);
+      this.bumpRev();
+      this.broadcastState();
+      return;
+    }
+
+    if (abortsAlone(game.status, this.plies()) || (offer !== null && offer !== who.color)) {
+      await this.abortGame(Date.now());
+      return;
+    }
+    // Asking again while your own offer stands is a tap the player could not
+    // tell had landed, not an error.
+    if (offer === who.color) return;
+    this.setAbortOffer(who.color);
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /**
+   * End the game with no result.
+   *
+   * No result means **no record line** (decision 0040 counts finished games,
+   * and this is not one), **no archive** (there is nothing to review), and a
+   * row in "Your games" that says so and may be tidied away. The object stays
+   * until collection takes it on an unplayed game's terms (decision 0042), so
+   * the board can still be opened and says what happened.
+   *
+   * `result_reason` holds `aborted` with no outcome, so the report, and the
+   * file if anybody asks the server for it, can say why there is no result.
+   */
+  private async abortGame(now: number): Promise<void> {
+    const game = this.game();
+    if (game === null || !canAbort(game.status)) return;
+    this.sql.exec(
+      `UPDATE game
+          SET status = 'aborted', result_outcome = NULL, result_reason = 'aborted',
+              result_at = ?, last_clock_start_at = NULL, draw_offer_from = NULL,
+              abort_offer_from = NULL, updated_at = ?
+        WHERE id = 1`,
+      now,
+      now,
+    );
+    this.clearCarry();
+    await this.timers.cancel('flag');
+    await this.timers.cancel('disconnect');
+    // Collected like a game nobody played: a month after anybody last looked.
+    await this.armCollection(now);
+    this.bumpRev();
+    this.broadcastState();
+    // The line that makes the row removable.
+    await this.syncIndex(now);
+  }
+
+  private setAbortOffer(color: Color | null): void {
+    this.sql.exec(`UPDATE game SET abort_offer_from = ?, updated_at = ? WHERE id = 1`, color, Date.now());
+  }
+
+  /** How many moves have been played. */
+  private plies(): number {
+    const [row] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
+    return row?.n ?? 0;
   }
 
   private carry(): CarryRow | null {
@@ -2004,6 +2164,28 @@ export class GameDO extends DurableObject<Env> {
   }
 
   /**
+   * If the running clock has already run out, end the game on time now, and
+   * refuse the message that arrived. Returns true when it did.
+   *
+   * Asked before a resignation, a draw or an abort (decision 0050). The flag
+   * alarm normally ends the game at the instant it falls, but an alarm can be
+   * late; without this, a player whose flag fell before the second move could
+   * abort — no result — instead of losing on time, or agree a draw the clock
+   * had already decided. The same stored-clock check the alarm makes
+   * ({@link onFlagFall}), so no timing state is added. The snapshot goes out
+   * before the refusal, never after (`gotchas.md`).
+   */
+  private async settleFallenFlag(ws: WebSocket): Promise<boolean> {
+    const game = this.game();
+    if (game === null || game.status !== 'active') return false;
+    const now = Date.now();
+    if (flaggedColor(this.clockOf(game), now) === null) return false;
+    await this.onFlagFall(now);
+    this.send(ws, { t: 'error', code: 'not_active', message: 'The game is over: time ran out.' });
+    return true;
+  }
+
+  /**
    * Freeze the game because someone has been gone too long.
    *
    * Both clocks stop. In over-the-board chess your clock runs regardless, but a
@@ -2013,6 +2195,13 @@ export class GameDO extends DurableObject<Env> {
     const game = this.game();
     if (game === null || game.status !== 'active') return;
     if (this.allConnected()) return;
+    // The flag fell before the grace ran out, and both came due in one late
+    // alarm: the clock decided first, so the game ends on time rather than
+    // freezing a clock at zero (decision 0050, rule 7).
+    if (flaggedColor(this.clockOf(game), now) !== null) {
+      await this.onFlagFall(now);
+      return;
+    }
 
     const clock = this.clockOf(game);
     const spent = clock.startedAt === null ? 0 : Math.max(0, now - clock.startedAt);
@@ -2510,6 +2699,7 @@ export class GameDO extends DurableObject<Env> {
               at: game.result_at ?? 0,
             },
       drawOfferFrom: game.draw_offer_from,
+      abortOfferFrom: game.abort_offer_from ?? null,
       suspension: this.suspensionFor(game, you),
       createdAt: game.created_at,
     };
@@ -2767,7 +2957,7 @@ export class GameDO extends DurableObject<Env> {
       startedAt: game.created_at,
       finishedAt: game.result_at,
       outcome: game.result_outcome as ResultOutcome | null,
-      reason: game.result_reason as ResultReason | null,
+      reason: game.result_reason as EndReason | null,
       initialMs: game.initial_ms,
       incrementMs: game.increment_ms,
       squareM,

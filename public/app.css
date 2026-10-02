@@ -965,3 +965,85 @@ body:has(.sim-panel) #app {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+
+/*
+ * Ending a game early (stage 10.11, decision 0050): "End game…", its choices,
+ * and the question before anything that ends the game.
+ *
+ * Modal like the promotion picker, and for the same reason: while the
+ * question is open, nothing else on the screen should take a tap. The
+ * choices are stacked full width, so no two game-ending targets sit side by
+ * side, and "Keep playing" comes first on the question, above the button
+ * that ends the game, so a second tap lands on the harmless one.
+ */
+.endings[hidden],
+.endings-step[hidden],
+.offer[hidden] {
+  display: none;
+}
+
+.endings {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(13, 17, 23, 0.94);
+}
+
+.endings-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: min(100%, 22rem);
+}
+
+.endings-step p {
+  margin: 0;
+}
+
+.endings-title {
+  font-weight: 600;
+  font-size: 1.2rem;
+}
+
+.endings-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.endings-step button,
+.endings-choices button {
+  width: 100%;
+  margin-left: 0;
+}
+
+/* Ends the game for good: the one red button, never the default look. */
+button.danger {
+  color: var(--fg);
+  background: #8e1c1c;
+}
+
+/*
+ * An offer from the opponent. Rare, and waiting on an answer, so it is the
+ * first thing under the board, above the clocks and everything else that is
+ * read every few seconds.
+ */
+.offer {
+  margin: 1rem 0;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: #11243a;
+}
+
+.offer p {
+  margin: 0 0 0.6rem;
+}
+
+.offer p:last-child {
+  margin-bottom: 0;
+}

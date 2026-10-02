@@ -85,3 +85,4 @@ The conditions under which this should be reopened.
 | [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) | The sprint cap delays rather than discards, and the relay limit counts relays | accepted (amends 0040 rule 6) |
 | [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted |
 | [0049](0049-display-units-are-an-account-setting.md) | Display units (metric or US) are an account setting; everything underneath stays metric | accepted (supersedes rule 2 of 0036) |
+| [0050](0050-a-game-can-be-resigned-drawn-or-aborted-from-the-board.md) | A game can be resigned, drawn or aborted from the board; an aborted game has no result | accepted |

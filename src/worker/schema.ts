@@ -20,7 +20,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -72,6 +72,10 @@ const STATEMENTS = [
      -- which is how games created before schema 2 read.
      reach_json          TEXT,
      draw_offer_from     TEXT,
+     -- Who has offered to abort, once an abort needs both players (schema 7,
+     -- decision 0050). Stored, like the draw offer, because the object
+     -- hibernates between the offer and the answer.
+     abort_offer_from    TEXT,
      -- Who stopped the game, and when. Decision 0025: after CLAIM_AFTER_MS the
      -- *other* player may claim the win, so the player responsible has to be
      -- recorded at the moment of suspension. Without this, "claim if your
@@ -238,6 +242,12 @@ function upgradeGameTable(sql: SqlStorage): void {
     if ((played?.n ?? 0) === 0) {
       sql.exec(`UPDATE game SET initial_ms = black_ms_remaining WHERE initial_ms IS NULL`);
     }
+  }
+
+  // Schema 7: an abort offer (decision 0050). NULL is "nobody has offered",
+  // which is what every game already in progress holds.
+  if (!columns.has('abort_offer_from')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN abort_offer_from TEXT`);
   }
 
   // Schema 3: which account each seat accrues to (stage 2.3.4). NULL for every

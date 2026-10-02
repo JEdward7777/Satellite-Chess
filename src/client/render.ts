@@ -55,6 +55,12 @@ export interface BoardView {
   /** Effective reach, already including the accuracy allowance and any handicap. */
   reachM: number;
   /**
+   * The game is over, finished or aborted (decision 0050): nothing can be
+   * lifted or placed, so no square is outlined under foot and no reach is
+   * drawn. The dot stays, because it is still where the player is.
+   */
+  over?: boolean;
+  /**
    * A piece in hand, if anyone is carrying one.
    *
    * `destinations` comes from the server — it is the authority on legality, and
@@ -408,7 +414,9 @@ function drawSquares(
 ): void {
   const { geo } = view;
   const size = cellPx(geo, projection);
-  const underFoot = here ? squareUnderFoot(geo, here) : null;
+  // Nothing to reach and nowhere to stand once the game is over.
+  const live = view.over !== true;
+  const underFoot = here && live ? squareUnderFoot(geo, here) : null;
   const moved = new Set<string>(view.lastMove ? [view.lastMove.from, view.lastMove.to] : []);
 
   for (let file = 0; file < 8; file++) {
@@ -428,7 +436,7 @@ function drawSquares(
 
       // In reach: the squares you could actually lift from or place on right
       // now. This is the rule made visible, so it has to be unmissable.
-      if (here && distanceFromBoardPointToSquareM(geo, here, { file, rank }) <= view.reachM) {
+      if (live && here && distanceFromBoardPointToSquareM(geo, here, { file, rank }) <= view.reachM) {
         ctx.fillStyle = IN_REACH_TINT;
         ctx.fill();
       }
@@ -855,14 +863,17 @@ function drawPlayer(
 ): void {
   const centre = projection.toScreen(here);
 
-  // Reach first, so the dot sits on top of its own circle.
-  ctx.beginPath();
-  ctx.arc(centre.x, centre.y, view.reachM * projection.scale, 0, Math.PI * 2);
-  ctx.fillStyle = REACH_FILL;
-  ctx.fill();
-  ctx.strokeStyle = REACH_EDGE;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  // Reach first, so the dot sits on top of its own circle. None once the
+  // game is over: there is nothing left to reach.
+  if (view.over !== true) {
+    ctx.beginPath();
+    ctx.arc(centre.x, centre.y, view.reachM * projection.scale, 0, Math.PI * 2);
+    ctx.fillStyle = REACH_FILL;
+    ctx.fill();
+    ctx.strokeStyle = REACH_EDGE;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 
   // The accuracy ring is drawn even when it is larger than the reach circle,
   // because "the game is being generous because your fix is poor" is exactly

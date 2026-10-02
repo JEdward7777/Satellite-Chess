@@ -24,6 +24,7 @@
  * through a screenshot.
  */
 
+import { isOver } from '../../shared/endings.js';
 import { type ListedGame, forgetIsRefused } from '../../shared/game-index.js';
 import { formatJoinCode } from '../../shared/joincode.js';
 import { CLAIM_AFTER_MS, type ResultReason } from '../../shared/protocol.js';
@@ -52,7 +53,8 @@ export const FINISHED_SHOWN = 3;
  *
  * That is not a hypothetical pile. A suspended game can never be tidied away —
  * its row is the only handle on a game that can still be claimed or resigned —
- * so games nobody came back to accumulate permanently, by design. Five is about
+ * so games nobody came back to stay until a player ends them from the board
+ * (resign, or abort; decision 0050). Five is about
  * what fits above the fold on a phone alongside the readout.
  *
  * Capped, not truncated: everything is one tap away, and the tap does not leave
@@ -106,6 +108,9 @@ function stateWords(game: ListedGame, now: number): string {
       return suspendedWords(game, now);
     case 'finished':
       return finishedWords(game);
+    case 'aborted':
+      // Decision 0050: over, no result, not in the record, and removable.
+      return 'aborted — no result';
   }
 }
 
@@ -205,8 +210,10 @@ export function reasonWords(reason: ResultReason): string {
  * end of the list is the part that is over.
  */
 export function homeGames(games: readonly ListedGame[], all = false): ListedGame[] {
-  const live = games.filter((game) => game.status !== 'finished');
-  const finished = games.filter((game) => game.status === 'finished');
+  // An aborted game is over, so it waits with the results rather than
+  // holding a place among the games still going (decision 0050).
+  const live = games.filter((game) => !isOver(game.status));
+  const finished = games.filter((game) => isOver(game.status));
   const shown = [...live, ...finished.slice(0, all ? finished.length : FINISHED_SHOWN)];
   return all ? shown : shown.slice(0, HOME_SHOWN);
 }
@@ -229,9 +236,17 @@ export function tidyCandidates(games: readonly ListedGame[]): ListedGame[] {
   return games.filter((game) => forgetIsRefused(game) === null);
 }
 
-/** Whether the offer is worth making at all. */
+/**
+ * Whether the offer is worth making at all: once the list has grown, or as
+ * soon as there is an aborted game on it (decision 0050). An aborted game is
+ * the one a player most wants gone — it was ended because something went
+ * wrong — and it holds no result, so there is nothing to lose by removing it.
+ */
 export function shouldOfferTidy(games: readonly ListedGame[]): boolean {
-  return tidyCandidates(games).length >= TIDY_SUGGEST_AT;
+  const candidates = tidyCandidates(games);
+  return (
+    candidates.length >= TIDY_SUGGEST_AT || candidates.some((game) => game.status === 'aborted')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -320,8 +335,9 @@ export function mountTidy(root: HTMLElement, deps: TidyDeps): () => void {
         notice =
           result.kept.length === 0
             ? null
-            : `${result.kept.length} game${result.kept.length === 1 ? ' was' : 's were'} kept: ` +
-              `still going, so it can only be finished, claimed or resigned.`;
+            : `${result.kept.length} game${result.kept.length === 1 ? ' was' : 's were'} kept ` +
+              `because ${result.kept.length === 1 ? 'it is' : 'they are'} still going. ` +
+              `Open a game to resign, offer a draw, or abort it, and then it can be removed.`;
         paint();
       });
     });
