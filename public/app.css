@@ -196,6 +196,34 @@ select {
   background: #2a2113;
 }
 
+/* A yes, on the preview board (O-49): green, so the three verdicts differ by
+   more than a word in direct sun. */
+.notice.ok {
+  border-color: var(--good);
+  background: #13261a;
+}
+
+/* Nothing to judge yet. */
+.notice.quiet {
+  border-color: var(--line);
+  background: transparent;
+}
+
+/* The preview board's verdict sits above the readout, so it is kept tight. */
+.preview-verdict {
+  margin: 0 0 0.8rem;
+}
+
+.preview-verdict p {
+  margin: 0.3rem 0 0;
+  font-size: 0.9rem;
+}
+
+/* The tap test's answer changes as the player walks; give it room to wrap. */
+.preview-test {
+  min-height: 2.8em;
+}
+
 h2 {
   font-size: 1.1rem;
   margin: 1.5rem 0 0.5rem;

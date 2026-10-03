@@ -494,4 +494,16 @@ is; this says what will bite you when you touch it.*
   **Abort alone is allowed only before each side has moved**; after that it
   is an offer. Relaxing that turns abort into a resignation that costs
   nothing. `scripts/check-endings.mjs` is the driver.
+- **A refused figure rounds up** (O-49, stage 10.12). Every distance or
+  accuracy in a refusal goes through `lengthAboveWords` or
+  `accuracyAboveWords` (`shared/units.ts`): never below the truth, always
+  past the limit as shown, within one display step. `lengthWords` there is
+  the bug: it rounds to nearest, so "You are 3.2 m from e4 and your reach is
+  3.2 m", or "3.1 m" for 3.49 m, which sends the player one step and refuses
+  them again. Likewise **the preview's verdict is judged on the figures it
+  shows** (`lengthFigure`), not on raw meters: the leeway carries ~1e-11 m
+  of projection error, and judged raw, "±7.2 m … 7.2 m" read as a refusal.
+  `test/units-words.test.ts` and `test/preview.test.ts` sweep both.
+- **`scripts/check-preview.mjs`** is the preview's driver. It fails on any
+  request or WebSocket traffic while the preview is up, and runs it offline.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

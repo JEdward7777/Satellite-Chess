@@ -8,7 +8,13 @@
 import { type LatLng, distanceM } from './geo.js';
 import { type FieldGeometry, clamp, distanceToSquareM } from './field.js';
 import { type Color, type Square, fromSquare, startZoneSquares } from './squares.js';
-import { type Units, accuracyWords, lengthWords } from './units.js';
+import {
+  type Units,
+  accuracyAboveWords,
+  accuracyWords,
+  lengthAboveWords,
+  lengthWords,
+} from './units.js';
 
 export interface ReachConfig {
   /**
@@ -290,23 +296,25 @@ export function outOfReachAdvice(
  */
 export function refusalWords(refusal: Refusal, units: Units = 'metric'): string {
   switch (refusal.kind) {
-    case 'accuracy':
+    case 'accuracy': {
+      const accuracyPair = refusedAccuracyPair(refusal.accuracyM, refusal.maxAccuracyM, units);
       return liftPrefix(
         refusal.liftedFrom,
-        `Your position is only accurate to ${accuracyWords(refusal.accuracyM, units)}, and moves ` +
-          `need ${accuracyWords(refusal.maxAccuracyM, units)} or better. Step into the open and ` +
+        `Your position is only accurate to ${accuracyPair.claim}, and moves ` +
+          `need ${accuracyPair.limit} or better. Step into the open and ` +
           'wait for the fix to tighten.',
       );
+    }
     case 'reach': {
       const reach =
-        `You are ${lengthWords(refusal.distanceM, units, 1)} from ${refusal.square} and your ` +
+        `You are ${lengthAboveWords(refusal.distanceM, refusal.reachM, units, 1)} from ${refusal.square} and your ` +
         `reach is ${lengthWords(refusal.reachM, units, 1)}. ` +
         outOfReachAdvice('Walk closer', refusal.accuracyM, refusal, units);
       return liftPrefix(refusal.liftedFrom, reach);
     }
     case 'back_rank':
       return (
-        `You are ${lengthWords(refusal.nearestM, units, 0)} from your back rank and your reach is ` +
+        `You are ${lengthAboveWords(refusal.nearestM, refusal.reachM, units, undefined, 1)} from your back rank and your reach is ` +
         `${lengthWords(refusal.reachM, units, 1)}. ` +
         outOfReachAdvice('Walk to your own end of the board', refusal.accuracyM, refusal, units)
       );
@@ -317,6 +325,30 @@ export function refusalWords(refusal: Refusal, units: Units = 'metric'): string 
         'Either your GPS jumped or something is wrong.'
       );
   }
+}
+
+/**
+ * A fix refused as too vague: the claim and the limit, as the refusal says
+ * them (`accuracyAboveWords`). "unknown" for a fix that gave no accuracy.
+ */
+export function refusedAccuracyPair(
+  accuracyM: number | null,
+  maxAccuracyM: number,
+  units: Units,
+): { claim: string; limit: string } {
+  if (accuracyM === null || !Number.isFinite(accuracyM)) {
+    return { claim: accuracyWords(null, units), limit: accuracyWords(maxAccuracyM, units) };
+  }
+  return accuracyAboveWords(accuracyM, maxAccuracyM, units);
+}
+
+/** The claim half of {@link refusedAccuracyPair}, for a readout beside the sentence. */
+export function refusedAccuracyWords(
+  accuracyM: number | null,
+  maxAccuracyM: number,
+  units: Units,
+): string {
+  return refusedAccuracyPair(accuracyM, maxAccuracyM, units).claim;
 }
 
 /** "When you picked the piece up you were not at a1." before a lift's refusal, found at the place. */

@@ -9,6 +9,7 @@ import {
   asUnits,
   boardNumber,
   boardWords,
+  lengthFigure,
   lengthNumber,
   lengthUnit,
   lengthWords,
@@ -200,5 +201,22 @@ describe('ADVICE — sizes offered, rounded in the player’s own units', () => 
   it('never advises a square below the practice floor it warns about (4 m)', () => {
     expect(ft(15)).toBeGreaterThan(4);
     expect(yd(5)).toBeGreaterThan(4);
+  });
+});
+
+describe('lengthFigure', () => {
+  it('is the number lengthNumber shows, in either units', () => {
+    expect(lengthFigure(7.19999999998, 'metric', 1)).toBe(7.2);
+    expect(lengthFigure(3, 'us', 1)).toBe(9.8);
+    expect(lengthFigure(7.2, 'us', 1)).toBe(24);
+    // Grouped in US units, and still a number.
+    expect(lengthFigure(1000, 'us')).toBe(3281);
+    for (let i = 0; i <= 5000; i += 7) {
+      for (const units of ['metric', 'us'] as const) {
+        expect(String(lengthFigure(i / 100, units, 1))).toBe(
+          String(Number(lengthNumber(i / 100, units, 1).replace(/,/g, ''))),
+        );
+      }
+    }
   });
 });

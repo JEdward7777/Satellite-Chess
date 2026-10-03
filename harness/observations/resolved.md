@@ -459,3 +459,37 @@ the owner's phone check (in the outdoor checklist in `STATE.md`).
 **Not included:** O-41 (deleting an archive), O-49 (a solo field preview).
 **Original report:** the owner, 2026-09-27, after a game on a field that
 could not be played.
+
+### O-49 — A field cannot be tried out before someone is asked to play on it
+**Resolved:** 2026-10-03, stage 10.12 (decision 0051)
+**Outcome:** Built. "Try it alone" on the field screen opens the preview
+board (the old practice board): this phone's dot, the square underfoot,
+reach, **leeway** (a square's middle to its nearest edge, plus the reach,
+which is exactly where the server starts refusing a move on your own
+square), signal, both piece looks, pinch zoom and a reach dial kept in
+memory. A verdict compares the claimed accuracy with the leeway: playable
+inside it, the odd refusal up to twice it, hard beyond, not playable above
+±25 m. It is judged on the figures as displayed, so its sentence cannot
+contradict itself. Tap a square to test whether a lift or a place there
+would count, by the server's own `checkReachTo`. Entirely local: no request
+and no socket, and it works offline (`scripts/check-preview.mjs` counts).
+"Walk the four edges" covers the ground nothing on the phone can see.
+**Not as asked:** "whether the reach at that accuracy covers most of the
+board" cannot happen since decision 0043 (reach is fixed in squares), so the
+verdict asks the opposite question: will a player standing on the right
+square be refused?
+**Also changed:** every refused figure in the game's refusal sentences now
+rounds up past its limit, never level with it or below the truth.
+**Open until:** the real-field check, `10.12.3`.
+**Original report:** the owner, 2026-09-27, after a real game.
+
+### O-53 — `check-field` was red from O-21 until O-49
+**Resolved:** 2026-10-03, phase 5 of run 2 (stage 10.12)
+**Outcome:** Fixed. Since stage 2.3.8 (O-21, display units) the driver read
+"26 ft across" where it expected meters, because headless Chromium is en-US
+and an account that never chose its units follows the locale; and its QR
+screenshot was taken with the simulator panel over the symbol, so nothing
+decoded and steps 3 to 8 never ran. It now opens its contexts with
+`locale: 'en-GB'` and hides the panel for the photograph. All eight steps
+(38 checks) pass. Found while verifying O-49; it was failing the same way at
+`3542ec1`.

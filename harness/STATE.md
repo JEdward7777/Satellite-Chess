@@ -4,30 +4,32 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 2 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phases 1–4 are done.** Phase 1 was `10.9`,
+(`harness/pipeline/ratchet.md`). **Phases 1–5 are done.** Phase 1 was `10.9`,
 seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 **O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
 0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
-decision 0049). Phase 4 is `10.11`, **O-50: Resign, Offer draw and Abort on
-the board** (`2026-10-01-01`, decision 0050), clean after three review rounds.
-**Order from here**: **O-49** (a solo field preview), `8.3` (replay),
-`8.5.1`–`8.5.3` (the share card), `8.5.4` (the head-to-head record).
-**Active stages**: `10.5`, `10.6`, `10.7`, `10.8`, `10.10` and `10.11`, each
-waiting only on a real-phone check (`10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
-`10.10.3`, `10.11.5`).
-**Next action**: phase 5 of run 2, **O-49**.
+decision 0049). Phase 4 was `10.11`, **O-50: Resign, Offer draw and Abort on
+the board** (`2026-10-01-01`, decision 0050). Phase 5 is `10.12`, **O-49:
+try a field alone** (`2026-10-03-01`, decision 0051), clean after six
+review rounds.
+**Order from here**: `8.3` (replay), `8.5.1`–`8.5.3` (the share card),
+`8.5.4` (the head-to-head record).
+**Active stages**: `10.5`, `10.6`, `10.7`, `10.8`, `10.10`, `10.11` and
+`10.12`, each waiting only on a real-phone check (`10.5.4`, `10.6.4`,
+`10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`).
+**Next action**: phase 6 of run 2, **`8.3` (replay)**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`3738eefd`, at `d3f5fa3`: everything through `2.3.8`, and **not yet
-`10.11`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`24cffe8f`, at `3542ec1`: everything through `10.11`, and **not yet
+`10.12`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1246 tests pass** (two record tests are flaky, O-52; a rerun passes).
-Typecheck and `plan:check` are clean. On 2026-10-01 `drive-game`,
-`check-resume`, `check-record`, `check-review` and the new `check-endings`
-passed; `check-games` fails its home-height check, as it does at `d3f5fa3`
-(O-51). **Run drivers from a new, uniquely named `--persist-to`** (O-19).
+**1276 tests pass** (three record tests are flaky, O-52; a rerun passes).
+Typecheck and `plan:check` are clean. On 2026-10-03 `check-preview`,
+`check-field`, `check-calibrate`, `check-units`, `check-resume` and
+`drive-game` passed; `check-games` still fails its home-height check (O-51).
+**Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
-`check-calibrate` and `check-games`, which take
+`check-calibrate`, `check-field` and `check-games`, which take
 `--origin=http://127.0.0.1:<port>` and default to 8799. **Drivers tap with a
 `pointerdown`/`pointerup` pair** (`isPrimary: false`); a lone `pointerup` is
 no longer a tap (0046). **Drivers that read metric text pin `locale:
@@ -37,6 +39,23 @@ filter also matches the red ring of the opponent's piece-in-hand plate, so do
 not read it mid-carry. **The scratchpad is shared between agents in a run**:
 name helper scripts per agent, since another agent may overwrite a generic
 `restart.sh`.
+
+## Trying a field alone, in one paragraph
+
+"Try it alone" on the field screen opens the preview board (decision 0051):
+the dot, the square underfoot, Reach, **Leeway** (a square's middle to its
+nearest edge, plus the reach: where the server starts refusing a move on
+your own square), Signal, a reach dial in memory, and tap a square to test
+it with the server's own `checkReachTo`. The verdict compares the claimed
+accuracy with the leeway (playable inside it, the odd refusal up to twice
+it, hard beyond, not playable above ±25 m) and is **judged on the figures
+as displayed**, so its sentence cannot contradict itself. **Nothing is
+sent**; it works offline. **Every refused figure rounds up**: in the game's
+refusals as in the preview, a distance or accuracy that was refused reads
+past its limit and never below the truth (`lengthAboveWords`,
+`accuracyAboveWords` in `shared/units.ts`). **The rule most likely to be
+broken**: a new refusal sentence written with `lengthWords`, which rounds
+to nearest and can read "3.2 m … reach is 3.2 m".
 
 ## Ending a game early, in one paragraph
 
@@ -197,7 +216,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `3738eefd` (through `2.3.8`), `ARCHIVE` id pinned; `10.11` is next. Finished games
+1. **Deployed** `24cffe8f` (through `10.11`), `ARCHIVE` id pinned; `10.12` is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -219,13 +238,17 @@ game-rule work.
    - `2.3.8.5`: does the units default come up US on the owner's phone,
      do the numbers read naturally, and does a 10-yard board paced by eye
      read as "30 ft" squares on the review?
+   - `10.12.3`: try a field alone ("Try it alone" on the field screen)
+     before the game. Does the verdict match how play goes there? Does a
+     tap in the middle of a square say yes? Does any phone's claimed
+     accuracy run optimistic, so a "Looks playable" is refused in play?
    - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
      when stuck, and never hit by accident while walking? Does an offer get
      noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: O-49, `8.3`, `8.5.1`–`8.5.3`, `8.5.4`.
+3. **The rest of run 2**: `8.3` (replay), `8.5.1`–`8.5.3`, `8.5.4`.
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

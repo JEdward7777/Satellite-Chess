@@ -714,23 +714,6 @@ turn out to matter.
 (accessibility against a stray zoom mid-game) is the owner's call. Stage 10.8
 left the meta alone.
 
-### O-49 — A field cannot be tried out before someone is asked to play on it
-**Spotted:** 2026-09-27, owner's request after a real game
-**Why it matters:** the only way to see how a calibrated field behaves is to
-start a game on it, which needs a second player there in person. If GPS
-scatter makes the board unplayable (reach too large, squares too small to
-tell apart, the board spilling past the usable ground), that is found out
-only after the opponent has come out, and their time is wasted. The
-calibration fit (decision 0028) catches a mis-tapped corner, not a board
-that plays badly. The survey screen (`views/survey.ts`) measures raw GPS
-and is behind a secret, so it is not an answer.
-**Fix, when wanted:** a solo preview from the field screen. Draw the board
-with this phone's live dot, the square it resolves to, and the reach and
-lift/place tolerances a game would use. Nothing goes to the server, since
-inbound messages cost requests. Also worth showing: the current accuracy,
-and whether the reach at that accuracy covers most of the board.
-**Not doing yet because:** new feature, behind run 2 of the pipeline.
-
 ### O-51 — `check-games` fails its home-height check with seven games
 **Spotted:** 2026-09-30, phase 4 of run 2 (O-50); confirmed at `d3f5fa3`, before that work
 **Why it matters:** step 7 of `scripts/check-games.mjs` asserts that home
@@ -758,4 +741,25 @@ slow run it has not. They predate O-50's change and touch none of it.
 **Fix, when wanted:** wait on the state the test needs (the snapshot
 carrying the move, or the presence row having changed) instead of a
 settle, as `closeAndSettle` in `carry.test.ts` waits on the timer row (O-09).
+**Also (2026-10-03, phase 5 of run 2):** a third, "credits a lift and a
+place once each, and a stale relay after them nothing" in the same file,
+failed once in `npm run check` (travel_m 10 against 40) and passed on the
+rerun. Same shape: it reads stored travel straight after socket messages.
 **Not doing yet because:** flaky, not wrong; a rerun passes.
+
+### O-54 — An unreadable field reads as "0.1 m from your back rank" on `ready`
+**Spotted:** 2026-10-03, round 6 review of phase 5 of run 2 (O-49)
+**Why it matters:** `GameDO.startZoneOf` (`src/worker/game-do.ts`, around
+line 1808) catches a field whose geometry cannot be derived and answers
+`{ ok: false, nearestM: Infinity, reachM: 0 }`. The back-rank refusal then
+says it in words: `Infinity` becomes nothing through the units formatter,
+and since refused figures round up past the limit (`lengthAboveWords` in
+`shared/units.ts`) the player reads "You are 0.1 m from your
+back rank and your reach is 0.0 m". The real problem is the field, not the
+walk, and the sentence sends them walking.
+**Fix, when wanted:** a distinct refusal for an unreadable field ("This
+game's field could not be read"), sent as its own `Refusal` kind or error
+code, so neither phone builds a distance sentence from `Infinity`.
+**Not doing yet because:** found in review, it needs a field whose geometry
+cannot be derived (calibration refuses degenerate corners, so it should be
+rare), and it predates O-49. Before this phase it read "You are 0 m from your back rank".

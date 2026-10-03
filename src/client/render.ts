@@ -106,6 +106,12 @@ export interface BoardView {
    * at screen size, and the few strokes sized from a cell are capped.
    */
   zoom?: ZoomView | null;
+  /**
+   * A square tapped on the preview board to test it (O-49, decision 0051),
+   * marked the way a carry's destination is: a large dot while it is in reach
+   * from here, a small faint one while it is a walk away.
+   */
+  target?: Square | null;
 }
 
 /**
@@ -646,14 +652,14 @@ function drawDestinations(
   here: BoardPoint | null,
 ): void {
   const carry = view.carry;
-  if (!carry) return;
-  const size = cellPx(view.geo, projection);
-
   // Only your own carry gets destination dots. Seeing the opponent's options
   // drawn on your board would be both confusing and a small act of espionage.
-  if (!carry.mine) return;
+  const squares = carry?.mine ? [...carry.destinations] : [];
+  if (view.target) squares.push(view.target);
+  if (squares.length === 0) return;
+  const size = cellPx(view.geo, projection);
 
-  for (const square of carry.destinations) {
+  for (const square of squares) {
     const fr = fromSquare(square);
     const centre = squareCentrePx(view.geo, projection, fr);
     const reachable =

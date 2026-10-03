@@ -98,7 +98,10 @@ export function mountField(root: HTMLElement, deps: FieldDeps): () => void {
       <dt>Facing</dt><dd data-bearing>${geo.bearingDeg.toFixed(0)}° (a→h)</dd>
     </dl>
 
-    <p><button data-open>Open the board</button></p>
+    <p><button data-open>Try it alone</button></p>
+    <p class="dim" data-open-note>Walk the board by yourself before you ask anyone to play: see
+      the square you are on, your reach, and whether your GPS is good enough here. Nothing is
+      sent, so it works with no signal.</p>
 
     <h2>Share this field</h2>
     ${

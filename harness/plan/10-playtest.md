@@ -160,3 +160,28 @@ file. Expect most of it to be written after the first real game.
     phones, including the opponent gone and the game suspended.
   - `10.11.5` todo: On real phones: is "End game…" findable when stuck, and
     never hit by accident while walking?
+
+- `10.12` active: Try a field alone before asking anyone to play on it (O-49, decision 0051)
+  - The owner: the only way to see how a field behaves was to start a game,
+    which needs a second person there. The old practice board ("Open the
+    board" on the field screen) is now the preview, "Try it alone".
+  - `10.12.1` done: The verdict (`client/preview.ts`): the phone's claimed
+    accuracy against the **leeway**, the distance from a square's middle to
+    its nearest edge plus the reach. Refused above `maxAccuracyM`, playable
+    inside the leeway, the odd refusal up to twice it, hard beyond, judged
+    on the two figures as the sentence shows them. Notes for
+    squares under the practice floor and for a dot that may name a neighbor.
+    "Walk the four edges" for the ground it cannot see.
+  - `10.12.2` done: The screen (`views/board.ts`): the board with this phone's
+    dot and reach, the square underfoot, reach, leeway and signal in the
+    player's units, both piece looks, pinch zoom, an in-memory reach dial, and
+    tap a square to test whether a lift or a place there would count, by the
+    server's own `checkReachTo`. Nothing is sent. `scripts/check-preview.mjs`
+    walks it, counts requests, and runs it offline.
+  - `10.12.3` todo: On a real field: does the verdict match what play is
+    like there, does any handset claim optimistically, so that a yes is
+    refused in play, and does a tap in the middle of a square say yes?
+  - `10.12.4` done: Every refused figure reads past its limit and never
+    below the truth: `lengthAboveWords` and `accuracyAboveWords` in
+    `shared/units.ts` round the value up, in the game's own refusals as well
+    as the preview's. `check-field` repaired (O-53).

@@ -85,7 +85,7 @@ describe('a refusal, from the server’s figures', () => {
     expect(vague.code).toBe('accuracy');
     expect(refusalWords(vague.refusal as Refusal)).toBe(vague.message);
     expect(refusalWords(vague.refusal as Refusal, 'us')).toBe(
-      'Your position is only accurate to ±3,937 ft, and moves need ±82 ft or better. Step into ' +
+      'Your position is only accurate to ±3,938 ft, and moves need ±82 ft or better. Step into ' +
         'the open and wait for the fix to tighten.',
     );
     const none = checkReachTo(geo, centre('e2'), Number.POSITIVE_INFINITY, 'e2');
@@ -109,7 +109,7 @@ describe('a refusal, from the server’s figures', () => {
     expect(refusalWords(refused.refusal as Refusal)).toBe(refused.message);
     const wire = refusalFromWire(JSON.parse(JSON.stringify(refused.refusal)));
     expect(refusalWords(wire as Refusal, 'us')).toBe(
-      'When you picked the piece up you were not at a1. Your position is only accurate to ±131 ft, ' +
+      'When you picked the piece up you were not at a1. Your position is only accurate to ±132 ft, ' +
         'and moves need ±82 ft or better. Step into the open and wait for the fix to tighten.',
     );
     expect(refusalFromWire({ kind: 'accuracy', accuracyM: 40, maxAccuracyM: 25, liftedFrom: 'z0' })).toBeNull();
@@ -137,7 +137,7 @@ describe('a refusal, from the server’s figures', () => {
       'You are 12 m from your back rank and your reach is 3.2 m. Walk to your own end of the board.',
     );
     expect(refusalWords(refusal, 'us')).toBe(
-      'You are 39 ft from your back rank and your reach is 10 ft. Walk to your own end of the board.',
+      'You are 40 ft from your back rank and your reach is 10 ft. Walk to your own end of the board.',
     );
   });
 
@@ -417,5 +417,103 @@ describe('the account screen', () => {
     expect(unitsStatusWords('saved')).toBe('Saved to your account.');
     expect(unitsStatusWords('pending')).toContain('next time you open the app');
     expect(unitsStatusWords('default')).toContain('language setting');
+  });
+});
+
+describe('a refused figure is rounded up, past its limit (O-49, rounds 4 and 5)', () => {
+  /** The number in a figure such as "±3,938 ft" or "25.1 m". */
+  const fig = (w: string) => Number(w.replace(/[^\d.]/g, ''));
+  /** The step a figure is shown at: its last decimal, or a whole unit. */
+  const stepOf = (w: string) => {
+    const n = w.replace(/[^\d.]/g, '');
+    return n.includes('.') ? 10 ** -(n.length - n.indexOf('.') - 1) : 1;
+  };
+  const FT = 0.3048;
+
+  /**
+   * The three properties, for one refused figure against its shown limit:
+   * (a) never below the truth; (b) past the limit as shown; (c) within one
+   * display step of the truth, unless the limit's own rounding forces it
+   * higher, and then no further past the shown limit than one step.
+   */
+  function honest(shown: string, limit: string, trueM: number, units: 'metric' | 'us', said: string) {
+    const truth = units === 'metric' ? trueM : trueM / FT;
+    expect(fig(shown), `(a) ${said}`).toBeGreaterThanOrEqual(truth - 1e-6);
+    expect(fig(shown), `(b) ${said}`).toBeGreaterThan(fig(limit));
+    const step = Math.max(stepOf(shown), stepOf(limit));
+    const near = fig(shown) - truth <= stepOf(shown) + 1e-6;
+    const floored = fig(shown) - fig(limit) <= step + 1e-6;
+    expect(near || floored, `(c) ${said}`).toBe(true);
+  }
+
+  it('a fix of 25.01 m against 25 m', () => {
+    const r: Refusal = { kind: 'accuracy', accuracyM: 25.01, maxAccuracyM: 25 };
+    expect(refusalWords(r)).toContain('only accurate to ±25.1 m, and moves need ±25 m');
+    // No tenth of a foot at ten feet or more, as everywhere else.
+    expect(refusalWords(r, 'us')).toContain('only accurate to ±83 ft, and moves need ±82 ft');
+    // Far from the limit, still whole, and rounded up.
+    expect(refusalWords({ ...r, accuracyM: 40.3 })).toContain('±41 m');
+  });
+
+  it('a fix just past a limit that is not a whole number is not overstated', () => {
+    const r: Refusal = { kind: 'accuracy', accuracyM: 24.7, maxAccuracyM: 24.6 };
+    expect(refusalWords(r)).toContain('only accurate to ±24.7 m, and moves need ±24.6 m');
+  });
+
+  it('a square one centimeter past reach', () => {
+    const r: Refusal = {
+      kind: 'reach',
+      square: 'e4',
+      distanceM: 3.21,
+      reachM: 3.2,
+      accuracyM: 3,
+      goodAccuracyM: 5,
+    };
+    expect(refusalWords(r)).toMatch(/^You are 3\.3 m from e4 and your reach is 3\.2 m\./);
+    expect(refusalWords(r, 'us')).toMatch(/^You are 11 ft from e4 and your reach is 10 ft\./);
+  });
+
+  it('a back rank is never understated (3.49 m against 3.04 m)', () => {
+    const r: Refusal = { kind: 'back_rank', nearestM: 3.49, reachM: 3.04, accuracyM: 3, goodAccuracyM: 5 };
+    expect(refusalWords(r)).toMatch(/^You are 3\.5 m from your back rank and your reach is 3\.0 m\./);
+    expect(refusalWords({ ...r, nearestM: 12 })).toMatch(/^You are 12 m from/);
+  });
+
+  it('never says "10.0 ft"', () => {
+    for (let i = 290; i <= 320; i++) {
+      const r: Refusal = { kind: 'reach', square: 'e4', distanceM: i / 100, reachM: 2.5, accuracyM: 3, goodAccuracyM: 5 };
+      expect(refusalWords(r, 'us')).not.toContain('10.0 ft');
+    }
+  });
+
+  it('holds all three properties across limits and values past them, in both units', () => {
+    for (const units of ['metric', 'us'] as const) {
+      for (let l = 50; l <= 4000; l += 37) {
+        const limit = l / 100;
+        for (const over of [1e-9, 0.001, 0.01, 0.04, 0.049, 0.05, 0.06, 0.1, 0.3, 0.45, 0.6, 1, 3, 17]) {
+          const value = limit + over;
+          const reach = refusalWords(
+            { kind: 'reach', square: 'e4', distanceM: value, reachM: limit, accuracyM: 3, goodAccuracyM: 5 },
+            units,
+          );
+          const rm = /^You are (\S+ \S+) from e4 and your reach is (\S+ \S+)\. /.exec(reach);
+          expect(rm, reach).not.toBeNull();
+          honest(rm![1], rm![2], value, units, reach);
+
+          const back = refusalWords(
+            { kind: 'back_rank', nearestM: value, reachM: limit, accuracyM: 3, goodAccuracyM: 5 },
+            units,
+          );
+          const bm = /^You are (\S+ \S+) from your back rank and your reach is (\S+ \S+)\. /.exec(back);
+          expect(bm, back).not.toBeNull();
+          honest(bm![1], bm![2], value, units, back);
+
+          const acc = refusalWords({ kind: 'accuracy', accuracyM: value, maxAccuracyM: limit }, units);
+          const am = /accurate to (±\S+ \S+), and moves need (±\S+ \S+) /.exec(acc);
+          expect(am, acc).not.toBeNull();
+          honest(am![1], am![2], value, units, acc);
+        }
+      }
+    }
   });
 });

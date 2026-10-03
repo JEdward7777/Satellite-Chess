@@ -588,13 +588,19 @@ async function boot(): Promise<void> {
     );
   }
 
+  /**
+   * A field tried alone (O-49, decision 0051): the board, this phone's dot,
+   * and a verdict on whether the field plays at this signal. Entirely local:
+   * nothing it does reaches the server.
+   */
   function showBoard(field: FieldSpec): void {
     swap(() => {
       let detachDrag: (() => void) | null = null;
       const teardown = mountBoard(root, {
         gps,
         field,
-        onBack: () => void showHome(),
+        // Back to the field it was opened from, since that is the only way in.
+        onBack: () => showField(field),
         onCanvas: (canvas, toLatLng, zoomed) => {
           const panel = simPanel;
           if (!panel) return;
@@ -614,9 +620,9 @@ async function boot(): Promise<void> {
    * Tapping a field on the home screen used to open the board directly. It now
    * lands here first, because since stage 6.4 a field is a thing you can *do*
    * something with — share it, rename it, re-calibrate it, delete it — and the
-   * board is the screen you walk with, not the screen you administer from. Open
-   * the board is the first button on it, so the old path is one tap longer and
-   * the other four are reachable at all.
+   * board is the screen you walk with, not the screen you administer from. The
+   * board ("Try it alone", the preview of O-49) is the first button on it, so
+   * the old path is one tap longer and the other four are reachable at all.
    */
   function showField(field: FieldSpec): void {
     // Reached from the home screen (where the URL is already `/`) and from

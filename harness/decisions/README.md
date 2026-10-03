@@ -86,3 +86,4 @@ The conditions under which this should be reopened.
 | [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted |
 | [0049](0049-display-units-are-an-account-setting.md) | Display units (metric or US) are an account setting; everything underneath stays metric | accepted (supersedes rule 2 of 0036) |
 | [0050](0050-a-game-can-be-resigned-drawn-or-aborted-from-the-board.md) | A game can be resigned, drawn or aborted from the board; an aborted game has no result | accepted |
+| [0051](0051-a-field-is-tried-alone-against-its-leeway.md) | A field is tried alone, on the phone, and judged by its claimed accuracy against the leeway (square inset plus reach) | accepted |

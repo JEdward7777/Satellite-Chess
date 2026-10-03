@@ -260,6 +260,34 @@ async function openReview(page) {
   await page.waitForSelector('[data-review-distance]', { timeout: 15_000 });
 }
 
+/**
+ * Type a join code on home and join, surviving home redrawing itself.
+ *
+ * Home redraws when a field sync lands (`refreshHome` in `client/main.ts`),
+ * and a redraw between the fill and the click wipes the typed code, so the
+ * join goes nowhere and the board never appears. So: fill, check the box
+ * still holds the code at the moment of the click, and if the board does not
+ * come, go round again while home is still showing.
+ */
+async function joinByCode(page, code) {
+  for (let attempt = 1; ; attempt++) {
+    await page.waitForSelector('[data-code]', { timeout: 15_000 });
+    await page.fill('[data-code]', code);
+    const held = await page.inputValue('[data-code]');
+    if (held.replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()) {
+      if (attempt >= 5) throw new Error(`the code box would not hold ${code} (it holds "${held}")`);
+      continue;
+    }
+    await page.click('[data-join]');
+    const joined = await page
+      .waitForSelector('[data-board]', { timeout: attempt >= 5 ? 15_000 : 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (joined) return;
+    if (attempt >= 5) throw new Error(`joining ${code} never reached the board`);
+  }
+}
+
 const browser = await chromium.launch({ executablePath: findChromium() });
 const stamp = Date.now();
 
@@ -363,20 +391,18 @@ try {
   console.log(`   join code ${code}`);
   await alice.page.click('[data-open]');
   await alice.page.waitForSelector('[data-board]', { timeout: 15_000 });
-  await bob.page.fill('[data-code]', code);
-  await bob.page.click('[data-join]');
-  await bob.page.waitForSelector('[data-board]', { timeout: 15_000 });
+  await joinByCode(bob.page, code);
 
   step(7, 'A refusal the server wrote in meters reaches each player in their own units');
   await walk(alice.page, 3, 3); // d4, nowhere near the back rank
   await walk(bob.page, 3, 4); // d5
   await alice.page.click('[data-ready]');
   const aliceRefusal = await waitText(alice.page, '[data-notice]', /from your back rank/);
-  check(/\d+ ft from your back rank and your reach is 10 ft/.test(aliceRefusal ?? ''), 'alice reads feet', aliceRefusal);
+  check(/You are \d+(\.\d)? ft from your back rank and your reach is 10 ft\./.test(aliceRefusal ?? ''), 'alice reads feet', aliceRefusal);
   await shot(alice.page, '6-refusal-us');
   await bob.page.click('[data-ready]');
   const bobRefusal = await waitText(bob.page, '[data-notice]', /from your back rank/);
-  check(/\d+ m from your back rank and your reach is 3\.2 m/.test(bobRefusal ?? ''), 'bob reads meters', bobRefusal);
+  check(/You are \d+(\.\d)? m from your back rank and your reach is 3\.2 m\./.test(bobRefusal ?? ''), 'bob reads meters', bobRefusal);
   const reach = await text(alice.page, '[data-reach]');
   check(/^10 ft · /.test(reach ?? ''), 'the board’s reach readout in feet', reach);
 

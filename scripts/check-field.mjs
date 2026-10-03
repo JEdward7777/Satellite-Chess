@@ -121,6 +121,10 @@ async function newPhone(name, { fields = [] } = {}) {
   const context = await browser.newContext({
     viewport: { width: 480, height: 900 },
     permissions: ['clipboard-read', 'clipboard-write'],
+    // Metric, because this driver reads meters off the screen and an account
+    // that never chose follows the locale (decision 0049); headless Chromium
+    // is en-US. `check-units.mjs` is the driver for feet.
+    locale: 'en-GB',
   });
   // Each phone is its own account, which is what makes "both ends of a share are
   // real" still true now that sign-in is mandatory (stage 2.5.1).
@@ -165,7 +169,17 @@ async function openField(page) {
 
 /** The link the sender's screen is actually showing, read out of the pixels. */
 async function readLink(phone) {
+  // The simulator's panel is fixed over the bottom of the page, and since the
+  // field screen grew it sits over the QR: hidden for the photograph only.
+  await phone.page.evaluate(() => {
+    const panel = document.querySelector('.sim-panel');
+    if (panel) panel.style.visibility = 'hidden';
+  });
   const shot = await phone.page.locator('[data-qr]').screenshot();
+  await phone.page.evaluate(() => {
+    const panel = document.querySelector('.sim-panel');
+    if (panel) panel.style.visibility = '';
+  });
   return decode(phone.context, shot);
 }
 

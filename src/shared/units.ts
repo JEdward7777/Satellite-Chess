@@ -87,6 +87,116 @@ export function lengthNumber(meters: number, units: Units, places?: number): str
   return Number(feet.toFixed(1)) < 10 ? feet.toFixed(1) : whole(Math.round(feet), units);
 }
 
+/**
+ * {@link lengthNumber} as a number: exactly the figure a player reads, in
+ * their units. For comparing two lengths as they are shown, so a verdict
+ * about "this is within that" can never disagree with the two figures on
+ * screen. Parsed back from the words rather than rounded separately, so the
+ * two cannot drift apart.
+ */
+export function lengthFigure(meters: number, units: Units, places?: number): number {
+  return Number(lengthNumber(meters, units, places).replace(/,/g, ''));
+}
+
+/**
+ * A length that was **refused against a limit**, said honestly: rounded
+ * **up**, so it never reads less than it is, and always past the limit as
+ * the same sentence shows it. "You are 3.5 m from your back rank and your
+ * reach is 3.0 m" for 3.49 m against 3.04 m, never "3.1 m", which sends the
+ * player one step and refuses them again; and never "3.2 m … 3.2 m".
+ *
+ * Three properties, for every refused figure, in both units (O-49, rounds
+ * 4 and 5; swept in `test/units-words.test.ts`):
+ * - it is at least the true value;
+ * - it is more than the limit as shown (at `limitPlaces`, which defaults to
+ *   `places`);
+ * - it is within one display step of the true value, unless the limit's own
+ *   rounding forces it higher, and then it is the first figure past that.
+ *
+ * Figures follow {@link lengthNumber}'s rules exactly: "10 ft", not
+ * "10.0 ft". A value that is not over the limit is not refused, and reads
+ * as {@link lengthWords} would say it.
+ */
+export function lengthAboveWords(
+  meters: number,
+  limitM: number,
+  units: Units,
+  places?: number,
+  limitPlaces: number | undefined = places,
+): string {
+  if (!(meters > limitM)) return lengthWords(meters, units, places);
+  const limitFig = lengthFigure(limitM, units, limitPlaces);
+  let figure = ceilFigure(displayValue(clean(meters), units), units, places);
+  if (!(figure > limitFig)) figure = firstFigureAbove(limitFig, units, places);
+  return `${figureText(figure, units, places)} ${lengthUnit(units)}`;
+}
+
+/**
+ * A fix refused as too vague, and the limit it was refused against, said so
+ * that the claim reads past the limit and never below the truth.
+ *
+ * Whole, as {@link accuracyWords} says accuracy ("±41 m" against "±25 m"),
+ * when whole figures already tell the two apart. Otherwise to a tenth, by
+ * {@link lengthAboveWords}: "±25.1 m" for 25.03 m against "±25 m", and
+ * "±24.7 m" against "±24.6 m", where the whole "±25 m" would have
+ * misreported the limit. A tenth of a foot is never shown at ten feet or
+ * more, so in US units near the usual 25 m limit that is "±83 ft" against
+ * "±82 ft".
+ */
+export function accuracyAboveWords(
+  meters: number,
+  limitM: number,
+  units: Units,
+): { claim: string; limit: string } {
+  const limit = accuracyWords(limitM, units);
+  if (!(meters > limitM) || !Number.isFinite(meters)) return { claim: accuracyWords(meters, units), limit };
+  const limitWhole = Number(limit.replace(/[^\d.]/g, ''));
+  const v = displayValue(meters, units);
+  if (Math.round(v) > limitWhole) {
+    return { claim: `±${whole(Math.ceil(v - CEIL_SLACK), units)} ${lengthUnit(units)}`, limit };
+  }
+  const shownLimit =
+    lengthFigure(limitM, units, 1) === limitWhole ? limit : `±${lengthWords(limitM, units, 1)}`;
+  return { claim: `±${lengthAboveWords(meters, limitM, units, 1)}`, limit: shownLimit };
+}
+
+/**
+ * How far below a step a value may sit and still count as on it, against
+ * floating point: 3.2 m stored as 3.2000000000000006 is 3.2, not 3.3.
+ */
+const CEIL_SLACK = 1e-9;
+
+/** Meters in the units a figure is read in: meters, or feet. */
+function displayValue(meters: number, units: Units): number {
+  return units === 'metric' ? meters : meters / METERS_PER_FOOT;
+}
+
+/** The step {@link lengthNumber} shows a figure of this size at. */
+function stepFor(figure: number, units: Units, places?: number): number {
+  if (units === 'metric') return 10 ** -(places ?? (figure < 10 ? 1 : 0));
+  return figure < 10 ? 0.1 : 1;
+}
+
+/** `value` rounded up to its display step, as a figure. */
+function ceilFigure(value: number, units: Units, places?: number): number {
+  const step = stepFor(value, units, places);
+  const decimals = step < 1 ? Math.round(-Math.log10(step)) : 0;
+  return Number((Math.ceil(value / step - CEIL_SLACK) * step).toFixed(decimals));
+}
+
+/** The first figure a value could be shown as that is more than `limitFigure`. */
+function firstFigureAbove(limitFigure: number, units: Units, places?: number): number {
+  const step = stepFor(limitFigure, units, places);
+  const decimals = step < 1 ? Math.round(-Math.log10(step)) : 0;
+  return Number(((Math.floor(limitFigure / step + CEIL_SLACK) + 1) * step).toFixed(decimals));
+}
+
+/** A display figure in {@link lengthNumber}'s words: "3.5", "26", "10" (never "10.0" ft), "3,281". */
+function figureText(figure: number, units: Units, places?: number): string {
+  if (units === 'metric') return figure.toFixed(places ?? (figure < 10 ? 1 : 0));
+  return Number(figure.toFixed(1)) < 10 ? figure.toFixed(1) : whole(Math.round(figure), units);
+}
+
 /** The unit {@link lengthNumber} is in. */
 export function lengthUnit(units: Units): 'm' | 'ft' {
   return units === 'metric' ? 'm' : 'ft';
