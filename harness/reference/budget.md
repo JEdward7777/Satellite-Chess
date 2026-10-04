@@ -94,3 +94,22 @@ is account-wide rather than per namespace.
   about three times (the grace check, the write, the settle and delete). Each
   archived read adds one `UserDO` request for the seat check. Both are noise
   next to the ~1,000 WebSocket messages a game costs.
+
+## The replay's walks (stage 8.3, decision 0052)
+
+Each player's walk is kept for the replay, built from the `pos` relays and
+the lift and place fixes the server already receives.
+
+- **Requests: none added.** No new message; the relay policy is unchanged.
+- **SQLite rows written: none added.** The fix is appended (as squares, about
+  12 bytes of text) to the presence row inside the `UPDATE` that already
+  stores it. The free plan's Durable Object SQLite allowance is 100,000 rows
+  written and 5 million rows read a day (Cloudflare's published limits, not
+  measured here); a separate track table would have doubled the rows written
+  per relay. Each appended fix adds one primary-key read (`MAX(seq)`) and one
+  carry read.
+- **KV: no write added; the value grows.** About 16 bytes a fix in the
+  archive. A typical game (250–450 relays and ~40 lifts and places a player)
+  adds 5–10 KB a player; the cap of 2,000 fixes a player puts the walks at
+  up to ~78 KB a game on top of the ~30 KB above, so 1 GB still holds about
+  9,000 games at the worst case and roughly 20,000 typically.

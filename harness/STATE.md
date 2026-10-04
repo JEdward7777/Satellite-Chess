@@ -9,23 +9,23 @@ seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 **O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
 0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
 decision 0049). Phase 4 was `10.11`, **O-50: Resign, Offer draw and Abort on
-the board** (`2026-10-01-01`, decision 0050). Phase 5 is `10.12`, **O-49:
-try a field alone** (`2026-10-03-01`, decision 0051), clean after six
-review rounds.
-**Order from here**: `8.3` (replay), `8.5.1`–`8.5.3` (the share card),
-`8.5.4` (the head-to-head record).
-**Active stages**: `10.5`, `10.6`, `10.7`, `10.8`, `10.10`, `10.11` and
-`10.12`, each waiting only on a real-phone check (`10.5.4`, `10.6.4`,
-`10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`).
-**Next action**: phase 6 of run 2, **`8.3` (replay)**.
+the board** (`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49:
+try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 is `8.3`,
+**the replay** (`2026-10-04-01`, decision 0052), clean after two rounds.
+**Order from here**: `8.5.1`–`8.5.3` (the share card), `8.5.4` (the
+head-to-head record).
+**Active stages**: `8.3`, `10.5`, `10.6`, `10.7`, `10.8`, `10.10`, `10.11`
+and `10.12`, each waiting only on a real-phone check (`8.3.4`, `10.5.4`,
+`10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`).
+**Next action**: phase 7 of run 2, **`8.5.1`–`8.5.3` (the share card)**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`24cffe8f`, at `3542ec1`: everything through `10.11`, and **not yet
-`10.12`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`b3946765`, at `b09b892`: everything through `10.12`, and **not yet
+`8.3`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1276 tests pass** (three record tests are flaky, O-52; a rerun passes).
-Typecheck and `plan:check` are clean. On 2026-10-03 `check-preview`,
-`check-field`, `check-calibrate`, `check-units`, `check-resume` and
+**1300 tests pass** (three record tests are flaky, O-52; a rerun passes).
+Typecheck and `plan:check` are clean. On 2026-10-04 `check-replay` (eight
+runs), `check-review`, `check-record`, `check-endings`, `check-resume` and
 `drive-game` passed; `check-games` still fails its home-height check (O-51).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
@@ -39,6 +39,25 @@ filter also matches the red ring of the opponent's piece-in-hand plate, so do
 not read it mid-carry. **The scratchpad is shared between agents in a run**:
 name helper scripts per agent, since another agent may overwrite a generic
 `restart.sh`.
+
+## Replay and the walk, in one paragraph
+
+"After the game" now opens on a **replay** (decision 0052): the board at
+every step, with Back, Next, a scrubber and a tap on any move in the list.
+Each step draws the carry (orange, from a ring where the piece was picked
+up to a disc where it went down), the mover's walk to it, the other player
+meanwhile and earlier walks faint, and says "Picked up standing on d8 ·
+Carried 41 m · Put down standing on h4". It is the project's **first stored
+location history**: each player's walk, built from the relays and lift and
+place fixes the server already gets (no new message, no new row written),
+**stored as squares from the moment it arrives**, only while active, at
+most 2,000 fixes a player (`presence.track`, schema 8, `shared/track.ts`).
+It is in the seat-only report and the archive (still `v1`; older archives
+read `tracks: null` and draw straight carries), and scrubbing sends
+nothing. **The rule most likely to be broken**: letting the walk into the
+PGN or into an outbound game message. The file travels and the snapshot
+goes to the socket; the walk belongs to the two players and leaves only
+through `/review`.
 
 ## Trying a field alone, in one paragraph
 
@@ -195,7 +214,7 @@ carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
 built, and since `2.3.8` so are display units. Since `10.11` a game can be
-resigned, drawn or aborted from the board. **`8.1`, `8.2` and `8.4` are done**; what is left is the rest of phases 8–10.
+resigned, drawn or aborted from the board. **`8.1`, `8.2` and `8.4` are done, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -216,7 +235,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `24cffe8f` (through `10.11`), `ARCHIVE` id pinned; `10.12` is next. Finished games
+1. **Deployed** `b3946765` (through `10.12`), `ARCHIVE` id pinned; `8.3` is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -242,13 +261,19 @@ game-rule work.
      before the game. Does the verdict match how play goes there? Does a
      tap in the middle of a square say yes? Does any phone's claimed
      accuracy run optimistic, so a "Looks playable" is refused in play?
+   - `8.3.4`: the replay ("After the game"). Is it readable in sun? Do
+     the dashed, dotted and faint walks read apart? Does a finger on the
+     board scroll the page at 1x and pan it zoomed? Does the walk drawn
+     look like the walk that was walked, and is anything clipped at the
+     edge (O-55)?
    - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
      when stuck, and never hit by accident while walking? Does an offer get
      noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: `8.3` (replay), `8.5.1`–`8.5.3`, `8.5.4`.
+3. **The rest of run 2**: `8.5.1`–`8.5.3` (the share card; reuse
+   `client/replay-draw.ts`), `8.5.4`.
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

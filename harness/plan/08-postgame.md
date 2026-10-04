@@ -26,9 +26,18 @@ and it is both the review feature and the only cheat forensics worth having.
   - `8.2.3` done: Client-reported and therefore client-trusted, by design. It is a
     stat, not a rule; say so in the UI rather than pretending otherwise.
     - The record's `DISTANCE_HONESTY` sentences, word for word.
-- `8.3` todo: Replay
-  - `8.3.1` todo: Scrub the move list and watch both players' tracks over the board
-  - `8.3.2` todo: Show where each piece was lifted and placed
+- `8.3` active: Replay
+  - Decision 0052. The walk is kept as squares from the relays already sent
+    (`shared/track.ts`, `presence.track`, schema 8), in the report and the
+    archive, never the PGN. Drawn on the review screen (`client/replay.ts`,
+    `client/replay-draw.ts`). Driver: `scripts/check-replay.mjs`.
+  - `8.3.1` done: Scrub the move list and watch both players' tracks over the board
+  - `8.3.2` done: Show where each piece was lifted and placed
+  - `8.3.3` done: Keep each player's walk, as squares, from fixes already received —
+    no new message, no new row written; archived games before it draw straight carries
+  - `8.3.4` todo: Real-phone look: is the replay readable in sun, do the walk lines
+    (dashed, dotted, faint) read apart, does a finger on the board scroll the page at
+    1x and pan it zoomed, and do the tracks look like the walk that was walked?
 - `8.4` done: Archive finished games to KV as PGN plus track, then delete the DO
   storage so the object ceases to exist
   - Decision 0042. `worker/archive.ts` (the value), `worker/collection.ts` (when),

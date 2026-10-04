@@ -278,6 +278,10 @@ describe('the privacy statement (stage 2.3.5.1)', () => {
     expect(text.replace(/\s+/g, ' ')).toContain(
       "Once a finished game has gone unopened for at least a day, its field's corners and those positions are deleted",
     );
+    // Decision 0052: the walk is kept, as squares, and never travels in the file.
+    expect(text.replace(/\s+/g, ' ')).toContain('the path each of you walked during play');
+    expect(text.replace(/\s+/g, ' ')).toContain('never as coordinates');
+    expect(text.replace(/\s+/g, ' ')).toContain('the walks are never in the game file you share');
     expect(text).toContain('Not possible yet');
     expect(text).toContain('no place names worked out from your');
   });

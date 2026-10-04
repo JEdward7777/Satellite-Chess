@@ -20,6 +20,7 @@ import { buildPgn, pgnFileName } from '../shared/pgn.js';
 import { personalResult } from '../shared/record.js';
 import { type GameReport, type PlayerWalk, type ReportMove, walksOf } from '../shared/review.js';
 import type { Color } from '../shared/squares.js';
+import { sanitizeTracks } from '../shared/track.js';
 import { type Units, boardNumber, boardWords } from '../shared/units.js';
 import { DISTANCE_HONESTY, crossingsWords, distanceWords } from './record.js';
 import { reasonWords } from './views/games.js';
@@ -61,7 +62,9 @@ export function browserReviewTransport(): ReviewTransport {
         // it is our own server: `walksOf` puts that player's walk first, and a
         // stray value would silently show somebody the other side's game.
         const you = body.you === 'w' || body.you === 'b' ? body.you : null;
-        return { kind: 'ok', you, report };
+        // The walks are drawn, so they are rebuilt as numbers or dropped
+        // whole (decision 0052); a server that predates them sends none.
+        return { kind: 'ok', you, report: { ...report, tracks: sanitizeTracks(report.tracks) } };
       } catch {
         return { kind: 'unavailable' };
       }

@@ -174,6 +174,8 @@ function honestyHtml(): string {
  * field and fixes are deleted once it has gone unopened for a day — "at least",
  * because the delete waits for the record and can give up and keep the game —
  * and what stays is on the board, plus the field's name (the PGN's Site tag).
+ * Since stage 8.3 (decision 0052) each player's walk is kept too, as squares
+ * from the start: the replay draws it, and the PGN never carries it.
  */
 export function privacyHtml(): string {
   return `<details class="privacy" data-privacy>
@@ -189,13 +191,16 @@ export function privacyHtml(): string {
         opponent can see you on the board. Your opponent sees where you are while
         the game is open, and your last position after that.</li>
       <li><strong>Kept with each game.</strong> The field, and where and when each
-        piece was lifted and placed. Until someone joins, anyone with a game's code
+        piece was lifted and placed. Also the path each of you walked during
+        play, for the replay, kept only as squares on the board and never as
+        coordinates. Until someone joins, anyone with a game's code
         can see which field it is on, so share a code the way you would share the
         place. After that, only the two players can. Once a finished game has
         gone unopened for at least a day, its field's corners and those
         positions are deleted. What stays is the field's name, the moves, and
         each walk as squares on the board, with no coordinates. Only its two
-        players can open it.</li>
+        players can open it, and the walks are never in the game file you
+        share.</li>
       <li><strong>On your account, seen only by you.</strong> Your saved fields,
         your list of games, and this record, which holds distances, field names
         and board sizes but no coordinates. Signing in stores your Google account

@@ -29,6 +29,7 @@
  */
 
 import type { GameReport, ReportMove, ReportPosition } from '../shared/review.js';
+import { sanitizeTracks } from '../shared/track.js';
 
 /** Bumped when the stored shape changes; a reader refuses what it does not know. */
 export const ARCHIVE_VERSION = 1;
@@ -55,10 +56,13 @@ export interface ArchivedGame {
   /** The canonical file (decision 0041), byte for byte what `/pgn` served. */
   pgn: string;
   /**
-   * The review screen's data, in board space. This is the game's "track": the
-   * only positions the server ever held were the fix at each lift and each
-   * place (decision 0008 keeps GPS off the wire otherwise), and they are here
-   * as squares.
+   * The review screen's data, in board space: the fix at each lift and each
+   * place, and since decision 0052 each player's walk (`report.tracks`), built
+   * from the relays the game already received. All of it as squares.
+   *
+   * An archive written before 0052 has no `tracks`, and reads back with null
+   * there; the version is unchanged, because the field is optional and every
+   * reader of a v1 value already copes with its absence.
    */
   report: ArchivedReport;
 }
@@ -114,6 +118,9 @@ export function toArchive(report: GameReport, pgn: string, now: number): Archive
       diagonalM: report.diagonalM,
       travelM: { w: report.travelM.w, b: report.travelM.b },
       moves: report.moves.map(move),
+      // Rebuilt fix by fix, so the walk carries three numbers a fix and
+      // nothing else, whatever the report's tracks grow into.
+      ...(report.tracks == null ? {} : { tracks: sanitizeTracks(report.tracks) }),
     },
   };
 }
@@ -139,7 +146,10 @@ export function fromArchive(value: unknown, joinCode: string): Archived | null {
   return {
     archivedAt: typeof stored.archivedAt === 'number' ? stored.archivedAt : 0,
     pgn: stored.pgn,
-    report: { ...report, joinCode },
+    // A value from before decision 0052 has no walks; null says so, and the
+    // replay draws each carry straight. A value from after it is re-checked
+    // rather than trusted to be three numbers a fix.
+    report: { ...report, joinCode, tracks: sanitizeTracks(report.tracks) },
   };
 }
 

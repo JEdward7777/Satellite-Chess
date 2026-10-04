@@ -763,3 +763,21 @@ code, so neither phone builds a distance sentence from `Infinity`.
 **Not doing yet because:** found in review, it needs a field whose geometry
 cannot be derived (calibration refuses degenerate corners, so it should be
 rare), and it predates O-49. Before this phase it read "You are 0 m from your back rank".
+
+### O-55 — The replay leaves out two parts of a walk
+**Spotted:** 2026-10-04, phase 6 of run 2 (stage 8.3, decision 0052)
+**Why it matters:** two things the game stores are never shown.
+- **Walking after the last move.** A fix is tagged with the move being made
+  when it arrived, so anything walked after the last move and before a
+  resignation, a draw or a flag fall belongs to a move that never happened.
+  It is in the report and the archive, and `replayFrame`
+  (`src/client/replay.ts`) never draws it.
+- **Walks well off the board.** The replay board has the game board's 6%
+  padding, about half a square, so a walk further out than that is clipped
+  by the canvas edge. Players often stand just past the back rank.
+**Fix, when wanted:** a last step, "after the last move", shown only when
+there are fixes for it; and a frame that grows to take in the walk (or an
+arrow at the edge where a line leaves it).
+**Not doing yet because:** neither changes a move or a carry, and the
+outdoor look (`8.3.4`) should say whether either is missed. The share card
+(8.5.1) draws the same picture and may want the same answer.

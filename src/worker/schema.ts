@@ -20,7 +20,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -156,7 +156,14 @@ const STATEMENTS = [
      last_relay_at  INTEGER,
      -- Whether the server last saw this player inside their own back rank, for
      -- the start and resume handshakes (decision 0005).
-     in_start_zone  INTEGER NOT NULL DEFAULT 0
+     in_start_zone  INTEGER NOT NULL DEFAULT 0,
+     -- Where this player walked while the game was active, for the replay
+     -- (schema 8, decision 0052): tag,file,rank;… in hundredths of a square,
+     -- never latitude and longitude (shared/track.ts). Appended inside the
+     -- UPDATE that already stores each relay, lift and place, so it costs no
+     -- row written; track_n counts the fixes, so the cap needs no parse.
+     track          TEXT    NOT NULL DEFAULT '',
+     track_n        INTEGER NOT NULL DEFAULT 0
    )`,
 
   // A piece in someone's hand, mid-walk. This is game state, not session state:
@@ -300,6 +307,15 @@ function upgradePresenceTable(sql: SqlStorage): void {
   }
   if (!columns.has('last_relay_at')) {
     sql.exec(`ALTER TABLE presence ADD COLUMN last_relay_at INTEGER`);
+  }
+  // Schema 8 (decision 0052). Empty: a game in play when this deploys keeps
+  // its walk from here on, and one already over has none. Nothing earlier
+  // can be reconstructed, because nothing earlier was kept.
+  if (!columns.has('track')) {
+    sql.exec(`ALTER TABLE presence ADD COLUMN track TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!columns.has('track_n')) {
+    sql.exec(`ALTER TABLE presence ADD COLUMN track_n INTEGER NOT NULL DEFAULT 0`);
   }
   if (!adding) return;
   const [game] = [...sql.exec<{ status: string }>(`SELECT status FROM game WHERE id = 1`)];

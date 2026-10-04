@@ -29,6 +29,7 @@
 
 import type { EndReason, ResultOutcome } from './protocol.js';
 import type { Color } from './squares.js';
+import type { Tracks } from './track.js';
 
 /**
  * Where a player stood, in squares from the center of a1.
@@ -113,6 +114,17 @@ export interface GameReport {
   travelM: Record<Color, number | null>;
   /** Every completed move, in order. */
   moves: ReportMove[];
+  /**
+   * Where each player walked while the game was active, as squares (stage
+   * 8.3, decision 0052; `shared/track.ts`). Seat-only like the rest of the
+   * report, and **never written into the PGN**.
+   *
+   * Absent or null for a game archived before tracks were kept, and for a
+   * report from a server that predates them. Empty for a game that was over
+   * before they were, or whose players never moved: the replay then draws
+   * each carry straight from its lift to its place.
+   */
+  tracks?: Tracks | null;
 }
 
 /** One player's walk, folded out of a report. */

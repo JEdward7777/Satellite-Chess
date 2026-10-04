@@ -7,6 +7,7 @@ import { POS_MIN_INTERVAL_MS, POS_SERVER_MIN_INTERVAL_MS } from '../../src/share
 import { fromSquare } from '../../src/shared/squares.js';
 import { type WebSocketLike, connectToGame } from '../../src/client/net.js';
 import type { GameDO } from '../../src/worker/game-do.js';
+import { applySchema } from '../../src/worker/schema.js';
 
 /**
  * The real client transport against the real Durable Object.
@@ -315,11 +316,138 @@ describe('the client transport against the real GameDO', () => {
     black.close();
   });
 
+  it('keeps each player\'s walk as squares, tagged by move and by piece in hand (decision 0052)', async () => {
+    const clock = fakeClock();
+    const { stub, white, black } = await startedGame({ whiteClock: clock.now });
+    const relay = async (who: typeof white, square: string) => {
+      clock.advance(POS_MIN_INTERVAL_MS + 100);
+      await backdate(stub, POS_SERVER_MIN_INTERVAL_MS + 2_000);
+      expect(who.offerPosition(gpsFix(square), 0, 'page-1')).toBe(true);
+    };
+    const trackOf = async (color: 'w' | 'b') =>
+      untilAsync(async () => {
+        const [row] = await runInDurableObject(stub, (_i, state) => [
+          ...state.storage.sql.exec<{ track: string; track_n: number }>(
+            `SELECT track, track_n FROM presence WHERE color = ?`,
+            color,
+          ),
+        ]);
+        return row;
+      });
+    const waitFor = async (color: 'w' | 'b', n: number) =>
+      untilAsync(async () => {
+        const row = await trackOf(color);
+        return row.track_n >= n ? row : null;
+      });
+
+    // The handshake's own `ready` fixes are not the game: nothing yet.
+    expect((await trackOf('w')).track_n).toBe(0);
+
+    await relay(white, 'd2'); // walking to the pawn
+    await waitFor('w', 1);
+    white.send({ t: 'lift', from: 'e2', pos: at('e2'), travelM: 0, leg: 'page-1' });
+    await until(() => white.state.game?.carry?.from === 'e2' || null);
+    await relay(white, 'e3'); // carrying it
+    await waitFor('w', 3);
+    await backdateLift(stub);
+    white.send({ t: 'place', to: 'e4', pos: at('e4'), travelM: 0, leg: 'page-1' });
+    await until(() => white.state.game?.lastMove ?? null);
+    await relay(black, 'd7'); // black, after white's move
+    await waitFor('b', 1);
+
+    // Stored as squares in hundredths, never as a latitude.
+    const stored = await trackOf('w');
+    expect(stored.track).toBe('0,300,100;0,400,100;1,400,200;1,400,300');
+    expect(stored.track).not.toMatch(/51\./);
+
+    // These seats have no account, so the report is read the way the
+    // archive reads it: straight from the object, with no seat to check.
+    const tracks = await runInDurableObject(stub, (instance) => {
+      const inside = instance as unknown as {
+        game(): unknown;
+        buildReport(game: unknown): { tracks?: unknown };
+      };
+      return inside.buildReport(inside.game()).tracks;
+    });
+    expect(tracks).toEqual({
+      w: [
+        [0, 3, 1],
+        [0, 4, 1],
+        [1, 4, 2],
+        [1, 4, 3],
+      ],
+      b: [[2, 3, 6]],
+    });
+
+    white.close();
+    black.close();
+  });
+
+  it('keeps no walk while the game is not active', async () => {
+    const clock = fakeClock();
+    const { stub, white, black } = await startedGame({ whiteClock: clock.now });
+    await runInDurableObject(stub, (_i, state) => {
+      state.storage.sql.exec(`UPDATE game SET status = 'finished' WHERE id = 1`);
+    });
+    clock.advance(POS_MIN_INTERVAL_MS + 100);
+    await backdate(stub, POS_SERVER_MIN_INTERVAL_MS + 2_000);
+    expect(white.offerPosition(gpsFix('d4'), 0, 'page-1')).toBe(true);
+    await untilAsync(async () => {
+      const row = await readPresence(stub);
+      return row.last_lat !== null && Math.abs(row.last_lat - gpsFix('d4').pos.lat) < 1e-6 ? row : null;
+    });
+    const [row] = await runInDurableObject(stub, (_i, state) => [
+      ...state.storage.sql.exec<{ track_n: number }>(`SELECT track_n FROM presence WHERE color = 'w'`),
+    ]);
+    expect(row?.track_n).toBe(0);
+    white.close();
+    black.close();
+  });
+
   it('refuses to send after close, and reports itself closed', async () => {
     const { white, black } = await startedGame();
     white.close();
     expect(white.state.status).toBe('closed');
     expect(white.send({ t: 'sync' })).toBe(false);
+    black.close();
+  });
+});
+
+describe('schema 8', () => {
+  it('gives a game in play before it an empty walk, which then grows', async () => {
+    const clock = fakeClock();
+    const { stub, white, black } = await startedGame({ whiteClock: clock.now });
+    const columns = await runInDurableObject(stub, (_i, state) => {
+      const sql = state.storage.sql;
+      // The table as schema 7 left it. Rebuilt rather than dropped column by
+      // column: SQLite's DROP COLUMN edits the stored CREATE text, and with
+      // comment lines in front of the last column it leaves the closing
+      // bracket inside a comment ("incomplete input"). Production only ever
+      // adds columns.
+      sql.exec(
+        `CREATE TABLE presence_7 AS
+           SELECT player_id, color, connected, last_seen_at, last_lat, last_lng, last_acc,
+                  last_pos_at, travel_m, travel_leg, travel_seen_m, travel_owed_m,
+                  last_relay_at, in_start_zone
+             FROM presence`,
+      );
+      sql.exec(`DROP TABLE presence`);
+      sql.exec(`ALTER TABLE presence_7 RENAME TO presence`);
+      applySchema(sql);
+      return [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('presence')`)].map((r) => r.name);
+    });
+    expect(columns).toEqual(expect.arrayContaining(['track', 'track_n']));
+    clock.advance(POS_MIN_INTERVAL_MS + 100);
+    await backdate(stub, POS_SERVER_MIN_INTERVAL_MS + 2_000);
+    expect(white.offerPosition(gpsFix('c2'), 0, 'page-1')).toBe(true);
+    const row = await untilAsync(async () => {
+      const [r] = await runInDurableObject(stub, (_i, state) => [
+        ...state.storage.sql.exec<{ track: string }>(`SELECT track FROM presence WHERE color = 'w'`),
+      ]);
+      return r?.track ? r : null;
+    });
+    expect(row.track).toBe('0,200,100');
+    white.close();
     black.close();
   });
 });

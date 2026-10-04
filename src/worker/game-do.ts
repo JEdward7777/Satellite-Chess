@@ -41,6 +41,13 @@ import {
 import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
 import { buildPgn } from '../shared/pgn.js';
+import {
+  TRACK_MAX_FIXES,
+  type Tracks,
+  decodeTrack,
+  encodeTrackFix,
+  trackTag,
+} from '../shared/track.js';
 import type { RecordGame } from '../shared/record.js';
 import {
   type GameReport,
@@ -755,8 +762,10 @@ export class GameDO extends DurableObject<Env> {
       travel_leg: string | null;
       travel_seen_m: number;
       travel_owed_m: number;
+      track_n: number;
     }>(
-      `SELECT last_pos_at, last_relay_at, in_start_zone, travel_leg, travel_seen_m, travel_owed_m
+      `SELECT last_pos_at, last_relay_at, in_start_zone, travel_leg, travel_seen_m, travel_owed_m,
+              track_n
          FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
@@ -774,12 +783,14 @@ export class GameDO extends DurableObject<Env> {
     const game = this.game();
     const zone = game === null ? false : this.isInOwnStartZone(game, who.color, msg);
     const travel = this.travelFrom(row ?? null, game, msg, now);
+    const track = this.trackAppend(game, who.color, msg, row?.track_n ?? 0);
 
     this.sql.exec(
       `UPDATE presence
           SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?, last_relay_at = ?,
               last_seen_at = ?, in_start_zone = ?,
-              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?,
+              track = track || ?, track_n = track_n + ?
         WHERE player_id = ?`,
       msg.lat,
       msg.lng,
@@ -792,6 +803,8 @@ export class GameDO extends DurableObject<Env> {
       travel.leg,
       travel.seenM,
       travel.owedM,
+      track.text,
+      track.added,
       who.playerId,
     );
 
@@ -918,18 +931,25 @@ export class GameDO extends DurableObject<Env> {
       travel_leg: string | null;
       travel_seen_m: number;
       travel_owed_m: number;
+      track_n: number;
     }>(
-      `SELECT last_pos_at, travel_leg, travel_seen_m, travel_owed_m FROM presence WHERE player_id = ?`,
+      `SELECT last_pos_at, travel_leg, travel_seen_m, travel_owed_m, track_n
+         FROM presence WHERE player_id = ?`,
       who.playerId,
     )];
     if (row === undefined) return;
 
     const now = Date.now();
     const travel = this.travelFrom(row, game, msg, now);
+    // The lift's and the place's own fixes belong in the walk as much as any
+    // relay: a lift arrives before its carry exists and a place while it
+    // still does, so the carry in the replay runs from one to the other.
+    const track = this.trackAppend(game, who.color, pos, row.track_n);
     this.sql.exec(
       `UPDATE presence
           SET last_lat = ?, last_lng = ?, last_acc = ?, last_pos_at = ?, last_seen_at = ?,
-              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?
+              travel_m = travel_m + ?, travel_leg = ?, travel_seen_m = ?, travel_owed_m = ?,
+              track = track || ?, track_n = track_n + ?
         WHERE player_id = ?`,
       pos.lat,
       pos.lng,
@@ -940,8 +960,48 @@ export class GameDO extends DurableObject<Env> {
       travel.leg,
       travel.seenM,
       travel.owedM,
+      track.text,
+      track.added,
       who.playerId,
     );
+  }
+
+  /**
+   * What a fix adds to its player's track (decision 0052): the text to append
+   * to the presence row, and how many fixes that is — nothing at all unless
+   * the game is active and the track has room.
+   *
+   * Only while active, as distance is: the walk to the back rank, a pause and
+   * a re-opened finished board are not the game. The fix goes in as squares
+   * (`shared/track.ts`), so the game never keeps a trail of coordinates, and
+   * it rides in the caller's own `UPDATE`, so a track costs no row written
+   * and no request: nothing is sent that was not already being sent.
+   */
+  private trackAppend(
+    game: GameRow | null,
+    color: Color,
+    pos: { lat: number; lng: number },
+    count: number,
+  ): { text: string; added: number } {
+    const none = { text: '', added: 0 };
+    if (game === null || game.status !== 'active' || count >= TRACK_MAX_FIXES) return none;
+    let geo: FieldGeometry;
+    try {
+      geo = geometryFromSnapshot(this.fieldOf(game));
+    } catch {
+      return none;
+    }
+    const at = toBoardIndex(geo, pos);
+    // MAX over the primary key: one row read, not a count of every move.
+    const [done] = [...this.sql.exec<{ n: number | null }>(`SELECT MAX(seq) AS n FROM moves`)];
+    const carry = this.carry();
+    const fix = encodeTrackFix(
+      trackTag(done?.n ?? 0, carry !== null && carry.color === color),
+      at.file,
+      at.rank,
+    );
+    if (fix === null) return none;
+    return { text: count > 0 ? `;${fix}` : fix, added: 1 };
   }
 
   // -------------------------------------------------------------------------
@@ -2574,8 +2634,20 @@ export class GameDO extends DurableObject<Env> {
     return row ?? null;
   }
 
+  /**
+   * Both seats' presence, by named column. Not `SELECT *`: since schema 8 the
+   * row also holds the walk (decision 0052), up to ~30 KB of stored text a player,
+   * and every snapshot, handshake and absence check reads this. Only the
+   * report reads the walk, and it asks for it itself.
+   */
   private presence(): PresenceRow[] {
-    return [...this.sql.exec<PresenceRow>(`SELECT * FROM presence`)];
+    return [
+      ...this.sql.exec<PresenceRow>(
+        `SELECT player_id, color, connected, last_seen_at, last_lat, last_lng, last_acc,
+                last_pos_at, travel_m, travel_leg, in_start_zone
+           FROM presence`,
+      ),
+    ];
   }
 
   private colorOf(game: GameRow, playerId: string): Color | null {
@@ -2942,8 +3014,13 @@ export class GameDO extends DurableObject<Env> {
     // figure is floored by that player's carries, exactly as `recordLine`
     // floors it, so the record and this report cannot disagree (decision 0041).
     const measured: Record<Color, number | null> = { w: 0, b: 0 };
+    // Already squares (decision 0052): nothing here turns a coordinate into one.
+    const tracks: Tracks = { w: [], b: [] };
     for (const row of this.presence()) {
       measured[row.color] = measuredTravelM(row.travel_m, row.travel_leg ?? null);
+    }
+    for (const row of this.sql.exec<{ color: Color; track: string }>(`SELECT color, track FROM presence`)) {
+      tracks[row.color] = decodeTrack(row.track);
     }
     const carried = carriedByColor(moves);
     const travelM: Record<Color, number | null> = {
@@ -2965,6 +3042,7 @@ export class GameDO extends DurableObject<Env> {
       diagonalM,
       travelM,
       moves,
+      tracks,
     };
   }
 

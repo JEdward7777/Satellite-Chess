@@ -750,7 +750,10 @@ async function reviewGame(
   let read: { you: Color; report: GameReport; pgn: string };
   const result = await stub.report(identity.sub);
   if (result.ok) {
-    read = { you: result.you, report: result.report, pgn: buildPgn(result.report) };
+    // The RPC stub's types widen a tuple to an array (a track fix is one,
+    // `shared/track.ts`); what crosses is the object `buildReport` made.
+    const report = result.report as GameReport;
+    read = { you: result.you, report, pgn: buildPgn(report) };
   } else if (result.reason === 'not_a_player') {
     return refused();
   } else {

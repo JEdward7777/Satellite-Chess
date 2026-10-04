@@ -112,6 +112,12 @@ export interface BoardView {
    * from here, a small faint one while it is a walk away.
    */
   target?: Square | null;
+  /**
+   * False leaves out the north arrow. The replay's board (`replay-draw.ts`)
+   * is squares with no place on the ground, so it has no north to point at,
+   * and an arrow there would claim one. Drawn when omitted.
+   */
+  north?: boolean;
 }
 
 /**
@@ -349,7 +355,7 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   drawLiftedFrom(ctx, view, projection);
   // Under the pieces: the art fills most of its cell (decision 0045), and on a
   // rotated field the arrow overlaps the corner square, so it would cover h8.
-  drawNorth(ctx, view, width, height);
+  if (view.north !== false) drawNorth(ctx, view, width, height);
   drawPieces(ctx, view, projection);
   // Over the pieces, both. The art fills most of its cell (decision 0045), so a
   // coordinate or a capture's destination dot drawn underneath would be hidden

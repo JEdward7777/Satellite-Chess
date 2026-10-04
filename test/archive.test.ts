@@ -62,7 +62,43 @@ describe('the stored value', () => {
 
   it('reads back as the report it was made from, with the code put back', () => {
     const stored = JSON.parse(JSON.stringify(toArchive(REPORT, 'pgn', 5)));
-    expect(fromArchive(stored, 'ABC123')).toEqual({ archivedAt: 5, pgn: 'pgn', report: REPORT });
+    // A report with no walks reads back saying so: null, not missing.
+    expect(fromArchive(stored, 'ABC123')).toEqual({
+      archivedAt: 5,
+      pgn: 'pgn',
+      report: { ...REPORT, tracks: null },
+    });
+  });
+
+  it('keeps the walks as squares, three numbers a fix and nothing else (decision 0052)', () => {
+    const walked: GameReport = {
+      ...REPORT,
+      tracks: { w: [[0, 4.1, -0.4], [1, 4, 2.5]], b: [[1, 3, 7.2]] },
+    };
+    const stored = JSON.parse(JSON.stringify(toArchive(walked, 'pgn', 5)));
+    expect(stored.report.tracks).toEqual(walked.tracks);
+    expect(fromArchive(stored, 'ABC123')?.report.tracks).toEqual(walked.tracks);
+
+    // Anything riding on a fix is dropped on the way in, as every other field is.
+    const grown = {
+      ...REPORT,
+      tracks: { w: [[0, 1, 2], { lat: 51.4, lng: -0.1 }, [0, 1, 2, 51.4]], b: [], lat: 51.4 },
+    } as unknown as GameReport;
+    const text = JSON.stringify(toArchive(grown, '', 0));
+    expect(text).not.toMatch(/lat|lng/i);
+    expect(text).not.toContain('51.4');
+    expect(toArchive(grown, '', 0).report.tracks).toEqual({ w: [[0, 1, 2]], b: [] });
+  });
+
+  it('reads an archive written before walks were kept as a game with none', () => {
+    // A v1 value from before decision 0052: no `tracks` key at all.
+    const old = JSON.parse(JSON.stringify(toArchive(REPORT, 'pgn', 5)));
+    expect('tracks' in old.report).toBe(false);
+    expect(fromArchive(old, 'ABC123')?.report.tracks).toBeNull();
+    // And a value whose walks are not walks is read with none, not refused:
+    // the review and the file are still the game.
+    const odd = { ...old, report: { ...old.report, tracks: 'w' } };
+    expect(fromArchive(odd, 'ABC123')?.report.tracks).toBeNull();
   });
 
   it('refuses anything it does not recognise, rather than half-reading it', () => {

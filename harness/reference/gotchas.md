@@ -506,4 +506,16 @@ is; this says what will bite you when you touch it.*
   `test/units-words.test.ts` and `test/preview.test.ts` sweep both.
 - **`scripts/check-preview.mjs`** is the preview's driver. It fails on any
   request or WebSocket traffic while the preview is up, and runs it offline.
+- **The replay's walk is squares, and never in the PGN** (stage 8.3,
+  decision 0052). A fix joins the walk inside the `UPDATE` that already
+  stores it (`GameDO.trackAppend`), so it costs no row; a new message or a
+  separate table would. Store it as squares at arrival, never as lat/lng to
+  convert later. The PGN must not gain a walk: `test/replay.test.ts` and
+  `scripts/check-replay.mjs` both check. The replay draws on a unit board
+  (`REPLAY_GEOMETRY`) with `north: false`, because it has no place.
+- **SQLite's `DROP COLUMN` chokes on `presence`** ("incomplete input"): it
+  edits the stored `CREATE` text, and with comment lines in front of the last
+  column the closing bracket ends up inside a comment. Production only adds
+  columns; a test that needs an older table rebuilds it (`CREATE … AS SELECT`,
+  see the schema 8 test in `test/worker/net-integration.test.ts`).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.
