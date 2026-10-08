@@ -185,3 +185,30 @@ file. Expect most of it to be written after the first real game.
     below the truth: `lengthAboveWords` and `accuracyAboveWords` in
     `shared/units.ts` round the value up, in the game's own refusals as well
     as the preview's. `check-field` repaired (O-53).
+
+- `10.13` done: Reliable test suite (O-52, O-56)
+  - A clean tree failed `npm run check` often enough that a failure stopped
+    meaning anything. Two causes, both in the tests, neither in the game.
+  - `10.13.1` done: `record.test.ts` read stored rows before the object had
+    handled the message under test (O-52). Its helpers waited for the first
+    `state` back after a `sync`, but a socket's opening snapshot and a lift's
+    or a place's own broadcast are `state`s too, so the wait could end early;
+    others slept 150 ms. One helper, `handled(ws)`, now sends an unknown
+    message type named by a fresh marker and waits for the error that names
+    it, which the object can only send after everything ahead of it on that
+    socket. Every wait in the file uses it, with a 2 s timeout that says
+    what to suspect. **Caveat** (round 1 review): messages are handled in
+    order only while a handler awaits nothing but its own storage. The
+    UserDO calls (`syncIndex`, `pushRecord` in `startIfBothReady`,
+    `onPause`, `finish`) open the gate, so the next message can start; they
+    come after every write the tests read, so `handled` is sound today. A
+    handler that awaits another object before such a write needs a poll.
+  - `10.13.2` done: The replay's 200,000-point square sweep (O-56) checks
+    each point with plain comparisons and asserts once at the end, with the
+    first few wrong points in the message. Same points, about 70 ms instead
+    of about 4 s. The head-to-head sum sweep (`head-to-head.test.ts`, 40,000
+    pairs) had the same shape and timed out twice in twelve runs under three
+    parallel suites; same treatment, about 50 ms instead of about 1.7 s.
+    The preview verdict sweep (`preview.test.ts`, about 157,000 calls)
+    reached 3.5 s under load; it now calls `expect` only on a
+    disagreement, about 140 ms instead of about 1.2 s.

@@ -171,7 +171,10 @@ describe('the verdict sentence never contradicts itself', () => {
     if (v.level !== 'good' && v.level !== 'tight' && v.level !== 'poor') return v;
     const { claim, leeway } = shown(v.reason);
     const want = claim <= leeway ? 'good' : claim <= 2 * leeway ? 'tight' : 'poor';
-    expect(v.level, v.reason).toBe(want);
+    // Only a disagreement goes through `expect`: the sweep below makes over
+    // 150,000 of these calls, and an `expect` each took it to 3.5 s of the
+    // 5 s limit on a loaded run (10.13). The failure reads the same.
+    if (v.level !== want) expect(v.level, v.reason).toBe(want);
     return v;
   }
 

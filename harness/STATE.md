@@ -4,7 +4,7 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 2 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phases 1–5 are done.** Phase 1 was `10.9`,
+(`harness/pipeline/ratchet.md`). **Phases 1–9 are done.** Phase 1 was `10.9`,
 seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 **O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
 0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
@@ -13,25 +13,28 @@ the board** (`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49:
 try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 was `8.3`,
 **the replay** (`2026-10-04-01`, decision 0052). Phase 7 was
 `8.5.1`–`8.5.3`, **the share card** (`2026-10-07-01`, decision 0053).
-Phase 8 is `8.5.4`, **head-to-head** (`2026-10-08-01`, decision 0054),
-clean after one round.
+Phase 8 was `8.5.4`, **head-to-head** (`2026-10-08-01`, decision 0054).
+Phase 9 was `10.13`, **a reliable test suite** (O-52, O-56,
+`2026-10-08-02`), clean after one round.
 **Order from here**: **O-37** (watching a game live, which the owner wants
-next), then a small phase for the flaky tests (O-52, O-56) that the
-coordinator will propose to the owner, then the **O-57** architecture
-study (other games on the same system).
+next), then the **O-57** architecture study (other games on the same
+system).
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
 `10.10`, `10.11` and `10.12`. All but `8.5` wait only on a real-phone check
 (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
 `10.10.3`, `10.11.5`, `10.12.3`); `8.5` also has `8.5.5` and `8.5.6`.
-**Next action**: phase 9 of run 2, **O-37 (live watching)**.
+**Next action**: phase 10 of run 2, **O-37 (live watching)**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`61cfc3bd`, at `87ea14f`: everything through the share card, and **not yet
-head-to-head**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`4ce77473`, at `476a84d`: everything through head-to-head. Phase 9 changed
+only tests, so it needs no deploy. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1359 tests pass** (three record tests are flaky, O-52, and one replay
-sweep runs near its timeout, O-56, which failed several checks on
-2026-10-08; a rerun passes). Typecheck and `plan:check` are clean. On
+**1359 tests pass, reliably**: 0 failures in 68 full runs after `10.13`
+(45 by the implementer, 23 by the reviewer), many under two or three parallel suites, where 16 of 16 had failed before.
+**The test suite is reliable now. In a worker test, wait with `handled(ws)`
+(`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
+and mind its caveat in `reference/gotchas.md`. A sweep over thousands of
+cases asserts once. Typecheck and `plan:check` are clean. On
 2026-10-08 `check-h2h`, `check-record`, `check-account`, `check-review` and
 `drive-game` passed; `check-games` still fails its home-height check (O-51).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
@@ -275,7 +278,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `61cfc3bd` (through the share card), `ARCHIVE` id pinned; head-to-head is next. Finished games
+1. **Deployed** `4ce77473` (through head-to-head), `ARCHIVE` id pinned. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -322,9 +325,8 @@ game-rule work.
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
 3. **The rest of run 2**: **O-37** (live watching: both players agree, a
    link only, board space only, watchers receive-only, nothing extra sent
-   by the players' phones), then a small phase for the flaky tests (O-52,
-   O-56) to be proposed to the owner, then the **O-57** architecture study
-   (other games on one system, no re-calibration).
+   by the players' phones), then the **O-57** architecture study (other
+   games on one system, no re-calibration).
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

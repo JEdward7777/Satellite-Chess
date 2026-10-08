@@ -745,23 +745,6 @@ home (fewer lines per game, the fields section collapsed), or re-set the
 threshold to what home is meant to be.
 **Not doing yet because:** found while verifying O-50, and unrelated to it.
 
-### O-52 — Two record tests race the object with `sendAndSettle`
-**Spotted:** 2026-09-30, phase 4 of run 2
-**Why it matters:** in `test/worker/record.test.ts`, "re-baselines a reload
-between the lift and the place, as a relay would" (around line 1029) and
-the O-39 relay test near line 1133 fail about one full run in seven. Both
-send over a socket and then read or backdate stored rows, relying on
-`sendAndSettle` having waited long enough for the object to finish; on a
-slow run it has not. They predate O-50's change and touch none of it.
-**Fix, when wanted:** wait on the state the test needs (the snapshot
-carrying the move, or the presence row having changed) instead of a
-settle, as `closeAndSettle` in `carry.test.ts` waits on the timer row (O-09).
-**Also (2026-10-03, phase 5 of run 2):** a third, "credits a lift and a
-place once each, and a stale relay after them nothing" in the same file,
-failed once in `npm run check` (travel_m 10 against 40) and passed on the
-rerun. Same shape: it reads stored travel straight after socket messages.
-**Not doing yet because:** flaky, not wrong; a rerun passes.
-
 ### O-54 — An unreadable field reads as "0.1 m from your back rank" on `ready`
 **Spotted:** 2026-10-03, round 6 review of phase 5 of run 2 (O-49)
 **Why it matters:** `GameDO.startZoneOf` (`src/worker/game-do.ts`, around
@@ -796,23 +779,6 @@ arrow at the edge where a line leaves it).
 **Not doing yet because:** neither changes a move or a carry, and the
 outdoor look (`8.3.4`) should say whether either is missed. The share card
 (8.5.1) draws the same picture and may want the same answer.
-
-### O-56 — A 200,000-step replay sweep runs close to vitest's 5-second limit
-**Spotted:** 2026-10-06, phase 7 of run 2 (stages 8.5.1–8.5.3)
-**Why it matters:** `test/replay.test.ts`, "names a square the point is
-inside, every time", takes about 3.9 s alone against the default 5 s timeout.
-In one `npm run check` out of three it timed out with the whole suite running
-in parallel, and failed the run. The assertion was not wrong; the test was
-just slow. Next to O-52 it is a second way a clean tree can fail its check.
-**Fix, when wanted:** give the test its own timeout (`, 30_000`, as the
-chess.js sweep in the same file has), or sweep 50,000 points instead of
-200,000.
-**Not doing yet because:** found while running checks for a different
-stage, and the test belongs to 8.3. A rerun passes.
-**Update 2026-10-08 (phase 8 of run 2, stage 8.5.4):** it failed `npm run
-check` several times this phase, always this test, always "timed out in
-5000ms", and passed on a rerun each time. The coordinator plans a small
-phase for it and O-52 after O-37.
 
 ### O-57 — Other games on the same system (checkers, backgammon, mahjong…)
 **Spotted:** 2026-10-04, the owner's idea

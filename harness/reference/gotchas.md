@@ -535,4 +535,22 @@ is; this says what will bite you when you touch it.*
   read each time the card is drawn and never remembered. The PNG is made
   when the card is opened (`toBlob` is async), never in the Share tap.
   `scripts/check-share.mjs` is its driver.
+- **A worker test waits on `handled(ws)`, never on a sleep or on "the next
+  `state`"** (stage 10.13, O-52). `handled` in `test/worker/record.test.ts`
+  sends an unknown message type named by a fresh marker and waits for the
+  error that echoes it. The opening snapshot and a lift's or place's own
+  broadcast are `state`s too, so "wait for a state" ends early, and no sleep
+  is long enough on a loaded run. **Its caveat:** a GameDO handler runs in
+  order with the next message only while it awaits nothing but its own
+  storage. An await on the UserDO (`syncIndex`, `pushRecord` in
+  `startIfBothReady`, `onPause`, `finish`) or a timer lets the next message
+  start, so the barrier can come back before that handler is done. Those
+  calls come last today, after everything the tests read. A handler that
+  awaits another object before a write a test reads needs a poll of the row.
+- **A sweep of thousands of cases asserts once.** Each `expect` costs
+  microseconds, and 200,000 points at five each ran a test to 4 s of the 5 s
+  limit, which timed out under parallel load (O-56). Check with plain
+  comparisons, collect the first few failures, and `expect(wrong).toEqual([])`
+  (`replay.test.ts`, `head-to-head.test.ts`), or call `expect` only on a
+  mismatch (`preview.test.ts`).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

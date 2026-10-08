@@ -225,39 +225,53 @@ describe('the figures shown', () => {
   const figure = (words: string) => Number(words.replace(/,/g, '').split(' ')[0]);
 
   it('add up as read while short, and stay within one unit of the truth', () => {
+    // Forty thousand pairs, checked with plain comparisons and asserted once
+    // at the end: seven `expect`s a pair ran close enough to vitest's
+    // five-second limit to time out on a loaded run (O-56's pattern). Any pair
+    // that fails is reported with what was shown for it.
     const random = rng(5);
-    for (let i = 0; i < 20000; i++) {
+    const wrong: string[] = [];
+    for (let i = 0; i < 20000 && wrong.length < 5; i++) {
       const r = random();
       const you = r < 0.5 ? random() * 600 : random() * 5000;
       const them = random() < 0.5 ? random() * 600 : random() * 5000;
       for (const units of UNITS) {
         const words = walkedPairWords(you, them, units);
+        const fail = (why: string) =>
+          wrong.push(`${you} and ${them} in ${units}: ${why} (${JSON.stringify(words)})`);
         // The same whichever player is "you".
         const swapped = walkedPairWords(them, you, units);
-        expect(swapped.together).toBe(words.together);
-        expect([swapped.you, swapped.them]).toEqual([words.them, words.you]);
+        if (swapped.together !== words.together) fail(`swapped, the total reads ${swapped.together}`);
+        if (swapped.you !== words.them || swapped.them !== words.you) {
+          fail(`swapped, the parts read ${swapped.you} and ${swapped.them}`);
+        }
         // Each walk exactly as the record says it.
-        expect(words.you).toBe(walkedWords(you, units));
-        expect(words.them).toBe(walkedWords(them, units));
+        if (words.you !== walkedWords(you, units)) fail(`yours reads ${walkedWords(you, units)} on the record`);
+        if (words.them !== walkedWords(them, units)) fail(`theirs reads ${walkedWords(them, units)} on the record`);
 
         const short = units === 'metric' ? 'm' : 'yd';
         const perShort = units === 'metric' ? 1 : METERS_PER_YARD;
         const trueShort = (you + them) / perShort;
         if (words.together.endsWith(` ${short}`)) {
           // Both parts are in the short unit too, and the line sums.
-          expect(words.you.endsWith(` ${short}`) && words.them.endsWith(` ${short}`)).toBe(true);
-          expect(figure(words.together)).toBe(figure(words.you) + figure(words.them));
-          expect(Math.abs(figure(words.together) - trueShort)).toBeLessThanOrEqual(1);
+          if (!(words.you.endsWith(` ${short}`) && words.them.endsWith(` ${short}`))) {
+            fail('the total is short but a part is not');
+          }
+          if (figure(words.together) !== figure(words.you) + figure(words.them)) fail('the parts do not sum');
+          if (!(Math.abs(figure(words.together) - trueShort) <= 1)) fail(`the truth is ${trueShort}`);
         } else {
           // In the long unit: within a rounding of the true sum (and of the
           // one short unit the shown parts may add).
           const perLong = units === 'metric' ? 1000 : 1760;
           const shown = figure(words.together);
           const tenths = shown < 100;
-          expect(Math.abs(shown - trueShort / perLong)).toBeLessThanOrEqual((tenths ? 0.05 : 0.5) + 1 / perLong + 1e-9);
+          if (!(Math.abs(shown - trueShort / perLong) <= (tenths ? 0.05 : 0.5) + 1 / perLong + 1e-9)) {
+            fail(`the truth is ${trueShort / perLong}`);
+          }
         }
       }
     }
+    expect(wrong).toEqual([]);
   });
 
   it('never makes "500 m" and "500 m" into "999 m"', () => {

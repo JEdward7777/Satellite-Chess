@@ -4,6 +4,27 @@ Moved here once promoted to a stage, fixed, or dismissed. Keep the outcome — a
 dismissed observation is as valuable as a fixed one, because it stops the next
 session re-raising it.
 
+### O-52 — Record tests raced the object with `sendAndSettle`
+**Resolved:** 2026-10-08, stage 10.13
+**Outcome:** Fixed in the tests; the game was not wrong. `sendAndSettle` and
+`afterSync` waited for the first `state` after a `sync`, but the socket's
+opening snapshot and a lift's or place's own broadcast are `state`s too, so
+the wait could end before the message under test was handled; other tests
+slept 150 ms. One helper, `handled(ws)`, now sends an unknown message type
+named by a fresh marker and waits for the error that echoes it, with a 2 s
+timeout. Before: 16 of 16 full runs failed under two parallel suites (the
+record tests in 8 of them, alongside O-56). After: 0 in 39 runs, and 0 in
+the reviewer's 23. Caveat in `reference/gotchas.md`: the barrier holds only
+while handlers await nothing but storage before the writes a test reads.
+
+### O-56 — A 200,000-step replay sweep ran close to vitest's 5-second limit
+**Resolved:** 2026-10-08, stage 10.13
+**Outcome:** Fixed. The sweep checks each point with plain comparisons and
+asserts once at the end, listing the first few wrong points: about 70 ms
+instead of 4 s, same points. The head-to-head sum sweep had the same shape
+(timed out twice in 12 runs under three parallel suites) and the preview
+verdict sweep reached 3.5 s under load; both got the same treatment.
+
 ### O-04 — Nothing decides what happens to a game whose opponent never returns
 **Resolved:** 2026-08-02, stage 5.3.4 (decision 0025)
 **Outcome:** Decided and built. A suspended game freezes indefinitely and is never

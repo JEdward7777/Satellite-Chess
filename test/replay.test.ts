@@ -319,8 +319,13 @@ describe('the walks at each step', () => {
 
 describe('the words beside the board', () => {
   it('names a square the point is inside, every time', () => {
+    // Two hundred thousand points, checked with plain comparisons and asserted
+    // once at the end: five `expect`s a point took about four seconds, close
+    // enough to vitest's five-second limit to time out on a loaded run (O-56).
+    // Any point that fails is reported with what was named for it.
     const random = rng(77);
-    for (let i = 0; i < 200_000; i++) {
+    const wrong: string[] = [];
+    for (let i = 0; i < 200_000 && wrong.length < 5; i++) {
       // Weighted to the lines between squares, where a rounding slip lives.
       const edge = random() < 0.5;
       const base = Math.floor(random() * 10) - 1.5;
@@ -329,16 +334,22 @@ describe('the words beside the board', () => {
       const square = squareAt({ file, rank });
       const onBoard = file >= -0.5 && file < 7.5 && rank >= -0.5 && rank < 7.5;
       if (!onBoard) {
-        expect(square).toBeNull();
+        if (square !== null) wrong.push(`(${file}, ${rank}) is off the board but named ${square}`);
         continue;
       }
-      expect(square).not.toBeNull();
-      const named = fromSquare(square!);
-      expect(file).toBeGreaterThanOrEqual(named.file - 0.5);
-      expect(file).toBeLessThan(named.file + 0.5);
-      expect(rank).toBeGreaterThanOrEqual(named.rank - 0.5);
-      expect(rank).toBeLessThan(named.rank + 0.5);
+      if (square === null) {
+        wrong.push(`(${file}, ${rank}) is on the board but named nothing`);
+        continue;
+      }
+      const named = fromSquare(square);
+      const inside =
+        file >= named.file - 0.5 &&
+        file < named.file + 0.5 &&
+        rank >= named.rank - 0.5 &&
+        rank < named.rank + 0.5;
+      if (!inside) wrong.push(`(${file}, ${rank}) is not inside ${square}`);
     }
+    expect(wrong).toEqual([]);
     expect(squareAt({ file: -0.5, rank: -0.5 })).toBe('a1');
     expect(squareAt({ file: 7.5, rank: 0 })).toBeNull();
     expect(squareAt({ file: 0.5, rank: 0 })).toBe('b1');

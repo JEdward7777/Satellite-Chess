@@ -190,7 +190,62 @@ async function travelOf(game: Game, color: 'w' | 'b'): Promise<number> {
   );
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+/**
+ * Wait until the object has handled every message sent on `ws` before this
+ * call, as far as the stored rows a test reads (O-52). An unknown type is
+ * answered with an error that names it, so the answer naming this call's own
+ * marker comes after everything ahead of it on the socket was handled.
+ *
+ * **The caveat.** Messages are handled strictly in order only while a handler
+ * awaits nothing but its own storage. An await on anything else (a call to the
+ * UserDO, a timer) lets the next message start, and the marker can then be
+ * answered before that handler finishes. Today the UserDO calls (`syncIndex`
+ * and `pushRecord` in `startIfBothReady`, `onPause` and `finish`) come last,
+ * after every write these tests read, so every use here is sound. A handler
+ * that awaits another object *before* such a write needs the test to poll the
+ * row instead (round 1 review of 10.13 proved the interleaving with a 300 ms
+ * timer).
+ *
+ * Not a `sync` and the first `state` back: the socket's opening snapshot, and
+ * the broadcast a lift or a place makes on its own, are `state`s too, so a
+ * wait for "a state" could be answered by one already on its way and read the
+ * stored rows before the message under test was handled. Not a sleep either:
+ * on a loaded run no fixed sleep is long enough.
+ */
+let barriers = 0;
+async function handled(ws: WebSocket, timeoutMs = 2_000): Promise<void> {
+  barriers += 1;
+  const marker = `test-barrier-${barriers}`;
+  let onMessage: (event: Event) => void = () => {};
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const answered = new Promise<void>((resolve, reject) => {
+    onMessage = (event: Event) => {
+      const data = JSON.parse(String((event as MessageEvent).data)) as { t: string; message?: string };
+      if (data.t === 'error' && data.message?.includes(`"${marker}"`)) resolve();
+    };
+    ws.addEventListener('message', onMessage);
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `barrier reply never came within ${timeoutMs} ms: does the "Unknown message type" ` +
+              'error still echo the type?',
+          ),
+        ),
+      timeoutMs,
+    );
+  });
+  ws.send(JSON.stringify({ t: marker }));
+  try {
+    await answered;
+  } finally {
+    clearTimeout(timer);
+    ws.removeEventListener('message', onMessage);
+  }
+}
+
+/** {@link handled}, for every socket a step sent on. */
+const settle = (...sockets: WebSocket[]) => Promise.all(sockets.map((ws) => handled(ws)));
 
 async function readRecord(sub: string): Promise<RecordSummary> {
   const response = await SELF.fetch(`${LOCAL}/api/record`, {
@@ -335,7 +390,7 @@ describe('counted once, however often it is reported', () => {
       );
     });
     ws.send(JSON.stringify({ t: 'pos', lat: A1.lat, lng: A1.lng, acc: 3, travelM: 500, leg: 'p' }));
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await handled(ws);
     ws.close();
 
     const travel = await runInDurableObject(game.stub, (_instance, state) =>
@@ -579,20 +634,6 @@ describe('a finished game’s distance is frozen at the result (decision 0041)',
    * the phone's whole page counter, and the next re-join re-pushed that into
    * the permanent record.
    */
-  async function afterSync(ws: WebSocket): Promise<void> {
-    const answered = new Promise<void>((resolve) => {
-      const onMessage = (event: Event) => {
-        const data = JSON.parse(String((event as MessageEvent).data)) as { t: string };
-        if (data.t === 'state') {
-          ws.removeEventListener('message', onMessage);
-          resolve();
-        }
-      };
-      ws.addEventListener('message', onMessage);
-    });
-    ws.send(JSON.stringify({ t: 'sync' }));
-    await answered;
-  }
 
   async function presenceOf(game: Game, color: 'w' | 'b') {
     return runInDurableObject(game.stub, (_instance, state) =>
@@ -635,7 +676,7 @@ describe('a finished game’s distance is frozen at the result (decision 0041)',
       const ws = await socketFor(game, game.white);
       await backdate(game, 60_000);
       ws.send(JSON.stringify({ t: 'pos', ...squareAt(4, 1), acc: 3, travelM: 12, ...(leg ? { leg } : {}) }));
-      await afterSync(ws);
+      await handled(ws);
       ws.close();
       expect(await presenceOf(game, 'w')).toEqual(before);
 
@@ -661,7 +702,7 @@ describe('a finished game’s distance is frozen at the result (decision 0041)',
     const fix = { ...squareAt(4, 1), acc: 3, ts: 0 };
     ws.send(JSON.stringify({ t: 'lift', from: 'e2', pos: fix, travelM: 30, leg: 'new-page' }));
     ws.send(JSON.stringify({ t: 'place', to: 'e4', pos: fix, travelM: 60, leg: 'new-page' }));
-    await afterSync(ws);
+    await handled(ws);
     ws.close();
     expect(await presenceOf(game, 'w')).toEqual(before);
     expect((await reviewTravel(game, game.white)).w).toBeNull();
@@ -678,7 +719,7 @@ describe('a finished game’s distance is frozen at the result (decision 0041)',
     ] as const) {
       await backdate(game, 60_000);
       relay(ws, squareAt(4, 1), travelM, leg);
-      await afterSync(ws);
+      await handled(ws);
     }
     ws.close();
     expect(await presenceOf(game, 'w')).toEqual(before);
@@ -713,7 +754,7 @@ describe('the walk before play starts', () => {
       w: await socketFor(game, white),
       b: await socketFor(game, black),
     };
-    await settle();
+    await settle(sockets.w, sockets.b);
     return { game, sockets };
   }
 
@@ -723,10 +764,10 @@ describe('the walk before play starts', () => {
     // Both phones arrive on their own back ranks, having walked a long way to
     // get there. The second arrival starts the clock.
     relay(sockets.w, squareAt(4, 0), 500, 'w-page');
-    await settle();
+    await settle(sockets.w);
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 400, 'b-page');
-    await settle();
+    await settle(sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
     expect(await travelOf(game, 'w')).toBe(0);
 
@@ -734,13 +775,13 @@ describe('the walk before play starts', () => {
     // 30 m further on, but those 30 m were walked before play began.
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 1), 530, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBe(0);
 
     // From here it counts.
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 2), 545, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBeCloseTo(15, 6);
 
     sockets.w.close();
@@ -752,44 +793,44 @@ describe('the walk before play starts', () => {
   it('credits none of the walk back from a pause either', async () => {
     const { game, sockets } = await staged();
     relay(sockets.w, squareAt(4, 0), 100, 'w-page');
-    await settle();
+    await settle(sockets.w);
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 100, 'b-page');
-    await settle();
+    await settle(sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
 
     // The start re-baselined the counter, so the first report after it counts
     // for nothing and the second is where play's ten meters come from.
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 1), 110, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBe(0);
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 1), 120, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBeCloseTo(10, 6);
 
     // Then a pause, and a kilometer of walking about.
     sockets.w.send(JSON.stringify({ t: 'pause' }));
-    await settle();
+    await settle(sockets.w);
     expect(await game.stub.peek()).toMatchObject({ status: 'suspended' });
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 0), 1_120, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBeCloseTo(10, 6);
 
     // Both walk back to their ranks; the resume re-baselines both counters.
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 1_000, 'b-page');
-    await settle();
+    await settle(sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 1), 1_140, 'w-page');
-    await settle();
+    await settle(sockets.w);
     expect(await travelOf(game, 'w')).toBeCloseTo(10, 6);
     await backdate(game, 4_000);
     relay(sockets.w, squareAt(4, 2), 1_160, 'w-page');
-    await settle();
+    await settle(sockets.w);
     // 20 m since the resume baselined it, and not one of the thousand walked
     // while the game was paused.
     expect(await travelOf(game, 'w')).toBeCloseTo(30, 6);
@@ -803,10 +844,10 @@ describe('the walk before play starts', () => {
     // White never relays: it taps Ready instead, which is the other way into
     // the start zone and touches no distance column at all.
     sockets.w.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 0), acc: 3, ts: 0 } }));
-    await settle();
+    await settle(sockets.w);
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 50, 'b-page');
-    await settle();
+    await settle(sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
 
     const legs = await runInDurableObject(game.stub, (_instance, state) =>
@@ -830,10 +871,10 @@ describe('the walk before play starts', () => {
   it('carries nothing owed across a pause and a resume (O-36)', async () => {
     const { game, sockets } = await staged();
     relay(sockets.w, squareAt(4, 0), 10, 'w-page');
-    await settle();
+    await settle(sockets.w);
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 10, 'b-page');
-    await settle();
+    await settle(sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
 
     // Owed from play before the pause, and no report at all until the resume.
@@ -841,10 +882,10 @@ describe('the walk before play starts', () => {
       state.storage.sql.exec(`UPDATE presence SET travel_owed_m = 20`);
     });
     sockets.w.send(JSON.stringify({ t: 'pause' }));
-    await settle();
+    await settle(sockets.w);
     sockets.w.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 0), acc: 3, ts: 0 } }));
     sockets.b.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 7), acc: 3, ts: 0 } }));
-    await settle();
+    await settle(sockets.w, sockets.b);
     expect(await game.stub.peek()).toMatchObject({ status: 'active' });
     const owed = await runInDurableObject(game.stub, (_instance, state) =>
       [...state.storage.sql.exec<{ travel_owed_m: number }>(`SELECT travel_owed_m FROM presence`)].map(
@@ -859,20 +900,20 @@ describe('the walk before play starts', () => {
   it('cannot grow the mark without bound over repeated pauses', async () => {
     const { game, sockets } = await staged();
     relay(sockets.w, squareAt(4, 0), 10, 'w-page');
-    await settle();
+    await settle(sockets.w);
     await backdate(game, 4_000);
     relay(sockets.b, squareAt(4, 7), 10, 'b-page');
-    await settle();
+    await settle(sockets.b);
 
     // Pause and resume with no relay in between: `onPause` leaves both players
     // in their start zones, so the cycle is as fast as the buttons can be
     // tapped, and each resume appends a mark.
     for (let i = 0; i < 6; i += 1) {
       sockets.w.send(JSON.stringify({ t: 'pause' }));
-      await settle();
+      await settle(sockets.w);
       sockets.w.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 0), acc: 3, ts: 0 } }));
       sockets.b.send(JSON.stringify({ t: 'ready', pos: { ...squareAt(4, 7), acc: 3, ts: 0 } }));
-      await settle();
+      await settle(sockets.w, sockets.b);
     }
     const longest = await runInDurableObject(game.stub, (_instance, state) =>
       Math.max(
@@ -909,7 +950,7 @@ describe('a phone that says nothing for a while', () => {
       );
     });
     ws.send(JSON.stringify({ t: 'pos', lat: A1.lat, lng: A1.lng, acc: 3, travelM: 40_000, leg: 'p' }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await handled(ws);
     ws.close();
 
     const travel = await runInDurableObject(game.stub, (_instance, state) =>
@@ -961,21 +1002,10 @@ describe('the walk a move ends (decision 0041)', () => {
     });
   }
 
-  /** Send, then wait for the server's answer to a `sync` behind it. */
+  /** Send, then wait until the object has handled it (see {@link handled}). */
   async function sendAndSettle(ws: WebSocket, msg: object): Promise<void> {
-    const answered = new Promise<void>((resolve) => {
-      const onMessage = (event: Event) => {
-        const data = JSON.parse(String((event as MessageEvent).data)) as { t: string; sync?: boolean };
-        if (data.t === 'state') {
-          ws.removeEventListener('message', onMessage);
-          resolve();
-        }
-      };
-      ws.addEventListener('message', onMessage);
-    });
     ws.send(JSON.stringify(msg));
-    ws.send(JSON.stringify({ t: 'sync' }));
-    await answered;
+    await handled(ws);
   }
 
   const fix = (file: number, rank: number) => ({ ...squareAt(file, rank), acc: 3, ts: 0 });
