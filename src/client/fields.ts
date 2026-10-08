@@ -22,6 +22,19 @@ import { type FieldSnapshot, type FieldSpec, makeFieldSpec } from '../shared/fie
 import { type FieldLink, fieldKey, fieldLinkFromSnapshot } from '../shared/fieldlink.js';
 import type { FieldStore } from './store.js';
 
+/**
+ * What a field is called when the player saving it leaves the name empty
+ * (`views/calibrate.ts`). The app's words, not a player's, so the share card
+ * never offers it as a field's name (decision 0053).
+ */
+export const DEFAULT_FIELD_NAME = 'My field';
+
+/**
+ * What a shared field with no name is called on arrival. The app's words, not
+ * a player's, so the share card never offers it as a field's name (0053).
+ */
+export const SHARED_FIELD_NAME = 'Shared field';
+
 /** What a phone should do with a field that has just arrived. */
 export type FieldOffer =
   /** Nothing like it here. Add it. */
@@ -97,7 +110,7 @@ export async function adoptField(
   // of them shared it onwards.
   const spec: FieldSpec = {
     ...makeFieldSpec(
-      incoming.name || 'Shared field',
+      incoming.name || SHARED_FIELD_NAME,
       { a1: incoming.a1, h8: incoming.h8, h1: incoming.h1, a8: incoming.a8 },
       { now },
     ),

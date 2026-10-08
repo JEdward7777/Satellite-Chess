@@ -518,4 +518,13 @@ is; this says what will bite you when you touch it.*
   column the closing bracket ends up inside a comment. Production only adds
   columns; a test that needs an older table rebuilds it (`CREATE … AS SELECT`,
   see the schema 8 test in `test/worker/net-integration.test.ts`).
+- **The share card never reads `report.tracks`** (stages 8.5.1–8.5.3,
+  decision 0053). It draws carries straight from `move.lift` to
+  `move.place`, which the PGN already holds, and nothing else. Reusing
+  `replayFrame` for it is the obvious shortcut, and it would put the walks
+  on a picture made to be posted. `test/share-card.test.ts` checks that
+  changing the tracks changes nothing on the card. The field-name box is
+  read each time the card is drawn and never remembered. The PNG is made
+  when the card is opened (`toBlob` is async), never in the Share tap.
+  `scripts/check-share.mjs` is its driver.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

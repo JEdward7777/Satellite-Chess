@@ -118,6 +118,12 @@ export interface BoardView {
    * and an arrow there would claim one. Drawn when omitted.
    */
   north?: boolean;
+  /**
+   * Backing-store pixels per CSS pixel. The device's when omitted. The share
+   * card (stage 8.5.1) draws the board onto a picture of a fixed size, which
+   * must come out the same on any phone, so it names its own.
+   */
+  pixelRatio?: number;
 }
 
 /**
@@ -335,7 +341,7 @@ export function startingPieces(): PieceMap {
  * place on the field without recomputing it.
  */
 export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projection | null {
-  const dpr = globalThis.devicePixelRatio ?? 1;
+  const dpr = view.pixelRatio ?? globalThis.devicePixelRatio ?? 1;
   const { width, height } = canvasSizePx(canvas);
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
     canvas.width = Math.round(width * dpr);

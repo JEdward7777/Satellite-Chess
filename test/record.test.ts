@@ -282,6 +282,10 @@ describe('the privacy statement (stage 2.3.5.1)', () => {
     expect(text.replace(/\s+/g, ' ')).toContain('the path each of you walked during play');
     expect(text.replace(/\s+/g, ' ')).toContain('never as coordinates');
     expect(text.replace(/\s+/g, ' ')).toContain('the walks are never in the game file you share');
+    // Decision 0053: the picture is made on the phone and draws carries, not walks.
+    expect(text.replace(/\s+/g, ' ')).toContain('we keep no copy and there is no link to it');
+    expect(text.replace(/\s+/g, ' ')).toContain('It never shows the walks, a map, a date');
+    expect(text.replace(/\s+/g, ' ')).toContain("the field's name only if you tick the box");
     expect(text).toContain('Not possible yet');
     expect(text).toContain('no place names worked out from your');
   });

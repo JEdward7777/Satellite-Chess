@@ -88,3 +88,4 @@ The conditions under which this should be reopened.
 | [0050](0050-a-game-can-be-resigned-drawn-or-aborted-from-the-board.md) | A game can be resigned, drawn or aborted from the board; an aborted game has no result | accepted |
 | [0051](0051-a-field-is-tried-alone-against-its-leeway.md) | A field is tried alone, on the phone, and judged by its claimed accuracy against the leeway (square inset plus reach) | accepted |
 | [0052](0052-the-replay-keeps-each-walk-as-squares-from-the-relays-already-sent.md) | The replay keeps each walk as squares, built from the relays already sent; seat-only, in the archive, never in the PGN | accepted (amends rule 3 of 0042) |
+| [0053](0053-the-share-card-draws-carries-not-walks.md) | The share card draws carries, not walks; the field is named only when ticked; no date, code or names; made on the phone, pushed, kept nowhere | accepted |

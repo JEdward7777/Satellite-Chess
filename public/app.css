@@ -1162,3 +1162,51 @@ button.danger {
 .review-moves .review-move[aria-current='step'] strong {
   color: #ff8c1a;
 }
+
+/*
+ * The share card (stages 8.5.1–8.5.3). Folded shut under the replay: opening
+ * it is what draws the picture. The picture is shown whole, at the page's
+ * width, because it is also the last rung of sharing: a long press saves it.
+ */
+.review-card {
+  margin: 1.2rem 0 0.4rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.review-card summary {
+  font-weight: 600;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.review-card-name {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.review-card-name input {
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+}
+
+.review-card-image {
+  display: block;
+  width: 100%;
+  max-width: 540px;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  margin: 0.6rem auto;
+  border: 1px solid var(--line);
+  /* A long press on it is how the last rung saves it. */
+  -webkit-touch-callout: default;
+}
+
+.review-card-image[hidden] {
+  display: none;
+}

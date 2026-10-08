@@ -53,7 +53,7 @@ export interface Invite {
   fieldName?: string;
 }
 
-export type ShareTier = 'share-file' | 'share-sheet' | 'mailto' | 'clipboard' | 'manual';
+export type ShareTier = 'share-file' | 'share-sheet' | 'mailto' | 'clipboard' | 'download' | 'manual';
 
 export type ShareOutcome =
   /** It went somewhere: the sheet accepted it, or the mail client opened. */
@@ -331,4 +331,89 @@ export function copyText(text: string, deps: ShareDeps = {}): Promise<ShareOutco
     .writeText(text)
     .then<ShareOutcome>(() => ({ ok: true, tier: 'clipboard' }))
     .catch<ShareOutcome>(() => ({ ok: false, tier: 'clipboard', reason: 'failed' }));
+}
+
+// ---------------------------------------------------------------------------
+// A game, as a picture (stage 8.5.3, decision 0053)
+// ---------------------------------------------------------------------------
+
+/** The share card, ready to go: already a PNG, because nothing may be awaited to get it. */
+export interface ImageShare {
+  png: Blob;
+  fileName: string;
+  title: string;
+  message: string;
+}
+
+export interface ImageShareDeps extends ShareDeps {
+  /** Saves the file the page's own way. Overridden in tests. */
+  download?(png: Blob, fileName: string): boolean;
+}
+
+/**
+ * Send the card somewhere. Push only (decision 0018): the picture goes where
+ * the player sends it, and there is no link to it anywhere.
+ *
+ * 1. **The share sheet with the file.** PNG is on every platform's list of
+ *    files the Web Share API takes.
+ * 2. **A download**, for a phone or a desktop whose sheet takes no files.
+ * 3. Nothing worked: the picture is on the screen, where a long press saves
+ *    it (`views/review.ts` says so under it).
+ *
+ * No text rung: a picture sent as words is not a picture. **Call this
+ * straight from the click handler**, as {@link sharePgn}: the `File` is made
+ * synchronously and `navigator.share` is reached with nothing awaited.
+ */
+export function shareImage(image: ImageShare, deps: ImageShareDeps = {}): Promise<ShareOutcome> {
+  const nav = deps.nav ?? navigator;
+  const caps = detectShareCapabilities(nav);
+  const file = caps.shareSheet ? imageFile(image) : null;
+  if (file !== null && nav.canShare?.({ files: [file] }) === true) {
+    // No `await` above this line. Deliberately.
+    return nav
+      .share({ files: [file], title: image.title, text: image.message })
+      .then<ShareOutcome>(() => ({ ok: true, tier: 'share-file' }))
+      .catch((error: unknown): ShareOutcome => {
+        if (isAbort(error)) return { ok: false, tier: 'share-file', reason: 'cancelled' };
+        return downloadImage(image, deps);
+      });
+  }
+  return Promise.resolve(downloadImage(image, deps));
+}
+
+function imageFile(image: ImageShare): File | null {
+  try {
+    return new File([image.png], image.fileName, { type: 'image/png' });
+  } catch {
+    return null;
+  }
+}
+
+function downloadImage(image: ImageShare, deps: ImageShareDeps): ShareOutcome {
+  const saved = (deps.download ?? pageDownload)(image.png, image.fileName);
+  return saved ? { ok: true, tier: 'download' } : { ok: false, tier: 'manual', reason: 'failed' };
+}
+
+/**
+ * A download started by the page: a link to the blob, clicked. Some in-app
+ * browsers ignore it without a word (decision 0041), which is why the
+ * picture is also on the screen.
+ */
+function pageDownload(png: Blob, fileName: string): boolean {
+  try {
+    if (typeof URL.createObjectURL !== 'function' || typeof document === 'undefined') return false;
+    const url = URL.createObjectURL(png);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Long enough for the browser to have started on it; nothing is kept.
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    return true;
+  } catch {
+    return false;
+  }
 }

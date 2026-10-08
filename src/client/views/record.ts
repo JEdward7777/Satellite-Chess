@@ -175,7 +175,9 @@ function honestyHtml(): string {
  * because the delete waits for the record and can give up and keep the game —
  * and what stays is on the board, plus the field's name (the PGN's Site tag).
  * Since stage 8.3 (decision 0052) each player's walk is kept too, as squares
- * from the start: the replay draws it, and the PGN never carries it.
+ * from the start: the replay draws it, and the PGN never carries it. Since
+ * stage 8.5.1 (decision 0053) a game can leave as a picture, which draws the
+ * carries but not the walks, and names the field only when ticked.
  */
 export function privacyHtml(): string {
   return `<details class="privacy" data-privacy>
@@ -201,6 +203,13 @@ export function privacyHtml(): string {
         each walk as squares on the board, with no coordinates. Only its two
         players can open it, and the walks are never in the game file you
         share.</li>
+      <li><strong>A picture of a game.</strong> From a game's review you can
+        share a picture of it. It is made on your phone and goes only where
+        you send it: we keep no copy and there is no link to it. It shows the
+        board in squares and each carry, from where the piece was picked up to
+        where it was put down, which the game file holds too. It never shows
+        the walks, a map, a date or anyone's name, and it shows the field's
+        name only if you tick the box.</li>
       <li><strong>On your account, seen only by you.</strong> Your saved fields,
         your list of games, and this record, which holds distances, field names
         and board sizes but no coordinates. Signing in stores your Google account

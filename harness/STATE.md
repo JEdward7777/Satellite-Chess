@@ -10,23 +10,28 @@ seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
 decision 0049). Phase 4 was `10.11`, **O-50: Resign, Offer draw and Abort on
 the board** (`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49:
-try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 is `8.3`,
-**the replay** (`2026-10-04-01`, decision 0052), clean after two rounds.
-**Order from here**: `8.5.1`–`8.5.3` (the share card), `8.5.4` (the
-head-to-head record).
-**Active stages**: `8.3`, `10.5`, `10.6`, `10.7`, `10.8`, `10.10`, `10.11`
-and `10.12`, each waiting only on a real-phone check (`8.3.4`, `10.5.4`,
-`10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`).
-**Next action**: phase 7 of run 2, **`8.5.1`–`8.5.3` (the share card)**.
+try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 was `8.3`,
+**the replay** (`2026-10-04-01`, decision 0052). Phase 7 is
+`8.5.1`–`8.5.3`, **the share card** (`2026-10-07-01`, decision 0053),
+clean after two rounds.
+**Order from here**: `8.5.4` (the head-to-head record), then **O-37**
+(watching a game live, which the owner wants next), then the **O-57**
+architecture study (other games on the same system).
+**Active stages**: `8.3`, `8.5`, `10.5`, `10.6`, `10.7`, `10.8`, `10.10`,
+`10.11` and `10.12`. All but `8.5` wait only on a real-phone check (`8.3.4`,
+`8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`,
+`10.12.3`); `8.5` also has `8.5.4`–`8.5.6` to build.
+**Next action**: phase 8 of run 2, **`8.5.4` (head-to-head)**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`b3946765`, at `b09b892`: everything through `10.12`, and **not yet
-`8.3`**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`20e7062e`, at `c69c4ba`: everything through `8.3`, and **not yet the
+share card**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1300 tests pass** (three record tests are flaky, O-52; a rerun passes).
-Typecheck and `plan:check` are clean. On 2026-10-04 `check-replay` (eight
-runs), `check-review`, `check-record`, `check-endings`, `check-resume` and
-`drive-game` passed; `check-games` still fails its home-height check (O-51).
+**1328 tests pass** (three record tests are flaky, O-52, and one replay
+sweep runs near its timeout, O-56; a rerun passes). Typecheck and
+`plan:check` are clean. On 2026-10-07 `check-share` (four runs),
+`check-replay`, `check-review` and `drive-game` passed; `check-games` still
+fails its home-height check (O-51).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-field` and `check-games`, which take
@@ -58,6 +63,22 @@ nothing. **The rule most likely to be broken**: letting the walk into the
 PGN or into an outbound game message. The file travels and the snapshot
 goes to the socket; the walk belongs to the two players and leaves only
 through `/review`.
+
+## The share card, in one paragraph
+
+"Share a picture of this game" on the review (decision 0053,
+`client/share-card.ts`) draws a 1080 × 1350 PNG on the phone: the final
+position on the replay's unit board, **each carry as a straight line from
+its lift fix to its place fix** (which the PGN already holds), the last four
+bold and the rest faint, and the sharer's walked distance, their longest
+carry, the move count and the board size. **No walks, no date, no code, no
+names**, and the field's name only when the player ticks a box that is off
+every time. It is offered only to a seat, for a game with a result. The PNG
+is made when the fold is opened and stripped to its picture chunks; Share
+goes to the sheet with the file, else a download, else a long press on the
+picture. Nothing is sent. **The rule most likely to be broken**: drawing
+the card from `replayFrame` or `report.tracks`, which would put the walks
+on a picture made to be posted. Driver: `scripts/check-share.mjs`.
 
 ## Trying a field alone, in one paragraph
 
@@ -214,7 +235,7 @@ carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
 built, and since `2.3.8` so are display units. Since `10.11` a game can be
-resigned, drawn or aborted from the board. **`8.1`, `8.2` and `8.4` are done, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
+resigned, drawn or aborted from the board. **`8.1`, `8.2`, `8.4` and `8.5.1`–`8.5.3` are done, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -235,7 +256,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `b3946765` (through `10.12`), `ARCHIVE` id pinned; `8.3` is next. Finished games
+1. **Deployed** `20e7062e` (through `8.3`), `ARCHIVE` id pinned; the share card is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -266,14 +287,22 @@ game-rule work.
      board scroll the page at 1x and pan it zoomed? Does the walk drawn
      look like the walk that was walked, and is anything clipped at the
      edge (O-55)?
+   - `8.5.7`: the share card. Does the sheet take the PNG on Android and
+     iOS, and into which apps? Does iOS keep both the file and the text in
+     one share? Does the download save it where the sheet will not, and a
+     long press on the picture? Does it read well in a chat and a feed, and
+     does the saved file carry no location or EXIF?
    - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
      when stuck, and never hit by accident while walking? Does an offer get
      noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: `8.5.1`–`8.5.3` (the share card; reuse
-   `client/replay-draw.ts`), `8.5.4`.
+3. **The rest of run 2**: `8.5.4` (head-to-head), then **O-37** (live
+   watching: both players agree, a link only, board space only, watchers
+   receive-only, nothing extra sent by the players' phones), then the
+   **O-57** architecture study (other games on one system, no
+   re-calibration).
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

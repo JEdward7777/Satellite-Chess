@@ -31,6 +31,13 @@
  * a tap on a move in the list. It is drawn from the same held report, so it
  * reads the same for a live game and an archived one, and **scrubbing sends
  * nothing**: once the screen has loaded, it works with no signal.
+ *
+ * ## The share card (stages 8.5.1–8.5.3, decision 0053)
+ *
+ * "Share a picture of this game", folded shut under the replay. Opening it
+ * draws the card from the same held report and turns it into a PNG, so the
+ * Share tap that follows has nothing to await. The field's name is a box the
+ * player ticks, off every time. Nothing is sent to make it or to share it.
  */
 
 import type { GameReport } from '../../shared/review.js';
@@ -48,7 +55,18 @@ import {
   walkRows,
   whereWords,
 } from '../review.js';
-import { type ShareOutcome, copyText, sharePgn } from '../share.js';
+import { type ShareOutcome, copyText, shareImage, sharePgn } from '../share.js';
+import {
+  CARD_EXPLANATION,
+  CARD_FILE_NAME,
+  authoredFieldName,
+  cardAltWords,
+  cardMessageWords,
+  cardOffered,
+  cardPng,
+  drawShareCard,
+  shareCard,
+} from '../share-card.js';
 import { walksOf } from '../../shared/review.js';
 import type { Units } from '../../shared/units.js';
 import { displayUnits } from '../units.js';
@@ -73,6 +91,7 @@ export interface ReviewViewDeps {
   /** Overridden in tests and by the simulator; the app uses the real navigator. */
   share?: typeof sharePgn;
   copy?: typeof copyText;
+  shareImage?: typeof shareImage;
 }
 
 export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void {
@@ -86,6 +105,8 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
   const body = root.querySelector<HTMLElement>('[data-review-body]')!;
   /** Undoes whatever the drawn replay attached: its zoom, its listeners. */
   let unmountReplay: (() => void) | null = null;
+  /** Undoes the share card's: its picture's object URL. */
+  let unmountCard: (() => void) | null = null;
   root.querySelector<HTMLButtonElement>('[data-review-home]')?.addEventListener('click', () => {
     deps.onHome();
   });
@@ -120,6 +141,8 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     body.innerHTML = reviewHtml(report, you, pgn, deps.joinCode, units);
     unmountReplay?.();
     unmountReplay = mountReplay(body, report, you ?? 'w', units);
+    unmountCard?.();
+    unmountCard = mountCard(body, report, you, units, deps.shareImage ?? shareImage, () => live);
 
     const say = (words: string): void => {
       const line = body.querySelector<HTMLElement>('[data-review-said]');
@@ -175,6 +198,102 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     live = false;
     unmountReplay?.();
     unmountReplay = null;
+    unmountCard?.();
+    unmountCard = null;
+  };
+}
+
+/**
+ * Wire the share card that {@link cardHtml} laid out. Drawn the first time
+ * it is opened and again when the field-name box changes, and each time
+ * turned into the PNG the Share button sends. Returns the teardown.
+ */
+function mountCard(
+  body: HTMLElement,
+  report: GameReport,
+  you: Color | null,
+  units: Units,
+  send: typeof shareImage,
+  isLive: () => boolean,
+): () => void {
+  const section = body.querySelector<HTMLDetailsElement>('[data-card]');
+  if (section === null) return () => {};
+  const image = section.querySelector<HTMLImageElement>('[data-card-image]');
+  const button = section.querySelector<HTMLButtonElement>('[data-card-share]');
+  const nameBox = section.querySelector<HTMLInputElement>('[data-card-name]');
+  const said = section.querySelector<HTMLElement>('[data-card-said]');
+  const looks = pieceLook();
+  let png: Blob | null = null;
+  let message = '';
+  let url: string | null = null;
+  let drawn = 0;
+
+  const say = (words: string): void => {
+    if (said === null) return;
+    said.textContent = words;
+    said.hidden = words === '';
+  };
+
+  const draw = (): void => {
+    const turn = ++drawn;
+    png = null;
+    if (button) button.disabled = true;
+    section.dataset.cardReady = '';
+    // The box is read at the moment of drawing, never remembered: a card is
+    // opened with the field unnamed every time.
+    const card = shareCard(report, you, units, { showFieldName: nameBox?.checked === true });
+    if (card === null) return;
+    const canvas = document.createElement('canvas');
+    drawShareCard(canvas, card, looks.get());
+    message = cardMessageWords(card);
+    void cardPng(canvas).then((blob) => {
+      // A later draw (the box ticked again) or the screen gone: this one is stale.
+      if (!isLive() || turn !== drawn) return;
+      if (blob === null) {
+        say('This phone could not make the picture.');
+        return;
+      }
+      png = blob;
+      if (url !== null) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(blob);
+      if (image) {
+        image.src = url;
+        image.alt = cardAltWords(card);
+        image.hidden = false;
+      }
+      if (button) button.disabled = false;
+      section.dataset.cardReady = card.fieldName === null ? 'unnamed' : 'named';
+    });
+  };
+
+  const onToggle = (): void => {
+    if (section.open && drawn === 0) draw();
+  };
+  const onName = (): void => {
+    say('');
+    draw();
+  };
+  const onShare = (): void => {
+    if (png === null) return;
+    // No `await` on this path: the PNG was made when the card was drawn.
+    void send({ png, fileName: CARD_FILE_NAME, title: 'A game of Satellite Chess', message }).then((outcome) => {
+      if (!isLive()) return;
+      if (outcome.ok) say(outcome.tier === 'download' ? 'Downloaded.' : 'Sent.');
+      else if (outcome.reason === 'cancelled') say('');
+      else say('This phone would not share it. Press and hold the picture to save it.');
+    });
+  };
+  section.addEventListener('toggle', onToggle);
+  nameBox?.addEventListener('change', onName);
+  button?.addEventListener('click', onShare);
+  if (section.open) draw();
+
+  return () => {
+    section.removeEventListener('toggle', onToggle);
+    nameBox?.removeEventListener('change', onName);
+    button?.removeEventListener('click', onShare);
+    if (url !== null) URL.revokeObjectURL(url);
+    url = null;
   };
 }
 
@@ -302,6 +421,7 @@ export function reviewHtml(
         .join('')}
     </dl>
     ${replayHtml(report, units)}
+    ${cardHtml(report, you)}
     ${
       moves.length === 0
         ? `<p class="dim" data-review-moves>Nobody moved.</p>`
@@ -338,6 +458,29 @@ export function reviewHtml(
     <div class="record-honesty dim" data-review-honesty>
       ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
     </div>`;
+}
+
+/**
+ * The share card's fold: what it is, the field-name box when there is a
+ * name a player wrote, the picture once drawn, and Share. Only for a game
+ * with a result, read from a seat.
+ */
+function cardHtml(report: GameReport, you: Color | null): string {
+  if (!cardOffered(report, you)) return '';
+  const name = authoredFieldName(report);
+  return `<details class="review-card" data-card>
+      <summary>Share a picture of this game</summary>
+      <p class="dim" data-card-explain>${escapeHtml(CARD_EXPLANATION)}</p>
+      ${
+        name === null
+          ? ''
+          : `<p><label class="review-card-name"><input type="checkbox" data-card-name autocomplete="off">
+               Put the field's name on it: “${escapeHtml(name)}”</label></p>`
+      }
+      <img class="review-card-image" data-card-image alt="" hidden>
+      <p><button data-card-share disabled>Share picture</button></p>
+      <p class="dim" data-card-said hidden></p>
+    </details>`;
 }
 
 /**

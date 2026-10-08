@@ -36,6 +36,7 @@ import { type GpsFix, type GpsProvider, type GpsState, gpsErrorWords, qualityLab
 import { ADVICE, type Units, accuracyWords, boardWords, lengthWords } from '../../shared/units.js';
 import { displayUnits } from '../units.js';
 import type { FieldStore } from '../store.js';
+import { DEFAULT_FIELD_NAME } from '../fields.js';
 
 // ---------------------------------------------------------------------------
 // Model
@@ -61,8 +62,6 @@ export interface CalibrationDraft {
   a8: CornerTap | null;
   name: string;
 }
-
-export const DEFAULT_FIELD_NAME = 'My field';
 
 export function emptyDraft(name = DEFAULT_FIELD_NAME): CalibrationDraft {
   return { step: 'a1', a1: null, h1: null, h8: null, a8: null, name };

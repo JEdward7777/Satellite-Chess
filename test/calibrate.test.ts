@@ -4,8 +4,8 @@ import { deriveGeometry } from '../src/shared/field.js';
 import { fromLocal } from '../src/shared/geo.js';
 import { DEFAULT_REACH } from '../src/shared/reach.js';
 import type { GpsFix } from '../src/client/gps.js';
+import { DEFAULT_FIELD_NAME } from '../src/client/fields.js';
 import {
-  DEFAULT_FIELD_NAME,
   type CalibrationDraft,
   canSave,
   draftCheck,

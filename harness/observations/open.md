@@ -605,6 +605,21 @@ viewing, so this wants its own stage rather than a child of either.
   player in the field by phone. Worth deciding before somebody tries it.
 **Not doing yet because:** it is a new feature with a real privacy decision in the
 middle of it, and phases 8–10 are queued ahead. Logged now so the idea survives.
+**Updated 2026-10-04 — the owner's decision: wanted, next after `8.5.4`
+(head-to-head).** The purpose is people inside the house watching the game
+being played outside, live, so **both players must be visible**. The design
+to build:
+- **Both players agree before it works, and either can turn it off.**
+- **A link only**, with its own token, not the join code. No directory and
+  no way to find a game.
+- **Board space only**: the board, the moves, the clocks and both dots. No
+  map and no coordinates.
+- **Watchers only receive.** The players' phones send nothing extra: watchers
+  get the snapshots and relays the game already broadcasts.
+- **The link dies** when the game ends or when either player revokes it.
+The cost cap and the coaching delay above still need settling. The same
+both-players-agree mechanism could later let the share card (decision 0053)
+offer "both players' walks", which it leaves out today.
 
 ### O-38 — The phone's distance counter strands up to a hop at every stop, and chess is all stops
 **Spotted:** 2026-09-23, stages 8.1/8.2 (the review screen put the two numbers side by side)
@@ -781,3 +796,38 @@ arrow at the edge where a line leaves it).
 **Not doing yet because:** neither changes a move or a carry, and the
 outdoor look (`8.3.4`) should say whether either is missed. The share card
 (8.5.1) draws the same picture and may want the same answer.
+
+### O-56 — A 200,000-step replay sweep runs close to vitest's 5-second limit
+**Spotted:** 2026-10-06, phase 7 of run 2 (stages 8.5.1–8.5.3)
+**Why it matters:** `test/replay.test.ts`, "names a square the point is
+inside, every time", takes about 3.9 s alone against the default 5 s timeout.
+In one `npm run check` out of three it timed out with the whole suite running
+in parallel, and failed the run. The assertion was not wrong; the test was
+just slow. Next to O-52 it is a second way a clean tree can fail its check.
+**Fix, when wanted:** give the test its own timeout (`, 30_000`, as the
+chess.js sweep in the same file has), or sweep 50,000 points instead of
+200,000.
+**Not doing yet because:** found while running checks for a different
+stage, and the test belongs to 8.3. A rerun passes.
+
+### O-57 — Other games on the same system (checkers, backgammon, mahjong…)
+**Spotted:** 2026-10-04, the owner's idea
+**Why it matters:** everything around the chess rules (calibrating a field,
+the carry, the clock, the handshake, the record, the archive, the replay,
+the zoom) is not chess-specific. Other games could be played on the same
+ground with the same walking.
+**The owner's constraints:**
+- **One system, not over-integrated.** Each game's rules sit behind one
+  interface, and the shared machinery stays shared.
+- **The phone must not download many engines.** Each game's rules and
+  pieces load lazily, only when that game is played.
+- **Players must not re-calibrate a field to play a different game.** A
+  field is a calibrated rectangle, and each game lays its own lattice on it.
+**Notes:** checkers is 8×8 and reuses nearly everything. Backgammon has 24
+points and dice, so it needs a different lattice and a random source both
+phones trust. Mahjong is not a board-movement game and may not translate at
+all. The shared parts are the clock, carry, handshake, record, archive,
+replay and zoom, with a per-game rules module behind one interface.
+**Not doing yet because:** parked until the queue is empty (after `8.5.4`
+and O-37). It starts with an architecture decision, not code.
+

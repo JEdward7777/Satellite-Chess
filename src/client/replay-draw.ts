@@ -17,7 +17,9 @@
  * same squares on this grid as it did on the field.
  *
  * Kept apart from the review screen so the share card can draw the same
- * picture onto its own canvas.
+ * picture onto its own canvas. The card draws less of it: the carries only,
+ * each straight from where it was picked up to where it was put down, and
+ * never a walk (decision 0053) — {@link drawCarries}.
  */
 
 import type { FieldGeometry } from '../shared/field.js';
@@ -25,7 +27,7 @@ import { boardPointOfIndex } from '../shared/field.js';
 import type { Color } from '../shared/squares.js';
 import type { ZoomView } from './board-zoom.js';
 import type { PieceLook } from './pieces.js';
-import { type Projection, drawBoard, piecesFromFen } from './render.js';
+import { type Projection, boardBoundsPx, drawBoard, piecesFromFen } from './render.js';
 import type { ReplayFrame, Spot } from './replay.js';
 
 /**
@@ -151,6 +153,7 @@ function stroke(
   halo: string,
   lineWidth: number,
   dash: number[],
+  haloPx = 2,
 ): void {
   if (points.length === 0) return;
   ctx.setLineDash(dash);
@@ -169,7 +172,7 @@ function stroke(
     return;
   }
   for (const [style, w] of [
-    [halo, lineWidth + 2],
+    [halo, lineWidth + haloPx],
     [ink, lineWidth],
   ] as const) {
     ctx.beginPath();
@@ -182,22 +185,115 @@ function stroke(
   ctx.setLineDash([]);
 }
 
-function marker(ctx: CanvasRenderingContext2D, at: { x: number; y: number }, r: number, filled: boolean): void {
+function marker(
+  ctx: CanvasRenderingContext2D,
+  at: { x: number; y: number },
+  r: number,
+  filled: boolean,
+  ink: string = CARRY_INK,
+  halo: string = CARRY_HALO,
+  edge = 2.5,
+): void {
   ctx.setLineDash([]);
   ctx.beginPath();
   ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
   if (filled) {
-    ctx.fillStyle = CARRY_INK;
+    ctx.fillStyle = ink;
     ctx.fill();
   }
-  ctx.strokeStyle = CARRY_HALO;
-  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = halo;
+  ctx.lineWidth = edge;
   ctx.stroke();
   if (!filled) {
     ctx.beginPath();
-    ctx.arc(at.x, at.y, r - 2, 0, Math.PI * 2);
-    ctx.strokeStyle = CARRY_INK;
-    ctx.lineWidth = 2.5;
+    ctx.arc(at.x, at.y, r - edge * 0.8, 0, Math.PI * 2);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = edge;
     ctx.stroke();
   }
+}
+
+/** One carry as the share card draws it: straight, lift to place. */
+export interface StraightCarry {
+  color: Color;
+  lift: Spot;
+  place: Spot;
+}
+
+/** How many of the last carries the card keeps bold: the last two moves of each player. */
+export const RECENT_CARRIES = 4;
+
+/**
+ * How one carry is drawn among `count`: the last {@link RECENT_CARRIES} at
+ * full strength, the earlier ones faint and smaller, and every line thinner
+ * and fainter as the game gets longer, so a sixty-move card still shows its
+ * pieces.
+ * Pure, so the rule can be tested without a canvas.
+ */
+export function carryEmphasis(index: number, count: number): { alpha: number; width: number; recent: boolean } {
+  const recent = index >= count - RECENT_CARRIES;
+  // Full width up to a dozen carries, then shrinking with the square root of
+  // the count, never below half.
+  const crowd = count <= 12 ? 1 : Math.max(0.5, Math.sqrt(12 / count));
+  return recent
+    ? { alpha: 0.95, width: Math.max(0.8, crowd), recent }
+    : { alpha: Math.max(0.25, 0.45 * crowd), width: crowd * 0.75, recent };
+}
+
+/**
+ * Every carry of a game, over a board {@link drawBoard} has just drawn on
+ * {@link REPLAY_GEOMETRY} — the share card's picture (stage 8.5.1, decision
+ * 0053).
+ *
+ * **Straight lines between the two fixes the PGN already holds**, in each
+ * player's own color, a ring where the piece was picked up and a disc where it
+ * went down, as the replay marks them. Nothing walked in between is drawn,
+ * not even the fixes sent while the piece was in hand: those are the walk,
+ * and the walk stays with the two players (decision 0052). In the order they
+ * were played, so the last lies on top; the earlier ones faint
+ * ({@link carryEmphasis}).
+ *
+ * Clipped to the board and the padding the renderer leaves round it (about
+ * 0.55 of a square), so a player who stood just off the board under a long
+ * reach keeps their ring or disc, and one who stood well off it leaves a
+ * line that ends at that frame. Used by the card
+ * only; the replay screen draws its own (`drawReplay`).
+ *
+ * `pixelRatio` is the one `drawBoard` was given, so these lines land on the
+ * same pixels as its squares.
+ */
+export function drawCarries(
+  canvas: HTMLCanvasElement,
+  projection: Projection,
+  carries: readonly StraightCarry[],
+  pixelRatio: number,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  const cell = projection.scale;
+  const line = Math.max(2, cell * 0.07);
+  const r = Math.max(4, cell * 0.13);
+  ctx.save();
+  const bounds = boardBoundsPx(REPLAY_GEOMETRY, projection);
+  // The padding `projectionFor` left round the board on this canvas.
+  const margin = Math.max(0, Math.min(bounds.minX, bounds.minY));
+  ctx.beginPath();
+  ctx.rect(bounds.minX - margin, bounds.minY - margin, bounds.maxX - bounds.minX + 2 * margin, bounds.maxY - bounds.minY + 2 * margin);
+  ctx.clip();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  carries.forEach((carry, index) => {
+    const ink = WALK_INK[carry.color];
+    const look = carryEmphasis(index, carries.length);
+    const width = Math.max(1.5, line * look.width);
+    const radius = Math.max(3, r * (look.recent ? 1 : 0.7));
+    const from = spotToScreen(projection, carry.lift);
+    const to = spotToScreen(projection, carry.place);
+    ctx.globalAlpha = look.alpha;
+    stroke(ctx, [from, to], ink.line, ink.halo, width, [], width * 0.6);
+    marker(ctx, from, radius, false, ink.line, ink.halo, Math.max(1.5, width * 0.55));
+    marker(ctx, to, radius, true, ink.line, ink.halo, Math.max(1.5, width * 0.55));
+  });
+  ctx.restore();
 }

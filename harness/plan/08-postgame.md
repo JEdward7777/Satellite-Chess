@@ -57,17 +57,27 @@ and it is both the review feature and the only cheat forensics worth having.
     then only to the two players; an archived game shows its players nothing
     but that it is archived
 
-- `8.5` todo: The social layer — bragging without broadcasting location
+- `8.5` active: The social layer — bragging without broadcasting location
   - All four rules of decision 0018 are load-bearing. Read it before building any
     of this; the failure mode is a share card that quietly discloses where someone
     lives.
-  - `8.5.1` todo: Share card rendering both players' paths **in board space** — no
+  - The share card is decision 0053: carries, not walks; the field's name only
+    when ticked; no date, code or names; 1080 × 1350; made on the phone
+    (`client/share-card.ts`, "Share a picture of this game" on the review).
+    Driver: `scripts/check-share.mjs`.
+  - `8.5.1` done: Share card rendering both players' paths **in board space** — no
     map, no coordinates, no scale tied to a real place. The route across the 8×8
     grid is the striking image and it is unlocatable by construction.
-  - `8.5.2` todo: Distance, result, move count, longest carry, board size on the
+    - The paths are the carries, lift to place, as the PGN holds them; never the
+      walks (0053).
+  - `8.5.2` done: Distance, result, move count, longest carry, board size on the
     card. Field name only if the player authored one; never reverse-geocode.
-  - `8.5.3` todo: Emit via the share sheet. Push only — no public profile page, no
+    - The sharer's own distance and longest carry; the field's name opt-in, off
+      every time, never the app's "My field" or "Shared field".
+  - `8.5.3` done: Emit via the share sheet. Push only — no public profile page, no
     player directory, no way to look up someone you have not played.
+    - Share sheet with the PNG, then a download, then the picture on screen. No
+      request, no server copy, no URL; metadata chunks stripped from the PNG.
   - `8.5.4` todo: Head-to-head record with each opponent, shared between the two
     participants. They stood there; this discloses nothing new, and it is the
     richest social surface available without the hazard.
@@ -75,3 +85,8 @@ and it is both the review feature and the only cheat forensics worth having.
     Per-game location tracks stay private to the participants.
   - `8.5.6` todo: Global aggregate leaderboard on distance or games, if wanted.
     Field-scoped leaderboards are forbidden (decision 0017).
+  - `8.5.7` todo: Real-phone share check: does the sheet take the PNG on Android
+    and iOS (and into which apps), does the download rung save it where the sheet
+    will not, does a long press on the picture save it, does the card read well
+    in a chat and a feed, and does the saved file carry no location or EXIF? Does
+    iOS keep both the file and the text line in one share, or drop one of them?
