@@ -11,27 +11,29 @@ seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
 decision 0049). Phase 4 was `10.11`, **O-50: Resign, Offer draw and Abort on
 the board** (`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49:
 try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 was `8.3`,
-**the replay** (`2026-10-04-01`, decision 0052). Phase 7 is
-`8.5.1`–`8.5.3`, **the share card** (`2026-10-07-01`, decision 0053),
-clean after two rounds.
-**Order from here**: `8.5.4` (the head-to-head record), then **O-37**
-(watching a game live, which the owner wants next), then the **O-57**
-architecture study (other games on the same system).
-**Active stages**: `8.3`, `8.5`, `10.5`, `10.6`, `10.7`, `10.8`, `10.10`,
-`10.11` and `10.12`. All but `8.5` wait only on a real-phone check (`8.3.4`,
-`8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`,
-`10.12.3`); `8.5` also has `8.5.4`–`8.5.6` to build.
-**Next action**: phase 8 of run 2, **`8.5.4` (head-to-head)**.
+**the replay** (`2026-10-04-01`, decision 0052). Phase 7 was
+`8.5.1`–`8.5.3`, **the share card** (`2026-10-07-01`, decision 0053).
+Phase 8 is `8.5.4`, **head-to-head** (`2026-10-08-01`, decision 0054),
+clean after one round.
+**Order from here**: **O-37** (watching a game live, which the owner wants
+next), then a small phase for the flaky tests (O-52, O-56) that the
+coordinator will propose to the owner, then the **O-57** architecture
+study (other games on the same system).
+**Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
+`10.10`, `10.11` and `10.12`. All but `8.5` wait only on a real-phone check
+(`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
+`10.10.3`, `10.11.5`, `10.12.3`); `8.5` also has `8.5.5` and `8.5.6`.
+**Next action**: phase 9 of run 2, **O-37 (live watching)**.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`20e7062e`, at `c69c4ba`: everything through `8.3`, and **not yet the
-share card**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
+`61cfc3bd`, at `87ea14f`: everything through the share card, and **not yet
+head-to-head**; the coordinator deploys it next. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1328 tests pass** (three record tests are flaky, O-52, and one replay
-sweep runs near its timeout, O-56; a rerun passes). Typecheck and
-`plan:check` are clean. On 2026-10-07 `check-share` (four runs),
-`check-replay`, `check-review` and `drive-game` passed; `check-games` still
-fails its home-height check (O-51).
+**1359 tests pass** (three record tests are flaky, O-52, and one replay
+sweep runs near its timeout, O-56, which failed several checks on
+2026-10-08; a rerun passes). Typecheck and `plan:check` are clean. On
+2026-10-08 `check-h2h`, `check-record`, `check-account`, `check-review` and
+`drive-game` passed; `check-games` still fails its home-height check (O-51).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-field` and `check-games`, which take
@@ -44,6 +46,23 @@ filter also matches the red ring of the opponent's piece-in-hand plate, so do
 not read it mid-carry. **The scratchpad is shared between agents in a run**:
 name helper scripts per agent, since another agent may overwrite a generic
 `restart.sh`.
+
+## Head-to-head, in one paragraph
+
+"Against each opponent" sits under the record on the account screen, and
+"Your record against this player" on a game's review (decision 0054,
+`shared/head-to-head.ts`, `client/views/opponent.ts`). Each record row
+written since carries a **pair id** (a SHA-256 of both players' `sub`s,
+sorted, the same in both rows and different for every pair) and the other
+player's distance. Each account folds its own rows, so both players see
+the same games and meters to the bit, wins and losses swapped, once both
+lines have landed. Meters walked between you leads; games never do. The
+opponent's name is a nickname the reader types, kept only on their account;
+no Google name. Rows from before it are left out and counted. Every route
+reads the session's own account, and an id it does not hold is the same
+404 as one that does not exist. **The rule most likely to be broken**:
+storing or sending the opponent's `sub` (or Google name), or a route that
+answers about anyone but the session. Driver: `scripts/check-h2h.mjs`.
 
 ## Replay and the walk, in one paragraph
 
@@ -235,7 +254,7 @@ carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
 built, and since `2.3.8` so are display units. Since `10.11` a game can be
-resigned, drawn or aborted from the board. **`8.1`, `8.2`, `8.4` and `8.5.1`–`8.5.3` are done, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
+resigned, drawn or aborted from the board. **`8.1`, `8.2`, `8.4` and `8.5.1`–`8.5.3` are done, `8.5.4` bar its real-phone check, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -256,7 +275,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `20e7062e` (through `8.3`), `ARCHIVE` id pinned; the share card is next. Finished games
+1. **Deployed** `61cfc3bd` (through the share card), `ARCHIVE` id pinned; head-to-head is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -292,17 +311,20 @@ game-rule work.
      one share? Does the download save it where the sheet will not, and a
      long press on the picture? Does it read well in a chat and a feed, and
      does the saved file carry no location or EXIF?
+   - `8.5.4.3`: head-to-head. After a real game, do both phones show the
+     same meters between you, in both units? Is "Against each opponent"
+     found, and does a nickname feel private?
    - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
      when stuck, and never hit by accident while walking? Does an offer get
      noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: `8.5.4` (head-to-head), then **O-37** (live
-   watching: both players agree, a link only, board space only, watchers
-   receive-only, nothing extra sent by the players' phones), then the
-   **O-57** architecture study (other games on one system, no
-   re-calibration).
+3. **The rest of run 2**: **O-37** (live watching: both players agree, a
+   link only, board space only, watchers receive-only, nothing extra sent
+   by the players' phones), then a small phase for the flaky tests (O-52,
+   O-56) to be proposed to the owner, then the **O-57** architecture study
+   (other games on one system, no re-calibration).
 4. **Next candidates after that:**
    - **O-22**, the spelling sweep; its analysis is done in `open.md`.
    - **O-38**, the distance counter, once there are real-handset traces.

@@ -78,9 +78,21 @@ and it is both the review feature and the only cheat forensics worth having.
     player directory, no way to look up someone you have not played.
     - Share sheet with the PNG, then a download, then the picture on screen. No
       request, no server copy, no URL; metadata chunks stripped from the PNG.
-  - `8.5.4` todo: Head-to-head record with each opponent, shared between the two
+  - `8.5.4` active: Head-to-head record with each opponent, shared between the two
     participants. They stood there; this discloses nothing new, and it is the
     richest social surface available without the hazard.
+    - Decision 0054: a pair id (a hash of both accounts) and the other player's
+      distance on each new record row; folded from each player's own rows, so
+      both agree by construction; a nickname only the reader sees. "Against
+      each opponent" on the account screen, "Your record against this player"
+      on the review (`views/opponent.ts`). Driver: `scripts/check-h2h.mjs`.
+    - `8.5.4.1` done: Pair id and opponent distance on the record line, written
+      exactly once by the existing push; schema 4; older rows left out and counted
+    - `8.5.4.2` done: The list, the per-opponent screen, nicknames, and the link
+      from the review; nobody can ask about anybody else
+    - `8.5.4.3` todo: Real-phone check: does "Against each opponent" read well
+      and is it found; does a nickname feel private; do both players' phones
+      show the same meters after a real game, in both units?
   - `8.5.5` todo: Lifetime and rolling aggregates only for anything public.
     Per-game location tracks stay private to the participants.
   - `8.5.6` todo: Global aggregate leaderboard on distance or games, if wanted.

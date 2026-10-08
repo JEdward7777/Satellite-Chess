@@ -92,6 +92,14 @@ import {
   entryFromRow,
 } from './user-games.js';
 import { type RecordGame, type RecordSummary, summarizeRecord } from '../shared/record.js';
+import {
+  type HeadToHead,
+  type OpponentDetail,
+  cleanOpponentName,
+  isPairId,
+  opponentDetail,
+  summarizeHeadToHead,
+} from '../shared/head-to-head.js';
 import type { Color } from '../shared/squares.js';
 import {
   MAX_RECORD_GAMES,
@@ -505,9 +513,107 @@ export class UserDO extends DurableObject<Env> {
 
   /** The record, added up. Totals are derived here and never stored. */
   async record(): Promise<RecordSummary> {
-    return summarizeRecord(
-      [...this.sql.exec<RecordRow>(`SELECT * FROM record`)].map(gameFromRow),
-    );
+    return summarizeRecord(this.recordGames());
+  }
+
+  /**
+   * The record and the head-to-head list, folded from one read of the rows,
+   * so the account screen costs one request into this object rather than two
+   * (stage 8.5.4, decision 0054).
+   */
+  async recordWithOpponents(): Promise<{ record: RecordSummary; headToHead: HeadToHead }> {
+    const games = this.recordGames();
+    return { record: summarizeRecord(games), headToHead: summarizeHeadToHead(games, this.opponentNames()) };
+  }
+
+  /**
+   * One opponent's tally and every game with them, found by pair id or by the
+   * join code of one of those games — or why not.
+   *
+   * Reads **this account's rows only**. There is nothing to ask about anybody
+   * else: a pair id that is not in this record is `unknown`, exactly as a pair
+   * id that does not exist is, so the answer cannot be used to test whether
+   * two other people have played.
+   *
+   * By game, a finished game recorded before rows held an opponent is
+   * `earlier`, and a game with no line here (not finished, or not yet
+   * landed, or not this player's) is `unknown`.
+   */
+  async opponent(
+    by: { id: string } | { joinCode: string },
+  ): Promise<{ kind: 'ok'; detail: OpponentDetail } | { kind: 'earlier' } | { kind: 'unknown' }> {
+    let id: string;
+    if ('joinCode' in by) {
+      const [row] = [
+        ...this.sql.exec<{ pair_id: string | null }>(
+          `SELECT pair_id FROM record WHERE join_code = ? LIMIT 1`,
+          by.joinCode,
+        ),
+      ];
+      if (row === undefined) return { kind: 'unknown' };
+      if (!isPairId(row.pair_id)) return { kind: 'earlier' };
+      id = row.pair_id;
+    } else {
+      if (!isPairId(by.id)) return { kind: 'unknown' };
+      id = by.id;
+    }
+    const rows = [
+      ...this.sql.exec<RecordRow>(`SELECT * FROM record WHERE pair_id = ?`, id),
+    ].map(gameFromRow);
+    const detail = opponentDetail(rows, id, this.opponentNames(id));
+    return detail === null ? { kind: 'unknown' } : { kind: 'ok', detail };
+  }
+
+  /**
+   * Give an opponent a name, or clear it with null (decision 0054).
+   *
+   * The name is this player's alone: it is kept here, shown only on this
+   * account's screens, and never sent to the opponent or anywhere else. Only
+   * an opponent this record already holds can be named, so the table can
+   * never hold a name for somebody this player has not played. False when
+   * the pair id is not in this record.
+   */
+  async nameOpponent(sub: string, id: string, name: string | null, now: number = Date.now()): Promise<boolean> {
+    if (!isPairId(id)) return false;
+    let named = false;
+    this.ctx.storage.transactionSync(() => {
+      const [known] = [
+        ...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM record WHERE pair_id = ?`, id),
+      ];
+      // Checked before the stamp, so an id this record does not hold writes
+      // nothing at all, not even a visit.
+      if (known.n === 0) return;
+      this.stamp(sub, now);
+      const clean = cleanOpponentName(name);
+      if (clean === null) {
+        this.sql.exec(`DELETE FROM opponent_names WHERE pair_id = ?`, id);
+      } else {
+        this.sql.exec(
+          `INSERT INTO opponent_names (pair_id, name, updated_at) VALUES (?, ?, ?)
+             ON CONFLICT (pair_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
+          id,
+          clean,
+          now,
+        );
+      }
+      named = true;
+    });
+    return named;
+  }
+
+  private recordGames(): RecordGame[] {
+    return [...this.sql.exec<RecordRow>(`SELECT * FROM record`)].map(gameFromRow);
+  }
+
+  private opponentNames(id?: string): Map<string, string> {
+    const rows =
+      id === undefined
+        ? this.sql.exec<{ pair_id: string; name: string }>(`SELECT pair_id, name FROM opponent_names`)
+        : this.sql.exec<{ pair_id: string; name: string }>(
+            `SELECT pair_id, name FROM opponent_names WHERE pair_id = ?`,
+            id,
+          );
+    return new Map([...rows].map((row) => [row.pair_id, row.name]));
   }
 
   private recordCount(): number {

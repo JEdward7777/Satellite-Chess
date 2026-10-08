@@ -113,3 +113,13 @@ the lift and place fixes the server already receives.
   adds 5–10 KB a player; the cap of 2,000 fixes a player puts the walks at
   up to ~78 KB a game on top of the ~30 KB above, so 1 GB still holds about
   9,000 games at the worst case and roughly 20,000 typically.
+
+## Head-to-head (stage 8.5.4, decision 0054)
+
+- **Requests: one, only when a player opens an opponent.** The list rides on
+  `GET /api/record`, folded in the same `UserDO` call. Naming an opponent is
+  one `POST` per tap. No WebSocket message is added.
+- **Rows written: none added to a game.** The pair id and the other player's
+  distance are two more columns on the record line the game already writes
+  once per seat. A nickname is one row per named opponent, on a tap.
+- **Compute:** one SHA-256 per finished game, kept in the game's `meta`.

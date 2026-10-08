@@ -389,6 +389,14 @@ is; this says what will bite you when you touch it.*
   Durable Objects and therefore silently inflates somebody's headline figure.
   The same derivation is what lets stage 9.2 move the 4 m practice floor and
   re-judge every game ever played, rather than half the record by each rule.
+- **Head-to-head knows the pair, never the person** (decision 0054). A record
+  row carries `pair_id`, a hash of both `sub`s, and the other player's
+  distance. The tempting changes are storing the opponent's `sub` "to make
+  lookups easier", showing their Google name, or a route that takes an account
+  or a pair id and answers about someone other than the session. Each turns a
+  private tally into a way to find out who plays with whom. Every
+  head-to-head route reads the session's own account, and an id it does not
+  hold is the same 404 as one that does not exist.
 - **A record row is not a game-index row and does not go away with one.**
   Forgetting a game (2.3.4.2) deletes the pointer, not the walk. Nothing deletes
   a record row, and the privacy statement says so out loud rather than implying

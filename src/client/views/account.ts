@@ -45,6 +45,8 @@ export interface AccountDeps {
   onBack(): void;
   /** Where the permanent record is read from (stage 2.3.5). */
   record: RecordTransport;
+  /** Open one opponent's head-to-head (stage 8.5.4). */
+  onOpponent?(id: string): void;
   /** The phone's piece look. The page's own store when omitted. */
   looks?: PieceLookStore;
   /** The account's display units (decision 0049). The page's own store when omitted. */
@@ -142,7 +144,7 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   syncUnits();
 
   const record = root.querySelector<HTMLElement>('[data-record]');
-  const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record, units);
+  const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record, units, deps.onOpponent);
 
   return () => {
     offUnits();

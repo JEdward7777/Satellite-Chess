@@ -13,13 +13,18 @@
  * saying what it means.
  */
 
+import type { HeadToHead } from '../shared/head-to-head.js';
 import type { RecordLine, RecordSummary } from '../shared/record.js';
 import { type Units, lengthWords, walkedWords } from '../shared/units.js';
 import { reasonWords } from './views/games.js';
 
 /** What a read came back with. */
 export type RecordResult =
-  | { kind: 'ok'; record: RecordSummary }
+  /**
+   * `headToHead` arrives with the record (stage 8.5.4); null from a server
+   * that predates it.
+   */
+  | { kind: 'ok'; record: RecordSummary; headToHead: HeadToHead | null }
   | { kind: 'signed_out' }
   /** No signal, or an answer that is not a record. */
   | { kind: 'unavailable' };
@@ -35,12 +40,14 @@ export function browserRecordTransport(): RecordTransport {
         const response = await fetch('/api/record', { headers: { accept: 'application/json' } });
         if (response.status === 401) return { kind: 'signed_out' };
         if (!response.ok) return { kind: 'unavailable' };
-        const body = (await response.json()) as { record?: RecordSummary };
+        const body = (await response.json()) as { record?: RecordSummary; headToHead?: HeadToHead };
         const record = body.record;
         if (typeof record !== 'object' || record === null || typeof record.totals !== 'object') {
           return { kind: 'unavailable' };
         }
-        return { kind: 'ok', record };
+        const head = body.headToHead;
+        const headToHead = typeof head === 'object' && head !== null && Array.isArray(head.opponents) ? head : null;
+        return { kind: 'ok', record, headToHead };
       } catch {
         return { kind: 'unavailable' };
       }

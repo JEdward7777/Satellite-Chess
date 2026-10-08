@@ -255,6 +255,47 @@ export function walkedWords(meters: number | null, units: Units): string {
 }
 
 /**
+ * Two players' walks and what they make together, as the head-to-head
+ * record says them (stage 8.5.4, decision 0054): "312 m between you", then
+ * "You 160 m · They 152 m".
+ *
+ * Each walk reads as {@link walkedWords} says it. The total is chosen so the
+ * line **adds up as read**: while both walks and their sum are in the short
+ * unit, the total is the sum of the two figures shown, never the rounding of
+ * the true sum, which could be one more ("160 + 152 = 313"). Once the total
+ * reaches the long unit it is {@link walkedWords} of the true sum, and
+ * nobody adds "1.2 km" to "840 m" in their head. Either way it is within one
+ * short unit of the truth, and it is the same whichever player is "you",
+ * which is what lets both players' screens show the same total.
+ */
+export function walkedPairWords(
+  youM: number,
+  themM: number,
+  units: Units,
+): { you: string; them: string; together: string } {
+  const toShort = (meters: number): number => {
+    const m = clean(meters);
+    return Math.round(units === 'metric' ? m : m / METERS_PER_YARD);
+  };
+  const perLong = units === 'metric' ? 1000 : YARDS_PER_MILE;
+  const shortUnit = units === 'metric' ? 'm' : 'yd';
+  const sum = toShort(youM) + toShort(themM);
+  return {
+    you: walkedWords(youM, units),
+    them: walkedWords(themM, units),
+    // Past the long unit, from the larger of the true sum and the sum of the
+    // figures shown, so "500 m" and "500 m" can never total "999 m".
+    together:
+      sum < perLong
+        ? `${whole(sum, units)} ${shortUnit}`
+        : walkedWords(
+            Math.max(clean(youM) + clean(themM), sum * (units === 'metric' ? 1 : METERS_PER_YARD)),
+            units,
+          ),
+  };
+}
+
+/**
  * A size offered to a player as advice, rounded to something worth pacing out.
  *
  * Not a conversion: "5 m or more" becomes "15 ft or more", not "16.4 ft or

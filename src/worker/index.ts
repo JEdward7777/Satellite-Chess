@@ -21,6 +21,7 @@ import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
 import type { Color } from '../shared/squares.js';
 import { asUnits } from '../shared/units.js';
+import { cleanOpponentName, isPairId } from '../shared/head-to-head.js';
 import { GameDO } from './game-do.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
@@ -205,6 +206,14 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   if (path === '/api/record') {
     return readRecord(request, env, url);
   }
+  // Head-to-head (stage 8.5.4): one opponent, and naming one. Both act on the
+  // session's own account and nothing else (decision 0054).
+  if (path === '/api/record/opponent') {
+    return readOpponent(request, env, url);
+  }
+  if (path === '/api/record/opponent/name') {
+    return nameOpponent(request, env, url);
+  }
 
   if (path === '/api/game' && request.method === 'POST') {
     return createGame(request, env, url);
@@ -362,7 +371,87 @@ async function readRecord(request: Request, env: Env, url: URL): Promise<Respons
   if (identity === null) {
     return apiError('unauthenticated', 'Not signed in.', 401);
   }
-  return json({ record: await userFor(env, identity.sub).record() });
+  // The head-to-head list rides along (stage 8.5.4): folded from the same
+  // rows in the same call, so it costs no request of its own.
+  const { record, headToHead } = await userFor(env, identity.sub).recordWithOpponents();
+  return json({ record, headToHead });
+}
+
+/**
+ * One opponent's head-to-head: the tally and every game with them (stage
+ * 8.5.4, decision 0054). `?id=<pair id>` from the record screen, or
+ * `?game=<code>` from a game's review ("your record against this player").
+ *
+ * **There is no way to ask about anybody but yourself.** The account asked is
+ * the session's, always; a pair id or a code that is not in that account's own
+ * record is the same 404 as one that does not exist, so a stranger holding
+ * somebody's pair id or join code learns nothing from it — not even whether
+ * it is real. There is no list of anybody else's opponents to ask for, and no
+ * route that takes an account.
+ *
+ * A read and nothing else, one request into the account, asked only when a
+ * player opens an opponent.
+ */
+async function readOpponent(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'GET') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+  const id = url.searchParams.get('id');
+  const game = url.searchParams.get('game');
+  let by: { id: string } | { joinCode: string };
+  if (id !== null && isPairId(id)) {
+    by = { id };
+  } else if (game !== null && normaliseJoinCode(game) !== null) {
+    by = { joinCode: normaliseJoinCode(game) as string };
+  } else {
+    return apiError('bad_message', 'Ask for one opponent, by `id` or by `game`.', 400);
+  }
+  const answer = await userFor(env, identity.sub).opponent(by);
+  if (answer.kind === 'ok') return json(answer.detail);
+  return answer.kind === 'earlier'
+    ? apiError(
+        'earlier',
+        'This game was recorded before the app kept track of who you played.',
+        404,
+      )
+    : apiError('not_found', 'There is no record of that opponent on your account.', 404);
+}
+
+/**
+ * Give an opponent a name of your own, or clear it (decision 0054).
+ *
+ * The name is kept on the session's account and shown only there. It never
+ * reaches the opponent, the game, the archive or anything shared. Only an
+ * opponent already in this account's record can be named. Same-origin only,
+ * like the settings.
+ */
+async function nameOpponent(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== 'POST') {
+    return apiError('method_not_allowed', `${request.method} is not allowed here.`, 405);
+  }
+  const origin = request.headers.get('origin');
+  if (origin !== null && origin !== url.origin) {
+    return apiError('forbidden', 'Names have to come from this app.', 403);
+  }
+  const identity = await identityOf(request, env, url);
+  if (identity === null) {
+    return apiError('unauthenticated', 'Not signed in.', 401);
+  }
+  const body = await readJson(request);
+  if (body === null || !isPairId(body.id)) {
+    return apiError('bad_message', 'Expected `id` and `name`.', 400);
+  }
+  if (body.name !== null && typeof body.name !== 'string') {
+    return apiError('bad_message', '`name` must be text, or null to clear it.', 400);
+  }
+  const name = cleanOpponentName(body.name);
+  const named = await userFor(env, identity.sub).nameOpponent(identity.sub, body.id, name);
+  if (!named) return apiError('not_found', 'There is no record of that opponent on your account.', 404);
+  return json({ name });
 }
 
 /**

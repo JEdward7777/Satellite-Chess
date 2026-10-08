@@ -15,7 +15,9 @@
  * things that are not possible yet.
  */
 
+import type { HeadToHead } from '../../shared/head-to-head.js';
 import type { RecordSummary } from '../../shared/record.js';
+import { earlierWords, opponentLabel, opponentSummaryWords, sinceWords } from '../head-to-head.js';
 import { type Units, boardWords } from '../../shared/units.js';
 import { type UnitsStore, displayUnits } from '../units.js';
 import {
@@ -47,6 +49,8 @@ export function mountRecord(
   root: HTMLElement,
   transport: RecordTransport,
   units: Pick<UnitsStore, 'get' | 'subscribe'> = displayUnits(),
+  /** Open one opponent's head-to-head (stage 8.5.4). No list is drawn without it. */
+  onOpponent?: (id: string) => void,
 ): () => void {
   let live = true;
   const body = root.querySelector<HTMLElement>('[data-record-body]');
@@ -54,9 +58,22 @@ export function mountRecord(
   // Held so a change of units on the screen above redraws the record in place
   // rather than asking the account for it again.
   let shown: RecordSummary | null = null;
+  let head: HeadToHead | null = null;
+  const paint = (record: RecordSummary): void => {
+    body.innerHTML =
+      recordHtml(record, Date.now(), units.get()) +
+      (onOpponent && head !== null ? headToHeadHtml(head, Date.now(), units.get()) : '');
+  };
   const offUnits = units.subscribe(() => {
-    if (live && shown !== null) body.innerHTML = recordHtml(shown, Date.now(), units.get());
+    if (live && shown !== null) paint(shown);
   });
+  // One listener for every opponent button, so a redraw needs no re-wiring.
+  const onClick = (event: Event): void => {
+    const button = (event.target as Element | null)?.closest?.<HTMLElement>('[data-opponent]');
+    const id = button?.dataset.opponent;
+    if (id && onOpponent) onOpponent(id);
+  };
+  body.addEventListener('click', onClick);
 
   const load = (): void => {
     body.innerHTML = `<p class="dim" data-record-loading>Loading your record…</p>`;
@@ -64,7 +81,8 @@ export function mountRecord(
       if (!live) return;
       if (result.kind === 'ok') {
         shown = result.record;
-        body.innerHTML = recordHtml(result.record, Date.now(), units.get());
+        head = result.headToHead;
+        paint(result.record);
         return;
       }
       body.innerHTML =
@@ -82,7 +100,39 @@ export function mountRecord(
   return () => {
     live = false;
     offUnits();
+    body.removeEventListener('click', onClick);
   };
+}
+
+/**
+ * Against each opponent (stage 8.5.4, decision 0054): one line each, meters
+ * walked between you first, then the results. Each opens the opponent's own
+ * screen. Pure, so a test can read what a player would.
+ */
+export function headToHeadHtml(head: HeadToHead, now: number = Date.now(), units: Units = 'metric'): string {
+  const earlier = earlierWords(head);
+  if (head.opponents.length === 0 && earlier === '') return '';
+  return `<section class="record-h2h" data-h2h>
+    <h3>Against each opponent</h3>
+    ${
+      head.opponents.length === 0
+        ? ''
+        : `<ul class="games" data-h2h-list>
+      ${head.opponents
+        .map(
+          (tally) => `<li>
+            <button type="button" class="link-row" data-opponent="${escapeHtml(tally.id)}">
+              <strong data-h2h-name>${escapeHtml(opponentLabel(tally))}</strong>
+              <span data-h2h-summary>${escapeHtml(opponentSummaryWords(tally, units))}</span>
+              <span class="dim" data-h2h-since>${escapeHtml(sinceWords(tally, now))}</span>
+            </button>
+          </li>`,
+        )
+        .join('')}
+    </ul>`
+    }
+    ${earlier === '' ? '' : `<p class="dim" data-h2h-earlier>${escapeHtml(earlier)}</p>`}
+  </section>`;
 }
 
 /** The record itself. Pure, so a test can read what a player would. */
@@ -214,6 +264,13 @@ export function privacyHtml(): string {
         your list of games, and this record, which holds distances, field names
         and board sizes but no coordinates. Signing in stores your Google account
         ID and email address, and nothing about where you are.</li>
+      <li><strong>Who you played.</strong> Each game in your record notes the
+        pair of you as a code made from both accounts, not a name or an email,
+        and how far your opponent walked in it, which you both saw after the
+        game. That is how you and they each see the same record against each
+        other. A name you give an opponent stays on your account and they
+        never see it. Nobody can look you up or see who else you have
+        played.</li>
       <li><strong>Never.</strong> No public profile, no list of who plays on a
         field, no map of your walks, and no place names worked out from your
         position. A field link carries the field's corners and name, and nothing

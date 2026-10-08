@@ -97,6 +97,7 @@ import {
 } from './collection.js';
 import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
+import { pairIdFor } from './user-record.js';
 import { applySchema, hasGameTables, isInitialised } from './schema.js';
 
 /**
@@ -2020,6 +2021,7 @@ export class GameDO extends DurableObject<Env> {
     const game = this.game();
     if (game === null || game.status !== 'finished') return;
     if (options.fresh) this.deleteMeta('record_attempts');
+    await this.ensurePairId(game);
 
     let pending = false;
     for (const color of ['w', 'b'] as const) {
@@ -2055,6 +2057,26 @@ export class GameDO extends DurableObject<Env> {
   }
 
   /**
+   * Work out the two accounts' pair id once, and keep it in `meta`
+   * (stage 8.5.4, decision 0054).
+   *
+   * Asynchronous, because a digest is, and stored because {@link recordLine}
+   * is not: it is also what {@link recordPending} compares against the line
+   * an account accepted, so it has to be the same line every time without
+   * awaiting anything. The seats of a finished game never change, so the
+   * value never does either. A game that finished before 0054 has no pair id
+   * yet, so its lines differ from the ones its accounts accepted, and the
+   * next push — a re-join, or the collection step that waits for lines to
+   * land — sends them again with one: the upsert by join code makes that the
+   * same row, now with an opponent.
+   */
+  private async ensurePairId(game: GameRow): Promise<void> {
+    if (this.meta('pair_id') !== null) return;
+    const pair = await pairIdFor(game.white_account, game.black_account);
+    if (pair !== null) this.setMeta('pair_id', pair);
+  }
+
+  /**
    * One player's line in the permanent record, out of stored columns only.
    *
    * Carries everything the record will ever need to say about this game,
@@ -2083,21 +2105,30 @@ export class GameDO extends DurableObject<Env> {
         ...this.sql.exec<{ color: Color; carried_m: number }>(`SELECT color, carried_m FROM moves`),
       ].map((row) => ({ color: row.color, carriedM: row.carried_m })),
     );
-    const [presence] = [
-      ...this.sql.exec<{ travel_m: number; travel_leg: string | null }>(
-        `SELECT travel_m, travel_leg FROM presence WHERE color = ? LIMIT 1`,
-        color,
-      ),
-    ];
     // Unmeasured rather than zero for a distance inherited from before the
     // per-game rule (decision 0040, rule 7), and never less than this player's
     // own carries (decision 0041). Both rules live outside this function
     // because the post-game report asks the same questions, and the record,
     // the review screen and the PGN have to give the same answer.
-    const travelM = flooredTravelM(
-      presence === undefined ? 0 : measuredTravelM(presence.travel_m, presence.travel_leg),
-      carried[color],
-    );
+    //
+    // Both players' figures, by the same rule: this player's is their line's
+    // distance, and the other's rides along for head-to-head (decision 0054),
+    // where it must be exactly the number the other player's own line holds.
+    const travelOf = (seat: Color): number | null => {
+      const [presence] = [
+        ...this.sql.exec<{ travel_m: number; travel_leg: string | null }>(
+          `SELECT travel_m, travel_leg FROM presence WHERE color = ? LIMIT 1`,
+          seat,
+        ),
+      ];
+      return flooredTravelM(
+        presence === undefined ? 0 : measuredTravelM(presence.travel_m, presence.travel_leg),
+        carried[seat],
+      );
+    };
+    const travelM = travelOf(color);
+    const opponentTravelM = travelOf(color === 'w' ? 'b' : 'w');
+    const pairId = this.meta('pair_id');
 
     let fieldName: string | null = null;
     let fieldKey: string | null = null;
@@ -2137,6 +2168,9 @@ export class GameDO extends DurableObject<Env> {
       squareM,
       boardM,
       diagonalM,
+      // The pair, never the other account (decision 0054).
+      pairId,
+      opponentTravelM,
     };
   }
 

@@ -87,6 +87,21 @@ export interface RecordGame {
   boardM: number;
   /** Corner to corner, the denominator of board crossings. */
   diagonalM: number;
+  /**
+   * Who this game was against, as the head-to-head record knows it (stage
+   * 8.5.4, decision 0054): a digest of the two accounts, the same in both
+   * players' rows for the game and different for every pair. **Never an
+   * account**: nothing here names, or can be turned back into, the other
+   * player. Null or absent on a row written before 0054.
+   */
+  pairId?: string | null;
+  /**
+   * The other player's distance in this game, exactly as their own row holds
+   * it, so both players' head-to-head adds up the same meters. They saw it on
+   * the review already. Null where nobody measured it, and on rows from
+   * before 0054.
+   */
+  opponentTravelM?: number | null;
 }
 
 /**

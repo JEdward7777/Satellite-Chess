@@ -809,6 +809,10 @@ chess.js sweep in the same file has), or sweep 50,000 points instead of
 200,000.
 **Not doing yet because:** found while running checks for a different
 stage, and the test belongs to 8.3. A rerun passes.
+**Update 2026-10-08 (phase 8 of run 2, stage 8.5.4):** it failed `npm run
+check` several times this phase, always this test, always "timed out in
+5000ms", and passed on a rerun each time. The coordinator plans a small
+phase for it and O-52 after O-37.
 
 ### O-57 — Other games on the same system (checkers, backgammon, mahjong…)
 **Spotted:** 2026-10-04, the owner's idea

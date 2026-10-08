@@ -75,7 +75,7 @@ The conditions under which this should be reopened.
 | [0037](0037-the-phone-says-ready-once-and-the-evidence-ends-with-the-socket.md) | The phone says `ready` once per arrival; a back rank is forgotten when the socket goes | accepted |
 | [0038](0038-a-cold-start-finds-its-game-through-the-index.md) | A cold start finds its game through the game index, not `localStorage` | accepted |
 | [0039](0039-the-phone-remembers-who-it-is-but-never-decides-with-it.md) | The phone remembers who it is, but never decides anything with it | accepted |
-| [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041; rule 6 by 0047) |
+| [0040](0040-the-record-is-one-line-per-finished-game-and-totals-are-derived.md) | The record is one line per finished game, pushed by the game; totals are derived | accepted (rules 6, 7 amended by 0041; rule 6 by 0047; rule 4 by 0054) |
 | [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) | A game leaves as one PGN, in board space, fetched at mount and shared on tap | accepted (amends 0040 rules 6, 7) |
 | [0042](0042-a-finished-game-leaves-as-an-archive-and-its-object-ceases-to-exist.md) | A finished game leaves as an archive, and its object ceases to exist | accepted (amends 0025 rule 6) |
 | [0043](0043-a-poor-fix-never-buys-reach.md) | A poor GPS fix never buys reach; a fix too vague to trust refuses the move | accepted (supersedes the rest of 0023 and the accuracy clause of 0031) |
@@ -89,3 +89,4 @@ The conditions under which this should be reopened.
 | [0051](0051-a-field-is-tried-alone-against-its-leeway.md) | A field is tried alone, on the phone, and judged by its claimed accuracy against the leeway (square inset plus reach) | accepted |
 | [0052](0052-the-replay-keeps-each-walk-as-squares-from-the-relays-already-sent.md) | The replay keeps each walk as squares, built from the relays already sent; seat-only, in the archive, never in the PGN | accepted (amends rule 3 of 0042) |
 | [0053](0053-the-share-card-draws-carries-not-walks.md) | The share card draws carries, not walks; the field is named only when ticked; no date, code or names; made on the phone, pushed, kept nowhere | accepted |
+| [0054](0054-head-to-head-is-folded-from-each-players-own-rows-by-a-pair-id.md) | Head-to-head is folded from each player's own rows by a pair id (never an account); the opponent's name is the reader's own | accepted (amends rule 4 of 0040) |

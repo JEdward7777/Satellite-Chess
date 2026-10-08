@@ -250,8 +250,15 @@ describe('a finished game lands in both players’ records', () => {
     );
     expect(columns.length).toBeGreaterThan(5);
     for (const column of columns) {
-      expect(column).not.toMatch(/(^|_)(lat|lng|lon|pos|opponent)(_|$)/);
+      expect(column).not.toMatch(/(^|_)(lat|lng|lon|pos)(_|$)/);
     }
+    // Head-to-head (decision 0054) added a pair id and the other player's
+    // distance, and nothing else about them: no column for their account.
+    expect(columns.filter((c) => /opponent|pair|sub|account|email|name/.test(c)).sort()).toEqual([
+      'field_name',
+      'opponent_travel_m',
+      'pair_id',
+    ]);
   });
 
   it('keeps the record when the game is forgotten from the list', async () => {

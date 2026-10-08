@@ -25,7 +25,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const USER_SCHEMA_VERSION = 3;
+export const USER_SCHEMA_VERSION = 4;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one account, and the CHECK
@@ -146,9 +146,15 @@ const STATEMENTS = [
   //
   // **No coordinates.** A field is named and keyed by lineage, never located:
   // the record says what the walking added up to, not where it happened. The
-  // game keeps the positions (decision 0017). Like `fields`, there is no
-  // column naming the opponent — head-to-head (8.5.4) is a different, shared
-  // mechanism and is not built by adding one here.
+  // game keeps the positions (decision 0017).
+  //
+  // **No column names the opponent.** Since schema 4 (stage 8.5.4, decision
+  // 0054) a row carries `pair_id`, a digest of the two accounts that is the
+  // same in both players' rows and different for every pair, and the other
+  // player's distance. That is enough to add up a head-to-head record from
+  // one's own rows; it is not an account, cannot be addressed, and is not
+  // indexed anywhere a stranger could ask. Rows from before schema 4 have
+  // NULL in both and stay out of head-to-head.
   `CREATE TABLE IF NOT EXISTS record (
      join_code        TEXT    PRIMARY KEY,
      color            TEXT    NOT NULL,
@@ -171,7 +177,21 @@ const STATEMENTS = [
      square_m         REAL    NOT NULL,
      board_m          REAL    NOT NULL,
      diagonal_m       REAL    NOT NULL,
-     recorded_at      INTEGER NOT NULL
+     recorded_at      INTEGER NOT NULL,
+     -- Schema 4, decision 0054: added by ALTER on an older account, below.
+     pair_id          TEXT,
+     opponent_travel_m REAL
+   )`,
+
+  // Names a player gave their opponents (stage 8.5.4, decision 0054). Schema
+  // 4. Keyed by pair id, and **private to this account**: the opponent never
+  // sees it, nothing else reads it, and it is the only name for another
+  // player stored anywhere. A row exists only while the player has chosen a
+  // name; clearing it deletes the row.
+  `CREATE TABLE IF NOT EXISTS opponent_names (
+     pair_id     TEXT    PRIMARY KEY,
+     name        TEXT    NOT NULL,
+     updated_at  INTEGER NOT NULL
    )`,
 
   // The player's settings (stage 2.3.8, decision 0049). Schema 3. A table of
@@ -199,6 +219,18 @@ const STATEMENTS = [
 
 export function applyUserSchema(sql: SqlStorage): void {
   for (const statement of STATEMENTS) sql.exec(statement);
+  // Schema 4: an account made before it has a `record` without the
+  // head-to-head columns. Driven by what the table reports rather than by the
+  // stored version, so a half-applied upgrade finishes on the next wake.
+  const recordColumns = new Set(
+    [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('record')`)].map((row) => row.name),
+  );
+  if (!recordColumns.has('pair_id')) sql.exec(`ALTER TABLE record ADD COLUMN pair_id TEXT`);
+  if (!recordColumns.has('opponent_travel_m')) {
+    sql.exec(`ALTER TABLE record ADD COLUMN opponent_travel_m REAL`);
+  }
+  // Only a player's own opponents are ever looked up, and only by this.
+  sql.exec(`CREATE INDEX IF NOT EXISTS record_pair_id ON record (pair_id)`);
   sql.exec(
     `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`,

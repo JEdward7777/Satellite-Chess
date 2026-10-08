@@ -74,6 +74,8 @@ import { type CreateDraft, createGameBody, mountCreate } from './views/create.js
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
 import { mountReview } from './views/review.js';
+import { mountOpponent } from './views/opponent.js';
+import { type OpponentQuery, browserOpponentTransport } from './head-to-head.js';
 import {
   HOME_SHOWN,
   gameItemHtml,
@@ -336,6 +338,7 @@ async function boot(): Promise<void> {
         confirmed,
         next: currentDestination(location),
         record: browserRecordTransport(),
+        onOpponent: (id) => showOpponent({ id }, showAccount),
         onBack: () => void showHome(),
         onSignOut: async () => {
           // Anything still waiting to reach the account goes first — above all a
@@ -584,8 +587,19 @@ async function boot(): Promise<void> {
         joinCode,
         transport: browserReviewTransport(),
         onHome: () => void showHome(),
+        onOpponent: () => showOpponent({ game: joinCode }, () => showReview(joinCode)),
       }),
     );
+  }
+
+  /**
+   * One opponent's head-to-head (stage 8.5.4, decision 0054), from the
+   * account screen's list or a game's review. Back goes where it came from.
+   * One request, for this account's own rows; nothing about the opponent is
+   * asked of anybody else.
+   */
+  function showOpponent(query: OpponentQuery, back: () => void): void {
+    swap(() => mountOpponent(root, { query, transport: browserOpponentTransport(), onBack: back }));
   }
 
   /**

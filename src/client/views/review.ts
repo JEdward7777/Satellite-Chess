@@ -88,6 +88,11 @@ export interface ReviewViewDeps {
   joinCode: string;
   transport: ReviewTransport;
   onHome(): void;
+  /**
+   * Open this game's opponent's head-to-head (stage 8.5.4). The link is
+   * offered only to a seat, for a game with a result.
+   */
+  onOpponent?(): void;
   /** Overridden in tests and by the simulator; the app uses the real navigator. */
   share?: typeof sharePgn;
   copy?: typeof copyText;
@@ -143,6 +148,7 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     unmountReplay = mountReplay(body, report, you ?? 'w', units);
     unmountCard?.();
     unmountCard = mountCard(body, report, you, units, deps.shareImage ?? shareImage, () => live);
+    body.querySelector<HTMLButtonElement>('[data-review-h2h]')?.addEventListener('click', () => deps.onOpponent?.());
 
     const say = (words: string): void => {
       const line = body.querySelector<HTMLElement>('[data-review-said]');
@@ -420,6 +426,7 @@ export function reviewHtml(
         )
         .join('')}
     </dl>
+    ${headToHeadLinkHtml(report, you)}
     ${replayHtml(report, units)}
     ${cardHtml(report, you)}
     ${
@@ -458,6 +465,16 @@ export function reviewHtml(
     <div class="record-honesty dim" data-review-honesty>
       ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
     </div>`;
+}
+
+/**
+ * "Your record against this player" (stage 8.5.4): for a seat, in a game with
+ * a result. An aborted game has none and writes no record line (decision
+ * 0050), so there is nothing to open.
+ */
+function headToHeadLinkHtml(report: GameReport, you: Color | null): string {
+  if (you === null || report.outcome === null) return '';
+  return `<p><button type="button" class="secondary" data-review-h2h>Your record against this player</button></p>`;
 }
 
 /**

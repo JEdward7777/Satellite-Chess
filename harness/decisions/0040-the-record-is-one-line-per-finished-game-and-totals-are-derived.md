@@ -1,7 +1,7 @@
 # 0040 — The record is one line per finished game, pushed by the game; totals are derived
 
 - **Date:** 2026-09-19
-- **Status:** accepted; rules 6 and 7 amended by [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) (lift and place carry the counter too; the figure is floored by the player's own carries); rule 6 amended by [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) (what the cap clips is owed, up to 30 m, not dropped)
+- **Status:** accepted; rules 6 and 7 amended by [0041](0041-a-game-leaves-as-one-pgn-in-board-space.md) (lift and place carry the counter too; the figure is floored by the player's own carries); rule 6 amended by [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) (what the cap clips is owed, up to 30 m, not dropped); rule 4's "no opponent" amended by [0054](0054-head-to-head-is-folded-from-each-players-own-rows-by-a-pair-id.md) (a pair id and the other player's distance, never their account)
 - **Stage:** 2.3.5 (and 2.3.5.2, 2.3.5.3, 2.3.5.4)
 - **Builds on:** [0019](0019-distance-is-the-currency-not-games.md), [0033](0033-the-game-writes-the-index-the-phone-only-reads-it.md)
 

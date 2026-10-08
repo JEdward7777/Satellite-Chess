@@ -12,6 +12,7 @@
  */
 
 import type { ResultOutcome, ResultReason } from '../shared/protocol.js';
+import { isPairId } from '../shared/head-to-head.js';
 import type { RecordGame } from '../shared/record.js';
 import type { Color } from '../shared/squares.js';
 import { MAX_FIELD_NAME_CHARS } from './user-games.js';
@@ -44,6 +45,9 @@ export interface RecordRow {
   board_m: number;
   diagonal_m: number;
   recorded_at: number;
+  /** Schema 4; null on a row written before it. */
+  pair_id: string | null;
+  opponent_travel_m: number | null;
   [key: string]: SqlStorageValue;
 }
 
@@ -63,6 +67,8 @@ export const RECORD_COLUMNS = [
   'square_m',
   'board_m',
   'diagonal_m',
+  'pair_id',
+  'opponent_travel_m',
 ] as const;
 
 export function bindValuesFor(game: RecordGame): SqlStorageValue[] {
@@ -83,6 +89,8 @@ export function bindValuesFor(game: RecordGame): SqlStorageValue[] {
     meters(game.squareM),
     meters(game.boardM),
     meters(game.diagonalM),
+    isPairId(game.pairId) ? game.pairId : null,
+    game.opponentTravelM === null || game.opponentTravelM === undefined ? null : meters(game.opponentTravelM),
   ];
 }
 
@@ -103,7 +111,39 @@ export function gameFromRow(row: RecordRow): RecordGame {
     squareM: row.square_m,
     boardM: row.board_m,
     diagonalM: row.diagonal_m,
+    pairId: isPairId(row.pair_id) ? row.pair_id : null,
+    opponentTravelM: row.opponent_travel_m ?? null,
   };
+}
+
+/**
+ * The head-to-head key for two accounts (stage 8.5.4, decision 0054).
+ *
+ * A SHA-256 over both `sub`s, sorted so that either seat computes the same
+ * value, under a label of its own, cut to 128 bits. It is what lets each
+ * player's record group *their own* rows by opponent, and lets both players'
+ * records agree on which games were between them, without either row naming
+ * the other account.
+ *
+ * - **Pairwise, never per player.** A per-player id would be the same in
+ *   every opponent's record, so two people comparing notes could learn they
+ *   had both played the same third person. A pair id appears only in the
+ *   records of the two people it is about.
+ * - **Not a secret, and not meant to be one.** A `sub` is not secret
+ *   (decision 0042), so someone holding two of them could compute the pair
+ *   id. The id is only ever stored in, and shown to, the two players it
+ *   names; nothing anywhere can be *asked* by pair id except the reader's own
+ *   record, which is the protection. An HMAC would add a key whose rotation
+ *   would split every head-to-head record in two.
+ * - **Null for a game with one account in it**, or the same account twice,
+ *   which has no opponent to keep a record against.
+ */
+export async function pairIdFor(white: string | null, black: string | null): Promise<string | null> {
+  if (white === null || black === null || white === '' || black === '' || white === black) return null;
+  const [first, second] = white < black ? [white, black] : [black, white];
+  const bytes = new TextEncoder().encode(`satellite-chess/head-to-head/v1\n${first}\n${second}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return [...digest.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**
