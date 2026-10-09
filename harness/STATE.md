@@ -28,8 +28,8 @@ decisions that are the owner's (**O-47**, accessibility zoom; **O-41**,
 deleting archives), and the parked studies **O-43** (a 3D board) and
 **O-57** (other games on the same system).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`4ce77473`, at `476a84d`: everything through head-to-head. **The coordinator
-deploys this phase (live watching) next.** The `ARCHIVE` KV namespace id
+`1622b26d`, at `0215298`, deployed 2026-10-08: everything through live
+watching. **All of run 2 is live.** The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
 **1389 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
@@ -298,8 +298,8 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `4ce77473` (through head-to-head), `ARCHIVE` id pinned; live
-   watching (`10.14`) is next to deploy. Finished games
+1. **Deployed** `1622b26d` (all of run 2, through live watching), `ARCHIVE`
+   id pinned. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
