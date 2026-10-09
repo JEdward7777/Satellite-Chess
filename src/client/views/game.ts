@@ -87,6 +87,18 @@ import {
   offerSentNotice,
 } from '../endings.js';
 import { browserScreenLockOptions, createScreenLock } from '../wakelock.js';
+import { encodeQr, qrSvg } from '../../shared/qr.js';
+import { copyLink, shareLink } from '../share.js';
+import {
+  WATCH_INVITE_TEXT,
+  type WatchPhase,
+  watchButtonLabel,
+  watchLine,
+  watchPanel,
+  watchPhase,
+  watchShareData,
+  watchUrl,
+} from '../watching.js';
 
 // ---------------------------------------------------------------------------
 // The model half
@@ -386,6 +398,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         </div>`,
           )
           .join('')}
+        <div class="offer" data-watch-invite hidden>
+          <p>${WATCH_INVITE_TEXT}</p>
+          <p>
+            <button data-watch-agree>Agree</button>
+            <button data-watch-decline class="secondary">No thanks</button>
+          </p>
+        </div>
         <div class="clocks" data-clocks hidden>
           <div class="clock" data-clock-side="mine">
             <span class="clock-label">You</span>
@@ -408,6 +427,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         <p data-handshake class="dim" hidden></p>
         <p data-notice class="notice" hidden></p>
         <p data-my-offer class="dim" hidden></p>
+        <p data-watch-line class="dim" hidden></p>
         <p>
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
@@ -415,6 +435,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-review-open hidden>After the game</button>
           <button data-pause class="secondary" hidden>Pause</button>
           <button data-end class="secondary" hidden>End game…</button>
+          <button data-watch-open class="secondary" hidden>Let people watch</button>
           <button data-leave class="secondary">Leave</button>
         </p>
       </div>
@@ -430,6 +451,22 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <p class="dim" data-confirm-body></p>
           <button data-confirm-no class="secondary">Keep playing</button>
           <button data-confirm-yes class="danger"></button>
+        </div>
+      </div>
+      <div class="endings watch-panel" data-watch-panel hidden>
+        <div class="endings-step">
+          <p class="endings-title" data-watch-title></p>
+          <p class="dim" data-watch-body></p>
+          <div class="watch-share" data-watch-share hidden>
+            <div class="watch-qr" data-watch-qr></div>
+            <p class="watch-link" data-watch-link></p>
+            <button data-watch-send>Share the link</button>
+            <button data-watch-copy class="secondary">Copy the link</button>
+            <p class="dim" data-watch-said></p>
+          </div>
+          <button data-watch-yes></button>
+          <button data-watch-stop class="danger"></button>
+          <button data-watch-close class="secondary">Close</button>
         </div>
       </div>
       <div class="promotion" data-promotion hidden>
@@ -467,6 +504,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let endingsOpen = false;
   /** The ending being confirmed, and when the question appeared. */
   let confirming: { action: EndingAction; at: number } | null = null;
+  /** "Let people watch" is open (decision 0055). */
+  let watchOpen = false;
+  /** The link the panel last drew a QR for, so a repaint does not re-encode it. */
+  let watchDrawnFor: string | null = null;
   /** When each incoming offer's banner first appeared, so Accept arms after it. */
   const offerShownAt = new Map<string, number>();
   /** The last snapshot, to tell a declined offer from a lapsed one. */
@@ -804,6 +845,53 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     });
   }
 
+  // Letting people watch (decision 0055). One tap, one message, each way;
+  // nothing is sent on a timer, and nothing here touches the game.
+  const sendWatch = (action: 'on' | 'off') => deps.connection.send({ t: 'watch', action });
+  const watchLinkUrl = (): string | null =>
+    net.game?.watch?.link ? watchUrl(location.origin, net.game.watch.link) : null;
+  const sayWatch = (text: string) => set('[data-watch-said]', text);
+  root.querySelector<HTMLButtonElement>('[data-watch-open]')?.addEventListener('click', () => {
+    watchOpen = true;
+    sayWatch('');
+    paint();
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-close]')?.addEventListener('click', () => {
+    watchOpen = false;
+    paint();
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-yes]')?.addEventListener('click', () => {
+    const phase = watchPhase(net.game ?? null);
+    if (phase === 'off' || phase === 'invited') sendWatch('on');
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-stop]')?.addEventListener('click', () => {
+    if (watchPhase(net.game ?? null) !== 'off') sendWatch('off');
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-agree]')?.addEventListener('click', (event) => {
+    if ((event.currentTarget as HTMLButtonElement).disabled) return;
+    if (watchPhase(net.game ?? null) === 'invited') sendWatch('on');
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-decline]')?.addEventListener('click', () => {
+    if (watchPhase(net.game ?? null) === 'invited') sendWatch('off');
+  });
+  // Straight from the tap, with nothing awaited in front of it, or the
+  // browser drops the gesture and the sheet never opens (`gotchas.md`).
+  root.querySelector<HTMLButtonElement>('[data-watch-send]')?.addEventListener('click', () => {
+    const url = watchLinkUrl();
+    if (url === null) return;
+    void shareLink(watchShareData(url)).then((outcome) => {
+      if (outcome.ok) sayWatch(outcome.tier === 'clipboard' ? 'Copied to the clipboard.' : 'Sent.');
+      else if (outcome.reason !== 'cancelled') sayWatch('Could not share it. Copy the link instead.');
+    });
+  });
+  root.querySelector<HTMLButtonElement>('[data-watch-copy]')?.addEventListener('click', () => {
+    const url = watchLinkUrl();
+    if (url === null) return;
+    void copyLink(url).then((outcome) => {
+      sayWatch(outcome.ok ? 'Copied.' : 'Could not copy it. Press and hold the link to copy it.');
+    });
+  });
+
   root.querySelector<HTMLButtonElement>('[data-ready]')?.addEventListener('click', () => {
     const fix = fixNow();
     // The server checks the back rank itself and says how far off you are, so
@@ -995,6 +1083,76 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     }
   }
 
+  /**
+   * "Let people watch": the board's button, the opponent's ask, the line
+   * that says it is on, and the panel (decision 0055). All of it read from
+   * the snapshot's `watch`, which the server decides.
+   */
+  function paintWatch(): void {
+    const phase: WatchPhase | null = watchPhase(net.game ?? null);
+    const label = watchButtonLabel(phase);
+    const open = root.querySelector<HTMLButtonElement>('[data-watch-open]');
+    if (open) {
+      open.hidden = label === null;
+      open.textContent = label ?? '';
+    }
+    const line = watchLine(phase);
+    set('[data-watch-line]', line ?? '');
+    const lineEl = root.querySelector<HTMLElement>('[data-watch-line]');
+    if (lineEl) lineEl.hidden = line === null;
+
+    const now = Date.now();
+    const invite = root.querySelector<HTMLElement>('[data-watch-invite]');
+    if (phase === 'invited') {
+      if (!offerShownAt.has('watch')) offerShownAt.set('watch', now);
+    } else {
+      offerShownAt.delete('watch');
+    }
+    // The banner, unless the panel already asks the same question.
+    if (invite) invite.hidden = phase !== 'invited' || watchOpen;
+    const agree = root.querySelector<HTMLButtonElement>('[data-watch-agree]');
+    // Not live the instant it slides in under a walking thumb, as an offer is not.
+    if (agree) agree.disabled = now - (offerShownAt.get('watch') ?? now) < ENDING_ARM_MS;
+
+    if (phase === null) watchOpen = false;
+    const panelEl = root.querySelector<HTMLElement>('[data-watch-panel]');
+    if (panelEl) panelEl.hidden = !watchOpen;
+    if (!watchOpen || phase === null) return;
+    const panel = watchPanel(phase);
+    set('[data-watch-title]', panel.title);
+    set('[data-watch-body]', panel.body);
+    const yes = root.querySelector<HTMLButtonElement>('[data-watch-yes]');
+    if (yes) {
+      yes.hidden = panel.agree === null;
+      yes.textContent = panel.agree ?? '';
+    }
+    const stop = root.querySelector<HTMLButtonElement>('[data-watch-stop]');
+    if (stop) {
+      stop.hidden = panel.stop === null;
+      stop.textContent = panel.stop ?? '';
+      // Only turning a live link off is red; withdrawing or declining an ask is not.
+      stop.classList.toggle('danger', phase === 'on');
+      stop.classList.toggle('secondary', phase !== 'on');
+    }
+    const share = root.querySelector<HTMLElement>('[data-watch-share]');
+    const url = watchLinkUrl();
+    if (share) share.hidden = !panel.share || url === null;
+    if (panel.share && url !== null && url !== watchDrawnFor) {
+      watchDrawnFor = url;
+      set('[data-watch-link]', url);
+      const qr = root.querySelector<HTMLElement>('[data-watch-qr]');
+      if (qr) {
+        try {
+          qr.innerHTML = qrSvg(encodeQr(url, { ecLevel: 'M' }), { title: 'Link to watch this game' });
+        } catch {
+          // Too long to encode is not a reason to lose the panel: the link
+          // and the share sheet still work.
+          qr.innerHTML = '';
+        }
+      }
+    }
+  }
+
   function paint(): void {
     const geo = geometry();
     const fix = gps.fix;
@@ -1116,6 +1274,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (claimButton) claimButton.hidden = net.game?.suspension?.canClaim !== true;
 
     paintEndings();
+    paintWatch();
 
     // The way on to the post-game screen, and the only one from here. It
     // appears with the result rather than replacing anything: the board is

@@ -4,6 +4,23 @@ Moved here once promoted to a stage, fixed, or dismissed. Keep the outcome — a
 dismissed observation is as valuable as a fixed one, because it stops the next
 session re-raising it.
 
+### O-37 — A live link, so friends can watch the game from the sofa
+**Resolved:** 2026-10-08, stage 10.14 (decision 0055)
+**Outcome:** Built to the owner's 2026-10-04 design. Both players agree (one
+`watch` message per tap; either turns it off), and the link is
+`/w/<object id>.<secret>`, never the join code, with a fresh 128-bit secret
+each time. A watcher is sent a separate view built on the server in squares:
+the moves, clocks, both dots, last move, piece in hand, walked distances and
+board size, and no coordinate, field, name, code or account. Watchers only
+receive, at most six a game, with no coaching delay, and they never count as a
+player for presence, the handshake, suspension, the index, the record or
+collection. The link dies when either player turns it off and when the game
+ends; an unanswered request lapses on a pause. Reviewed clean in one round.
+**Left for a real phone:** stage `10.14.6`.
+**Reusable:** the same both-agree mechanism (`onWatch` in `game-do.ts`) could
+carry consent for "both players' walks" on the share card (decision 0053's
+revisit note); a pointer sits under stage `8.5.5`.
+
 ### O-52 — Record tests raced the object with `sendAndSettle`
 **Resolved:** 2026-10-08, stage 10.13
 **Outcome:** Fixed in the tests; the game was not wrong. `sendAndSettle` and

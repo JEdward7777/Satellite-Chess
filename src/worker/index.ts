@@ -42,6 +42,7 @@ import { apiError, json } from './http.js';
 import { type Archived, readArchive } from './archive.js';
 import { timingSafeEqual } from './crypto.js';
 import type { EnvWithSecrets } from './secrets.js';
+import { parseWatchLink } from '../shared/watch.js';
 
 // Wrangler needs the Durable Object classes exported from the entry point.
 export { GameDO, UserDO, SurveyDO };
@@ -224,6 +225,12 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
   const hasten = /^\/api\/dev\/game\/([^/]+)\/collect$/.exec(path);
   if (hasten !== null) {
     return hastenCollection(request, env, url, hasten[1]);
+  }
+
+  // A watcher's socket (decision 0055): the link, and no session at all.
+  const watch = /^\/api\/watch\/([^/]+)\/ws$/.exec(path);
+  if (watch !== null) {
+    return openWatchSocket(request, env, watch[1]);
   }
 
   // `/api/game/:code`, and its `/ws`, `/review` and `/pgn` suffixes.
@@ -899,6 +906,42 @@ async function openSocket(
   // The path is rewritten to `/ws` so the object's `fetch` has one shape to
   // handle, independent of the public route.
   return stub.fetch(`https://game/ws?playerId=${encodeURIComponent(playerId)}`, request);
+}
+
+/**
+ * A watcher's socket (stage 10.14, decision 0055).
+ *
+ * **No session is read**, signed in or not: a link sent to family is opened on
+ * a sofa, and the person holding it is nobody in this game. A player who opens
+ * their own link is a watcher on that socket too, with a watcher's view.
+ *
+ * The link names the game by its object id, never by its join code, which
+ * opens a seat while one is free and is what the router addresses games by
+ * everywhere else. `idFromString` throws for anything that is not an id of
+ * this namespace, and an id of a game that does not exist reaches an empty
+ * object, which answers 404 and creates nothing (decision 0042). Whether the
+ * secret is right is the game's question, not the router's.
+ */
+async function openWatchSocket(request: Request, env: Env, segment: string): Promise<Response> {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+    return apiError('bad_message', 'This endpoint requires a WebSocket upgrade.', 426);
+  }
+  const notFound = () => apiError('not_found', 'No such link.', 404);
+  let link;
+  try {
+    link = parseWatchLink(decodeURIComponent(segment));
+  } catch {
+    return notFound();
+  }
+  if (link === null) return notFound();
+  let id: DurableObjectId;
+  try {
+    id = env.GAME.idFromString(link.id);
+  } catch {
+    return notFound();
+  }
+  const stub = env.GAME.get(id);
+  return stub.fetch(`https://game/watch?s=${encodeURIComponent(link.secret)}`, request);
 }
 
 // ---------------------------------------------------------------------------

@@ -95,6 +95,9 @@ and it is both the review feature and the only cheat forensics worth having.
       show the same meters after a real game, in both units?
   - `8.5.5` todo: Lifetime and rolling aggregates only for anything public.
     Per-game location tracks stay private to the participants.
+    If the share card ever offers both players' walks, it needs both players'
+    consent: the watch link's ask-and-agree (`onWatch`, decision 0055) is the
+    mechanism to reuse.
   - `8.5.6` todo: Global aggregate leaderboard on distance or games, if wanted.
     Field-scoped leaderboards are forbidden (decision 0017).
   - `8.5.7` todo: Real-phone share check: does the sheet take the PNG on Android

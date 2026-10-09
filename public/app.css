@@ -1267,3 +1267,62 @@ button.danger {
 .review-card-image[hidden] {
   display: none;
 }
+
+/*
+ * Letting people watch (stage 10.14, decision 0055). The panel is the
+ * "End game…" overlay's shape; the link sits under a QR on white, for the same
+ * reason the invite's does: the quiet zone is part of the symbol.
+ */
+.watch-panel .endings-step {
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.watch-share[hidden] {
+  display: none;
+}
+
+.watch-share {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.watch-qr {
+  padding: 0.6rem;
+  background: #ffffff;
+  border-radius: 12px;
+}
+
+.watch-qr svg {
+  display: block;
+  width: 100%;
+  max-width: 14rem;
+  height: auto;
+  margin: 0 auto;
+}
+
+.watch-qr:empty {
+  display: none;
+}
+
+/* Long and unbroken: wrap it anywhere rather than run off a phone's edge. */
+.watch-link {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* The watcher's page: the same board screen, with a line saying what it is. */
+.watch-head {
+  margin: 0 0 0.6rem;
+}
+
+.watch-screen .moves {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.watch-legend {
+  font-size: 0.85rem;
+}

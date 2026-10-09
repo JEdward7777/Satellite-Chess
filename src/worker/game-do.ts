@@ -82,6 +82,16 @@ import {
   type ServerMsg,
 } from '../shared/protocol.js';
 import { type Color, isSquare } from '../shared/squares.js';
+import {
+  WATCH_CLOSE,
+  WATCH_CLOSE_REASON,
+  WATCH_MAX_WATCHERS,
+  type WatchCloseCode,
+  type WatchServerMsg,
+  type WatchSnapshot,
+  type WatchState,
+  watchSpot,
+} from '../shared/watch.js';
 import { abortsAlone, canAbort, canOfferDraw, canResign, isOver } from '../shared/endings.js';
 import { isArchived, readArchive, toArchive, writeArchive } from './archive.js';
 import {
@@ -99,6 +109,7 @@ import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
 import { pairIdFor } from './user-record.js';
 import { applySchema, hasGameTables, isInitialised } from './schema.js';
+import { base64UrlEncode, timingSafeEqual } from './crypto.js';
 
 /**
  * The distance report a phone piggybacks on `pos`, `lift` and `place`: its
@@ -110,10 +121,47 @@ interface TravelReport {
   leg?: unknown;
 }
 
-/** What a socket needs to remember about itself across a hibernation. */
+/** What a player's socket needs to remember about itself across a hibernation. */
 interface SocketAttachment {
   playerId: string;
   color: Color;
+}
+
+/**
+ * A watcher's socket (decision 0055). It names nobody, because a watcher is
+ * nobody in this game: not a seat, not an account, not a presence row.
+ */
+interface WatcherAttachment {
+  watcher: true;
+}
+
+/**
+ * The tag every watcher's socket is accepted under, so `getWebSockets(WATCHER)`
+ * finds watchers and nothing else. A player's sockets are tagged with their
+ * `sub` and colour; the attachment, not the tag, is what every handler asks
+ * ({@link isWatcher}), so even a `sub` spelled like this could not be taken for
+ * a watcher, nor a watcher for a player.
+ */
+const WATCHER_TAG = 'watcher';
+
+/** Whether a socket's attachment is a watcher's. */
+function isWatcher(attachment: unknown): attachment is WatcherAttachment {
+  return typeof attachment === 'object' && attachment !== null && (attachment as WatcherAttachment).watcher === true;
+}
+
+/** Whether a socket's attachment is a player's. */
+function isPlayer(attachment: unknown): attachment is SocketAttachment {
+  return (
+    typeof attachment === 'object' &&
+    attachment !== null &&
+    !isWatcher(attachment) &&
+    typeof (attachment as SocketAttachment).playerId === 'string'
+  );
+}
+
+/** The statuses in which watching can be on: both seats taken, not over. */
+function watchable(status: GameStatus): boolean {
+  return status === 'staging' || status === 'active' || status === 'suspended';
 }
 
 export interface CreateGameOptions {
@@ -502,11 +550,14 @@ export class GameDO extends DurableObject<Env> {
    */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname !== '/ws') {
+    if (url.pathname !== '/ws' && url.pathname !== '/watch') {
       return new Response('not found', { status: 404 });
     }
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('expected a websocket upgrade', { status: 426 });
+    }
+    if (url.pathname === '/watch') {
+      return this.openWatcher(url.searchParams.get('s') ?? '');
     }
     const playerId = url.searchParams.get('playerId');
     if (playerId === null || playerId === '') {
@@ -561,8 +612,54 @@ export class GameDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
+  /**
+   * Let a watcher in, or tell them why not (decision 0055).
+   *
+   * **Nothing about the game changes here.** No presence row is read or
+   * written, no timer is touched, no revision is bumped and nobody else is
+   * sent anything: a watcher arriving is not news to the game. The watcher is
+   * sent the watcher's view and nothing else, ever.
+   *
+   * A refusal is a socket accepted and closed at once with a reason, rather
+   * than an HTTP status, because a browser shows a page nothing about a failed
+   * upgrade. The same refusal for a link turned off, a link never on, a game
+   * that is over, and a guess, so the answer tells a guesser nothing. An
+   * object with no game answers 404, and creates nothing (decision 0042).
+   */
+  private async openWatcher(secret: string): Promise<Response> {
+    const game = this.game();
+    if (game === null) return new Response('no such game', { status: 404 });
+
+    const pair = new WebSocketPair();
+    const server = pair[1];
+    const token = this.meta('watch_token');
+    const live = token !== null && watchable(game.status) && timingSafeEqual(secret, token);
+    const watching = this.watcherSockets().length;
+    if (!live || watching >= WATCH_MAX_WATCHERS) {
+      // Tagged apart from the watchers, so it never counts toward the cap,
+      // and attached as a watcher, so every handler ignores it as one.
+      this.ctx.acceptWebSocket(server, ['refused']);
+      server.serializeAttachment({ watcher: true } satisfies WatcherAttachment);
+      this.closeWatcher(server, live ? WATCH_CLOSE.full : WATCH_CLOSE.notLive);
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    this.ctx.acceptWebSocket(server, [WATCHER_TAG]);
+    server.serializeAttachment({ watcher: true } satisfies WatcherAttachment);
+    this.sendWatcher(server, { t: 'watch_state', game: this.watchSnapshot(game) });
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
-    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+    const found = ws.deserializeAttachment() as unknown;
+    // A watcher only receives. Anything it sends closes it, before a single
+    // row is read: nothing a watcher says may reach the game. (The keepalive
+    // ping never arrives here; the runtime answers it.)
+    if (isWatcher(found)) {
+      this.closeWatcher(ws, WATCH_CLOSE.sent);
+      return;
+    }
+    const attachment = isPlayer(found) ? found : null;
     if (attachment === null) {
       // Should be impossible: every accepted socket is given one.
       ws.close(1011, 'no attachment');
@@ -601,8 +698,12 @@ export class GameDO extends DurableObject<Env> {
   }
 
   private async onDisconnect(ws: WebSocket): Promise<void> {
-    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-    if (attachment === null) return;
+    const found = ws.deserializeAttachment() as unknown;
+    // A watcher leaving is not news to the game: no presence, no grace timer,
+    // no suspension, no snapshot (decision 0055). Asked first, before anything
+    // that could write.
+    if (!isPlayer(found)) return;
+    const attachment = found;
     // The close that collection itself caused, arriving after the tables went.
     // There is no presence left to mark, and writing one would bring the object
     // back (decision 0042).
@@ -613,7 +714,12 @@ export class GameDO extends DurableObject<Env> {
     // them gone once none of their sockets remain.
     const remaining = this.ctx
       .getWebSockets(attachment.playerId)
-      .filter((other) => other !== ws && other.readyState === WebSocket.OPEN);
+      .filter(
+        (other) =>
+          other !== ws &&
+          other.readyState === WebSocket.OPEN &&
+          isPlayer(other.deserializeAttachment()),
+      );
 
     if (remaining.length > 0) return;
 
@@ -719,6 +825,13 @@ export class GameDO extends DurableObject<Env> {
         await this.onClaim(ws, who);
         return;
 
+      // Not settled against the flag: it acts on who may watch, never on the
+      // game, and a game whose flag has fallen ends at its alarm and closes
+      // the link then.
+      case 'watch':
+        this.onWatch(ws, who, msg as { action?: unknown });
+        return;
+
       default:
         this.send(ws, {
           t: 'error',
@@ -813,6 +926,11 @@ export class GameDO extends DurableObject<Env> {
       { t: 'opp_pos', lat: msg.lat, lng: msg.lng, acc: msg.acc, at: now },
       { except: who.playerId },
     );
+    // Watchers get the same relay, never this message: squares, built here
+    // from the fix, with nothing of the fix left in it (decision 0055).
+    if (game !== null) {
+      this.broadcastWatchers(() => ({ t: 'watch_pos', color: who.color, at: this.spotOf(game, msg) }));
+    }
 
     // A relayed position updates `in_start_zone`, so it can complete the
     // handshake on its own — decision 0005 makes the condition positional and
@@ -1472,6 +1590,10 @@ export class GameDO extends DurableObject<Env> {
       now,
     );
     this.clearCarry();
+    // The link dies with the game (decision 0055). Before anything is
+    // awaited, so no watcher is sent a view of a game that is over and still
+    // live; each is sent the final position and the result first.
+    this.endWatching(WATCH_CLOSE.over);
     await this.timers.cancel('flag');
     await this.timers.cancel('disconnect');
     // A day from now, the game is archived to KV and this object deleted
@@ -1537,6 +1659,12 @@ export class GameDO extends DurableObject<Env> {
     // (decision 0009), because whoever resumes will be standing somewhere else.
     await this.timers.cancel('flag');
     this.clearCarry();
+    // An unanswered watch request lapses with the pause (decision 0055), as
+    // an offer lapses with a move: an "on" tapped after the resume is a new
+    // ask, not an answer to one the other player may no longer mean. A link
+    // already agreed to stays on. Cleared before the snapshot below, so both
+    // phones learn it from the same one.
+    this.deleteMeta('watch_offer');
     // Paused before anybody moved is still an unplayed game, and may be
     // collected in a month; paused after is decision 0025's, and may not.
     await this.armCollection(now);
@@ -1828,6 +1956,8 @@ export class GameDO extends DurableObject<Env> {
       now,
     );
     this.clearCarry();
+    // An aborted game is over too, and takes the link with it.
+    this.endWatching(WATCH_CLOSE.over);
     await this.timers.cancel('flag');
     await this.timers.cancel('disconnect');
     // Collected like a game nobody played: a month after anybody last looked.
@@ -2327,6 +2457,8 @@ export class GameDO extends DurableObject<Env> {
     // Leaving the carry pending would mean resuming mid-move with no way to
     // finish it legally. The clock keeps what it spent; nothing is refunded.
     this.clearCarry();
+    // As for a pause: an unanswered watch request lapses; a live link stays.
+    this.deleteMeta('watch_offer');
 
     this.bumpRev();
     this.broadcastState();
@@ -2579,12 +2711,16 @@ export class GameDO extends DurableObject<Env> {
   }
 
   /**
-   * Sockets still open. A closed one can linger in `getWebSockets()` for a
-   * moment after its close event, and a board nobody has open must not keep
-   * the game alive.
+   * Players' sockets still open. A closed one can linger in `getWebSockets()`
+   * for a moment after its close event, and a board nobody has open must not
+   * keep the game alive. **Watchers do not count** (decision 0055): somebody
+   * indoors with the link open is not a player looking at their game, and a
+   * link left open on a tablet must not keep a game from being collected.
    */
   private openSockets(): number {
-    return this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN).length;
+    return this.ctx
+      .getWebSockets()
+      .filter((ws) => ws.readyState === WebSocket.OPEN && isPlayer(ws.deserializeAttachment())).length;
   }
 
   /** Whether a seat's record line differs from the last one its account accepted. */
@@ -2808,6 +2944,7 @@ export class GameDO extends DurableObject<Env> {
       abortOfferFrom: game.abort_offer_from ?? null,
       suspension: this.suspensionFor(game, you),
       createdAt: game.created_at,
+      watch: this.watchState(game),
     };
   }
 
@@ -2893,24 +3030,237 @@ export class GameDO extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Every player's snapshot, from their own side — and every watcher's view,
+   * which is built apart and holds no coordinate (decision 0055). A player's
+   * snapshot never goes to a watcher.
+   */
   private broadcastState(options: { except?: string } = {}): void {
     const game = this.game();
     if (game === null) return;
     for (const ws of this.ctx.getWebSockets()) {
-      const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-      if (attachment === null) continue;
+      const attachment = ws.deserializeAttachment() as unknown;
+      if (!isPlayer(attachment)) continue;
       if (options.except !== undefined && attachment.playerId === options.except) continue;
       this.send(ws, { t: 'state', game: this.snapshotFor(attachment.color) });
     }
+    this.broadcastWatchers(() => ({ t: 'watch_state', game: this.watchSnapshot(game) }));
   }
 
+  /** A message for the players' sockets only. Watchers are never sent one. */
   private broadcast(msg: ServerMsg, options: { except?: string } = {}): void {
     for (const ws of this.ctx.getWebSockets()) {
-      const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-      if (attachment === null) continue;
+      const attachment = ws.deserializeAttachment() as unknown;
+      if (!isPlayer(attachment)) continue;
       if (options.except !== undefined && attachment.playerId === options.except) continue;
       this.send(ws, msg);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Watching (stage 10.14, decision 0055)
+  // -------------------------------------------------------------------------
+
+  /** Open watchers' sockets. Refused ones are tagged apart and never in here. */
+  private watcherSockets(): WebSocket[] {
+    return this.ctx
+      .getWebSockets(WATCHER_TAG)
+      .filter((ws) => ws.readyState === WebSocket.OPEN && isWatcher(ws.deserializeAttachment()));
+  }
+
+  /**
+   * Send every watcher the same message, built once and only if anybody is
+   * watching, so a game nobody watches pays nothing for the feature.
+   */
+  private broadcastWatchers(build: () => WatchServerMsg): void {
+    const sockets = this.watcherSockets();
+    if (sockets.length === 0) return;
+    const text = JSON.stringify(build());
+    for (const ws of sockets) {
+      try {
+        ws.send(text);
+      } catch {
+        // Gone between the read and the write; its close needs nothing from us.
+      }
+    }
+  }
+
+  private sendWatcher(ws: WebSocket, msg: WatchServerMsg): void {
+    try {
+      ws.send(JSON.stringify(msg));
+    } catch {
+      // As for `send`.
+    }
+  }
+
+  private closeWatcher(ws: WebSocket, code: WatchCloseCode): void {
+    try {
+      ws.close(code, WATCH_CLOSE_REASON[code]);
+    } catch {
+      // Already closing.
+    }
+  }
+
+  /**
+   * Turn watching off: the link stops working at once, any ask is gone, and
+   * every watcher is closed with the reason. A game that is over sends each
+   * watcher its final view first, so the page shows the result it ended on.
+   * Synchronous, so a caller can do it between a write and its first await.
+   */
+  private endWatching(code: WatchCloseCode): void {
+    this.deleteMeta('watch_token');
+    this.deleteMeta('watch_offer');
+    const sockets = this.watcherSockets();
+    if (sockets.length === 0) return;
+    const game = code === WATCH_CLOSE.over ? this.game() : null;
+    const last = game === null ? null : JSON.stringify({ t: 'watch_state', game: this.watchSnapshot(game) });
+    for (const ws of sockets) {
+      if (last !== null) {
+        try {
+          ws.send(last);
+        } catch {
+          // Closing it anyway.
+        }
+      }
+      this.closeWatcher(ws, code);
+    }
+  }
+
+  /** What the players' snapshot says about watching. */
+  private watchState(game: GameRow): WatchState {
+    const offer = this.meta('watch_offer');
+    const token = watchable(game.status) ? this.meta('watch_token') : null;
+    return {
+      offeredBy: offer === 'w' || offer === 'b' ? offer : null,
+      on: token !== null,
+      link: token === null ? null : `/w/${this.ctx.id.toString()}.${token}`,
+    };
+  }
+
+  /**
+   * "Let people watch", or "stop" (decision 0055). Each is one tap and one
+   * message; nothing here is periodic, and nothing here touches the game.
+   *
+   * `on` asks. Into the other player's open ask, it is agreement, and the
+   * link is made then, with a new secret every time. `off` from either player
+   * turns watching off, withdraws an ask or declines one, and closes every
+   * watcher. Neither changes the revision's meaning for the game; the
+   * snapshot that follows is how both phones learn the answer.
+   */
+  private onWatch(ws: WebSocket, who: SocketAttachment, msg: { action?: unknown }): void {
+    const game = this.game();
+    if (game === null) return;
+    const action = msg?.action;
+    if (action !== 'on' && action !== 'off') {
+      this.send(ws, {
+        t: 'error',
+        code: 'bad_message',
+        message: 'Watching takes an action of on or off.',
+      });
+      return;
+    }
+    if (action === 'off') {
+      const had = this.meta('watch_token') !== null || this.meta('watch_offer') !== null;
+      if (!had) return;
+      this.endWatching(WATCH_CLOSE.notLive);
+      this.bumpRev();
+      this.broadcastState();
+      return;
+    }
+    if (!watchable(game.status)) {
+      this.send(ws, {
+        t: 'error',
+        code: 'not_active',
+        message:
+          game.status === 'waiting'
+            ? 'Both players have to be here before anyone can watch.'
+            : 'The game is over, so there is nothing to watch.',
+      });
+      return;
+    }
+    if (this.meta('watch_token') !== null) return;
+    const offer = this.meta('watch_offer');
+    // Asking again while your own ask stands is a tap the player could not
+    // tell had landed, not an error.
+    if (offer === who.color) return;
+    if (offer === null) {
+      this.setMeta('watch_offer', who.color);
+    } else {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      this.setMeta('watch_token', base64UrlEncode(bytes));
+      this.deleteMeta('watch_offer');
+    }
+    this.bumpRev();
+    this.broadcastState();
+  }
+
+  /** A stored fix as a watcher may see it: squares, or null (`shared/watch.ts`). */
+  private spotOf(game: GameRow, pos: { lat: number; lng: number } | null): WatchSnapshot['players']['w']['at'] {
+    try {
+      return watchSpot(geometryFromSnapshot(this.fieldOf(game)), pos);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The watcher's view (decision 0055): built field by field, never by
+   * trimming a player's snapshot, so a field added to that snapshot later
+   * cannot leak here by default. **No coordinate, field, name, bearing, join
+   * code, account or reach.** Positions are squares from a1's centre; the
+   * board is described by its size alone.
+   */
+  private watchSnapshot(game: GameRow): WatchSnapshot {
+    let boardM = 0;
+    try {
+      // To a hundredth, as the squares are: a size, never a figure precise
+      // enough to say anything about the place.
+      boardM = Math.round(boardSizeM(geometryFromSnapshot(this.fieldOf(game))) * 100) / 100;
+    } catch {
+      // A snapshot nobody could play on; the board is drawn all the same.
+    }
+    const rows = new Map(this.presence().map((row) => [row.color, row]));
+    const player = (color: Color) => {
+      const row = rows.get(color);
+      return {
+        connected: row?.connected === 1,
+        inStartZone: row?.in_start_zone === 1,
+        at:
+          row?.last_lat == null || row.last_lng == null
+            ? null
+            : this.spotOf(game, { lat: row.last_lat, lng: row.last_lng }),
+        travelM: row?.travel_m ?? 0,
+      };
+    };
+    const moves = [...this.sql.exec<{ san: string }>(`SELECT san FROM moves ORDER BY seq`)].map((m) => m.san);
+    const last = this.lastMove();
+    const carry = this.carry();
+    return {
+      v: PROTOCOL_VERSION,
+      rev: game.rev,
+      status: game.status,
+      fen: game.fen,
+      clock: this.clockOf(game),
+      serverNow: Date.now(),
+      boardM,
+      players: { w: player('w'), b: player('b') },
+      moves,
+      lastMove:
+        last === null
+          ? null
+          : { from: last.from, to: last.to, san: last.san, color: last.color, carriedM: last.carriedM },
+      carry: carry === null ? null : { color: carry.color, from: carry.from_sq as Square, piece: carry.piece },
+      result:
+        game.result_outcome === null
+          ? null
+          : {
+              outcome: game.result_outcome as ResultOutcome,
+              reason: game.result_reason as ResultReason,
+              at: game.result_at ?? 0,
+            },
+      suspension: game.status === 'suspended' ? { by: game.suspended_by } : null,
+    };
   }
 
   // -------------------------------------------------------------------------

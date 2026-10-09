@@ -3,40 +3,42 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Run 2 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phases 1–9 are done.** Phase 1 was `10.9`,
-seven small fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`,
-**O-44: the carried piece travels with the dot** (`2026-09-26-01`, decision
-0048). Phase 3 was `2.3.8`, **O-21: display units** (`2026-09-30-01`,
-decision 0049). Phase 4 was `10.11`, **O-50: Resign, Offer draw and Abort on
-the board** (`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49:
-try a field alone** (`2026-10-03-01`, decision 0051). Phase 6 was `8.3`,
-**the replay** (`2026-10-04-01`, decision 0052). Phase 7 was
-`8.5.1`–`8.5.3`, **the share card** (`2026-10-07-01`, decision 0053).
-Phase 8 was `8.5.4`, **head-to-head** (`2026-10-08-01`, decision 0054).
-Phase 9 was `10.13`, **a reliable test suite** (O-52, O-56,
-`2026-10-08-02`), clean after one round.
-**Order from here**: **O-37** (watching a game live, which the owner wants
-next), then the **O-57** architecture study (other games on the same
-system).
+**Tree state**: clean. **Run 2 of the pipeline is complete**
+(`harness/pipeline/ratchet.md`): ten phases. Phase 1 was `10.9`, seven small
+fixes (`2026-09-25-02`, decision 0047). Phase 2 was `10.10`, **O-44: the
+carried piece travels with the dot** (`2026-09-26-01`, decision 0048). Phase 3
+was `2.3.8`, **O-21: display units** (`2026-09-30-01`, decision 0049). Phase 4
+was `10.11`, **O-50: Resign, Offer draw and Abort on the board**
+(`2026-10-01-01`, decision 0050). Phase 5 was `10.12`, **O-49: try a field
+alone** (`2026-10-03-01`, decision 0051). Phase 6 was `8.3`, **the replay**
+(`2026-10-04-01`, decision 0052). Phase 7 was `8.5.1`–`8.5.3`, **the share
+card** (`2026-10-07-01`, decision 0053). Phase 8 was `8.5.4`,
+**head-to-head** (`2026-10-08-01`, decision 0054). Phase 9 was `10.13`, **a
+reliable test suite** (O-52, O-56, `2026-10-08-02`). Phase 10 was `10.14`,
+**O-37: watching a game live** (`2026-10-08-03`, decision 0055), clean after
+one round.
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
-`10.10`, `10.11` and `10.12`. All but `8.5` wait only on a real-phone check
-(`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`,
-`10.10.3`, `10.11.5`, `10.12.3`); `8.5` also has `8.5.5` and `8.5.6`.
-**Next action**: phase 10 of run 2, **O-37 (live watching)**.
+`10.10`, `10.11`, `10.12` and `10.14`. All but `8.5` wait only on a
+real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`,
+`10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`); `8.5` also has
+`8.5.5` and `8.5.6`.
+**Next action**: run 2 is complete. What remains is the outdoor checklist
+below, **O-38** (the distance counter, which needs real-handset traces), the
+decisions that are the owner's (**O-47**, accessibility zoom; **O-41**,
+deleting archives), and the parked studies **O-43** (a 3D board) and
+**O-57** (other games on the same system).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`4ce77473`, at `476a84d`: everything through head-to-head. Phase 9 changed
-only tests, so it needs no deploy. The `ARCHIVE` KV namespace id
+`4ce77473`, at `476a84d`: everything through head-to-head. **The coordinator
+deploys this phase (live watching) next.** The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during this run once a phase is reviewed clean.
-**1359 tests pass, reliably**: 0 failures in 68 full runs after `10.13`
-(45 by the implementer, 23 by the reviewer), many under two or three parallel suites, where 16 of 16 had failed before.
-**The test suite is reliable now. In a worker test, wait with `handled(ws)`
+**1389 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
 (`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
 and mind its caveat in `reference/gotchas.md`. A sweep over thousands of
-cases asserts once. Typecheck and `plan:check` are clean. On
-2026-10-08 `check-h2h`, `check-record`, `check-account`, `check-review` and
-`drive-game` passed; `check-games` still fails its home-height check (O-51).
+cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-08
+`drive-game`, `check-resume`, `check-endings`, `check-carry`, `check-record`,
+`check-review` and the new `check-watch` passed; `check-games` still fails
+its home-height check (O-51).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-field` and `check-games`, which take
@@ -49,6 +51,24 @@ filter also matches the red ring of the opponent's piece-in-hand plate, so do
 not read it mid-carry. **The scratchpad is shared between agents in a run**:
 name helper scripts per agent, since another agent may overwrite a generic
 `restart.sh`.
+
+## Watching live, in one paragraph
+
+Either player taps "Let people watch" on the board; the other agrees, and
+only then is there a link (decision 0055, `shared/watch.ts`,
+`client/views/watch.ts`). The link is `/w/<object id>.<secret>`: never the
+join code, a fresh 128-bit secret each time, opened without signing in and
+before anything asks for a location. A watcher gets a view **built apart on
+the server, in squares**: board, moves, clocks, both dots, last move, piece in
+hand, distances, board size, and no coordinate, field, name, code or account.
+Watchers only receive (anything sent closes them), at most six a game, no
+delay. Either player turns it off at any time and the link dies at once; it
+also dies when the game ends, and an unanswered request lapses on a pause.
+**The rule most likely to be broken**: a loop over `getWebSockets()` that
+treats a watcher socket as a player — sending it a player's snapshot or an
+`opp_pos` (coordinates to the sofa), or counting it for presence, the
+handshake, suspension or collection. Every loop asks the attachment
+(`isPlayer`, `isWatcher`). Driver: `scripts/check-watch.mjs`.
 
 ## Head-to-head, in one paragraph
 
@@ -257,7 +277,7 @@ carry validation, the clock, the join flow and the back-rank handshake. Phase 3
 is complete bar the standing `3.7`. **Phase 2 is closed apart from
 `2.3.6`** ("fields near me"): identity, sessions and now the record are all
 built, and since `2.3.8` so are display units. Since `10.11` a game can be
-resigned, drawn or aborted from the board. **`8.1`, `8.2`, `8.4` and `8.5.1`–`8.5.3` are done, `8.5.4` bar its real-phone check, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
+resigned, drawn or aborted from the board, and since `10.14` watched live on a link both players agreed to. **`8.1`, `8.2`, `8.4` and `8.5.1`–`8.5.3` are done, `8.5.4` bar its real-phone check, and `8.3` bar its outdoor look**; what is left is the rest of phases 8–10.
 
 **Reach is the independent variable, measured in fractional squares** (decision
 0031), and **reported accuracy plays no part in it** (decision 0043): a fix worse
@@ -278,7 +298,8 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `4ce77473` (through head-to-head), `ARCHIVE` id pinned. Finished games
+1. **Deployed** `4ce77473` (through head-to-head), `ARCHIVE` id pinned; live
+   watching (`10.14`) is next to deploy. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -317,18 +338,22 @@ game-rule work.
    - `8.5.4.3`: head-to-head. After a real game, do both phones show the
      same meters between you, in both units? Is "Against each opponent"
      found, and does a nickname feel private?
+   - `10.14.6`: watching live. Send the link to someone indoors (a phone
+     and a laptop): do they follow the game, both dots and the clocks? Does
+     the QR scan off a phone in sun? Is "Let people watch" found and never
+     hit by accident? Does turning it off end their page at once, and does
+     a refused (over the cap) page close promptly?
    - `10.11.5`: End game: resign, draw, abort. Is "End game…" easy to find
      when stuck, and never hit by accident while walking? Does an offer get
      noticed?
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **The rest of run 2**: **O-37** (live watching: both players agree, a
-   link only, board space only, watchers receive-only, nothing extra sent
-   by the players' phones), then the **O-57** architecture study (other
-   games on one system, no re-calibration).
-4. **Next candidates after that:**
-   - **O-22**, the spelling sweep; its analysis is done in `open.md`.
+3. **Run 2 is complete.** Next candidates:
    - **O-38**, the distance counter, once there are real-handset traces.
      **O-12** is still open too.
-   - **O-47**, `user-scalable=no` blocking accessibility zoom: the owner's call.
+   - The owner's calls: **O-47** (`user-scalable=no` blocking accessibility
+     zoom) and **O-41** (deleting a game's archive).
+   - The parked studies: **O-43** (a 3D board) and **O-57** (other games on
+     the same system), each an architecture decision first.
+   - **O-22**, the spelling sweep; its analysis is done in `open.md`.

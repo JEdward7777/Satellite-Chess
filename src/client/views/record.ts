@@ -227,7 +227,9 @@ function honestyHtml(): string {
  * Since stage 8.3 (decision 0052) each player's walk is kept too, as squares
  * from the start: the replay draws it, and the PGN never carries it. Since
  * stage 8.5.1 (decision 0053) a game can leave as a picture, which draws the
- * carries but not the walks, and names the field only when ticked.
+ * carries but not the walks, and names the field only when ticked. Since
+ * stage 10.14 (decision 0055) a game can be watched live on a link both
+ * players agreed to, in squares, until either turns it off or the game ends.
  */
 export function privacyHtml(): string {
   return `<details class="privacy" data-privacy>
@@ -260,6 +262,12 @@ export function privacyHtml(): string {
         where it was put down, which the game file holds too. It never shows
         the walks, a map, a date or anyone's name, and it shows the field's
         name only if you tick the box.</li>
+      <li><strong>Watching a game live.</strong> If you and your opponent both
+        agree, people you send a link to can watch the game as it happens,
+        without signing in: the board, the moves, the clocks, and both of you
+        as dots on the board in squares. They never get a map, coordinates,
+        the field's name or the game's code. Either of you can turn it off at
+        any time, and the link stops working then, and when the game ends.</li>
       <li><strong>On your account, seen only by you.</strong> Your saved fields,
         your list of games, and this record, which holds distances, field names
         and board sizes but no coordinates. Signing in stores your Google account

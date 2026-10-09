@@ -18,12 +18,15 @@
  */
 
 import { normaliseJoinCode } from './joincode.js';
+import { type WatchLink, parseWatchLink } from './watch.js';
 
 export type AppRoute =
   /** `/j/CODE` — a game invite (decision 0015). The code is already normalised. */
   | { kind: 'join'; code: string }
   /** `/f/<blob>` — a self-contained field, encoded in the URL (decision 0016). */
-  | { kind: 'field'; blob: string };
+  | { kind: 'field'; blob: string }
+  /** `/w/<id>.<secret>` — a live link to watch a game (decision 0055). */
+  | { kind: 'watch'; link: WatchLink };
 
 /**
  * The longest `/f/<blob>` we will treat as a route.
@@ -46,7 +49,7 @@ const FIELD_BLOB = /^[A-Za-z0-9_-]+$/;
  * the browser chose to — decode explicitly rather than assuming.
  */
 export function parseAppRoute(pathname: string): AppRoute | null {
-  const match = /^\/([jf])\/([^/]+)\/?$/.exec(pathname);
+  const match = /^\/([jfw])\/([^/]+)\/?$/.exec(pathname);
   if (match === null) return null;
 
   let segment: string;
@@ -62,6 +65,11 @@ export function parseAppRoute(pathname: string): AppRoute | null {
     // retyped by hand with an O for a 0 still resolves.
     const code = normaliseJoinCode(segment);
     return code === null ? null : { kind: 'join', code };
+  }
+
+  if (match[1] === 'w') {
+    const link = parseWatchLink(segment);
+    return link === null ? null : { kind: 'watch', link };
   }
 
   if (segment.length > MAX_FIELD_BLOB || !FIELD_BLOB.test(segment)) return null;

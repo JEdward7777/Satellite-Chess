@@ -572,55 +572,6 @@ real rows exist.
 **Not doing yet because:** it cannot happen today, and inventing the composite
 key now would complicate every read for a case the seat rules already exclude.
 
-### O-37 — A live link, so friends can watch the game from the sofa
-**Spotted:** 2026-09-23, the owner's wish list after the first outdoor games
-**Why it matters:** A spectator link is the one feature that lets somebody who is
-not walking see the point of this game. Two people in a field already know what
-they are doing; everyone else has to be told about it. A link a player can send
-before starting — opened on a phone indoors, showing the board, both players
-moving across it and the clock running — is the cheapest possible answer to
-"what *is* that?", and it is the same argument decision 0019 makes for the record:
-the shareable artifact is the reason the rest is worth building.
-**What it probably is, technically:** read-only fan-out from the GameDO, which
-already broadcasts every snapshot to the two seats and already relays coarse
-opponent positions. A watcher is a third WebSocket that receives and never sends.
-The pieces exist (`'staging'`/`'active'` snapshots, the position relay, the join
-code, the QR and share-sheet encoders from 6.1.3/6.1.4). The nearest existing
-work is `8.5` (the social layer) and `7.3` (rejoining), but neither covers live
-viewing, so this wants its own stage rather than a child of either.
-**Settle before building:**
-- **Cost.** Outbound broadcast is free of request charges, but every watcher is a
-  live WebSocket against a free-tier budget written for exactly two seats
-  (`harness/reference/budget.md`). Decide a cap, and what the DO does past it.
-- **Location privacy.** The relay today is atmosphere for someone standing beside
-  you; a public link turns it into a live broadcast of where two people are
-  standing. **This is the crux.** Options worth weighing: show both players in
-  board space only, the way `8.5.1`'s share card already must; hold the link to
-  people the player sends it to rather than anyone with the code; or let the
-  players turn watching on per game, off by default.
-- **Which link.** Reusing the join code would let a watcher take a seat, so a
-  watch link needs its own token — and `O-34` already notes the join code hands a
-  game's field to anyone holding it.
-- **Delay.** A small deliberate lag would stop a watcher indoors from coaching a
-  player in the field by phone. Worth deciding before somebody tries it.
-**Not doing yet because:** it is a new feature with a real privacy decision in the
-middle of it, and phases 8–10 are queued ahead. Logged now so the idea survives.
-**Updated 2026-10-04 — the owner's decision: wanted, next after `8.5.4`
-(head-to-head).** The purpose is people inside the house watching the game
-being played outside, live, so **both players must be visible**. The design
-to build:
-- **Both players agree before it works, and either can turn it off.**
-- **A link only**, with its own token, not the join code. No directory and
-  no way to find a game.
-- **Board space only**: the board, the moves, the clocks and both dots. No
-  map and no coordinates.
-- **Watchers only receive.** The players' phones send nothing extra: watchers
-  get the snapshots and relays the game already broadcasts.
-- **The link dies** when the game ends or when either player revokes it.
-The cost cap and the coaching delay above still need settling. The same
-both-players-agree mechanism could later let the share card (decision 0053)
-offer "both players' walks", which it leaves out today.
-
 ### O-38 — The phone's distance counter strands up to a hop at every stop, and chess is all stops
 **Spotted:** 2026-09-23, stages 8.1/8.2 (the review screen put the two numbers side by side)
 **Why it matters:** `DistanceAccumulator` (`client/gps.ts`) credits a hop only once

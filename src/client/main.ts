@@ -73,6 +73,7 @@ import { mountCalibrate } from './views/calibrate.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
+import { mountWatch } from './views/watch.js';
 import { mountReview } from './views/review.js';
 import { mountOpponent } from './views/opponent.js';
 import { type OpponentQuery, browserOpponentTransport } from './head-to-head.js';
@@ -136,6 +137,16 @@ async function boot(): Promise<void> {
   // Re-bound with an explicit type: `showCalibrate` is hoisted, so TypeScript
   // will not carry the null-narrowing into it.
   const root: HTMLElement = found;
+
+  // A live link to watch a game (decision 0055), and nothing else: before the
+  // simulator, before the location provider and before the sign-in gate. The
+  // person holding it is watching from a sofa, signed in or not, and is never
+  // asked where they are.
+  const opened = parseAppRoute(location.pathname);
+  if (opened?.kind === 'watch') {
+    mountWatch(root, { link: opened.link });
+    return;
+  }
 
   let gps: GpsProvider;
   let simPanel: SimPanelHandle | null = null;

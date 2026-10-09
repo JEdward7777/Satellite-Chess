@@ -123,3 +123,23 @@ the lift and place fixes the server already receives.
   distance are two more columns on the record line the game already writes
   once per seat. A nickname is one row per named opponent, on a tap.
 - **Compute:** one SHA-256 per finished game, kept in the game's `meta`.
+
+## Watching a game live (stage 10.14, decision 0055)
+
+- **Requests: one per watcher connect, none after.** A watcher sends nothing;
+  anything it does send closes it. Its keepalive is answered by
+  `setWebSocketAutoResponse` and never wakes the object. The players add one
+  `watch` message per tap (ask, agree, turn off): a handful a game, inside the
+  ~10 control messages above.
+- **At most 6 watchers a game** (`WATCH_MAX_WATCHERS`). The seventh costs its
+  one connect request and is refused with a close code its page does not
+  retry. A watcher whose network drops reconnects with a backoff (1 s to
+  30 s) and gives up after 4 sockets in a row that never opened.
+- **Duration: none added while idle.** Watchers are hibernatable sockets; the
+  object wakes only for the players' messages, as before.
+- **Outbound: free.** Each broadcast builds the watcher's view once (one read
+  of the game row, both presence rows and the move list) and sends the same
+  string to every watcher. Nothing at all is built while nobody watches.
+- **Rows:** none written. Reading the move list for each broadcast is up to
+  a few hundred rows read per broadcast in a long game, against 5 million a
+  day.

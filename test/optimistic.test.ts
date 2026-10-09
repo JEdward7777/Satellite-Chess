@@ -39,6 +39,7 @@ function snapshot(over: Partial<GameSnapshot> = {}): GameSnapshot {
   return {
     v: 1,
     rev: 7,
+    watch: { offeredBy: null, on: false, link: null },
     suspension: null,
     joinCode: 'ABC123',
     status: 'active',

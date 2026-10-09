@@ -553,4 +553,15 @@ is; this says what will bite you when you touch it.*
   comparisons, collect the first few failures, and `expect(wrong).toEqual([])`
   (`replay.test.ts`, `head-to-head.test.ts`), or call `expect` only on a
   mismatch (`preview.test.ts`).
+- **A watcher is nobody to the game** (stage 10.14, decision 0055). Watcher
+  sockets are accepted under the `watcher` tag with an attachment of
+  `{ watcher: true }`, and every loop over `getWebSockets()` asks the
+  attachment (`isPlayer`, `isWatcher` in `worker/game-do.ts`). A new loop
+  that sends a player's snapshot or an `opp_pos` to every socket leaks
+  coordinates to the sofa; one that counts every open socket lets a watcher
+  keep a game from collection, or look like a player present. The watcher's
+  view is built field by field (`watchSnapshot`), never by trimming a
+  player's snapshot. `test/worker/watch.test.ts` scans every frame of a
+  whole game for a coordinate, and `scripts/check-watch.mjs` does it in a
+  browser.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

@@ -212,3 +212,36 @@ file. Expect most of it to be written after the first real game.
     The preview verdict sweep (`preview.test.ts`, about 157,000 calls)
     reached 3.5 s under load; it now calls `expect` only on a
     disagreement, about 140 ms instead of about 1.2 s.
+
+- `10.14` active: Watch a game live (O-37, decision 0055)
+  - Family indoors follow the game outside on a link both players agreed
+    to. Board space only, receive-only, at most six watchers, no delay.
+  - `10.14.1` done: Consent on the server: one `watch` message, `on` or
+    `off`, one per tap. One player's `on` asks, the other's agrees and makes
+    the link; `off` from either withdraws, declines, or turns it off and
+    closes every watcher. Only while both seats are taken and not over. An
+    unanswered request lapses on a pause or a suspension.
+  - `10.14.2` done: The link: `/w/<object id>.<secret>`, a fresh 128-bit
+    secret each time it is turned on, kept in `meta`, never the join code.
+    Dies at once when turned off and when the game ends (finished or
+    aborted), after each watcher has been sent the final position.
+  - `10.14.3` done: The watcher's view and relay (`watch_state`,
+    `watch_pos`), built apart from the players' messages: squares, moves,
+    clocks, both dots, last move, piece in hand, walked distances, board
+    size. No coordinate, field, name, code or account. Watchers are tagged
+    apart and touch no presence, timer, revision, handshake, suspension,
+    index, record or collection. Cap of six; the seventh is refused politely.
+  - `10.14.4` done: The watcher's page at `/w/<link>`: no sign-in, no
+    location asked, sends nothing but the keepalive. Board with zoom, both
+    dots, the piece in hand, clocks, moves, distances in the device's units,
+    both piece looks, flip.
+  - `10.14.5` done: The players' control: "Let people watch" on the board,
+    the panel (ask, wait, agree or decline, the link with a QR, Share, Copy,
+    turn off), the opponent's ask as a banner with a delayed Agree, and a
+    line while it is on. Driver: `scripts/check-watch.mjs`.
+  - `10.14.6` todo: On real phones: does a family member indoors follow the
+    game on the link (a phone and a laptop), does the QR scan off a phone in
+    sun, is "Let people watch" found and never hit by accident, do both dots
+    read on a small screen, and does turning it off end the watcher's page
+    at once? Check that a refused (over the cap) watcher page closes
+    promptly on a real phone; on wrangler dev a Node client took about 10 s.

@@ -21,6 +21,7 @@ import type { FieldSnapshot } from './field.js';
 import type { ClockState } from './clock.js';
 import type { ReachConfig, Refusal } from './reach.js';
 import type { Color, Square } from './squares.js';
+import type { WatchState } from './watch.js';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -204,6 +205,11 @@ export interface GameSnapshot {
     claimableInMs: number;
   } | null;
   createdAt: number;
+  /**
+   * Letting people watch (decision 0055): who has asked, whether both have
+   * agreed, and the live link while they have. Sent only to the two players.
+   */
+  watch: WatchState;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +327,19 @@ export interface ClaimMsg {
   t: 'claim';
 }
 
+/**
+ * Let people watch this game live, or stop them (decision 0055).
+ *
+ * `on` asks, and agrees when the other player has already asked; watching
+ * starts only once both have. `off` turns it off, withdraws an ask, or
+ * declines the other's, and kills the link at once. One tap, one message,
+ * never periodic: it is inbound and billed.
+ */
+export interface WatchMsg {
+  t: 'watch';
+  action: 'on' | 'off';
+}
+
 /** Full state, please — sent after a reconnect. */
 export interface SyncMsg {
   t: 'sync';
@@ -337,6 +356,7 @@ export type ClientMsg =
   | AbortMsg
   | PauseMsg
   | ClaimMsg
+  | WatchMsg
   | SyncMsg;
 
 // ---------------------------------------------------------------------------

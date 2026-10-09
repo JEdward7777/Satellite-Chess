@@ -90,3 +90,4 @@ The conditions under which this should be reopened.
 | [0052](0052-the-replay-keeps-each-walk-as-squares-from-the-relays-already-sent.md) | The replay keeps each walk as squares, built from the relays already sent; seat-only, in the archive, never in the PGN | accepted (amends rule 3 of 0042) |
 | [0053](0053-the-share-card-draws-carries-not-walks.md) | The share card draws carries, not walks; the field is named only when ticked; no date, code or names; made on the phone, pushed, kept nowhere | accepted |
 | [0054](0054-head-to-head-is-folded-from-each-players-own-rows-by-a-pair-id.md) | Head-to-head is folded from each player's own rows by a pair id (never an account); the opponent's name is the reader's own | accepted (amends rule 4 of 0040) |
+| [0055](0055-a-game-can-be-watched-live-on-a-link-both-players-agreed-to.md) | A game can be watched live, on a link both players agreed to, in board space only; six watchers, no delay | accepted |
