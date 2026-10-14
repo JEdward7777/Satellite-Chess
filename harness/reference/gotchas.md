@@ -488,10 +488,17 @@ is; this says what will bite you when you touch it.*
   off the screen must open its context with `locale: 'en-GB'` (check-calibrate,
   -invite, -record, -resume and -review do). `scripts/check-units.mjs` is the
   driver for feet. The PGN stays metric (0041).
-- **`check-games` takes `--origin`, not `--base`, and defaults to port 8799**
-  (as `check-invite` and `check-calibrate` do). Given nothing, it drives
-  whatever is listening on 8799, which may be somebody else's server. Its
-  home-height check fails at present (O-51).
+- **`check-games` takes `--origin` or `--base`, and defaults to port 8799**
+  (as `check-invite` and `check-calibrate` do). Given neither, it drives
+  whatever is listening on 8799, which may be somebody else's server; it
+  prints the server it drives on its first line.
+- **Under `?sim=1` the page is 16rem taller than a player's.** `app.css`
+  reserves that space below everything (`body:has(.sim-panel) #app`) so the
+  simulator panel cannot cover the last button, so `document.body.scrollHeight`
+  in a driver measures the simulator as well as the screen. Measure the bottom
+  of the last thing the view drew instead (`homeLayout` in `check-games.mjs`).
+  Counting the reserve is what made `check-games` fail from 10.7 on, when the
+  panel grew a row (O-51).
 - **`aborted` is a status, and it is over without a result** (decision 0050).
   Anything that asks "is this game over?" must ask `isOver` in
   `shared/endings.ts`, not `status === 'finished'`: a check written the old

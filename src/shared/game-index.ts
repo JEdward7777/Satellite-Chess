@@ -174,6 +174,7 @@ export function byMostWanted(a: GameIndexEntry, b: GameIndexEntry): number {
   return lastTouched(b) - lastTouched(a);
 }
 
-function lastTouched(entry: GameIndexEntry): number {
+/** The last time anything happened to this game, as far as the index knows. */
+export function lastTouched(entry: GameIndexEntry): number {
   return Math.max(entry.updatedAt, entry.lastMoveAt ?? 0, entry.joinedAt);
 }

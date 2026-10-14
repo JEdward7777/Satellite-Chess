@@ -16,7 +16,8 @@
  *   app, not a dropped socket — and a new one is opened at `/`, with nothing
  *   carried over except what a real phone keeps: cookies and storage. The game
  *   is found through the game index on home (which is why `7.3.1` was dropped;
- *   decision 0038), and the returning phone's `ready` resumes it.
+ *   decision 0038), and the returning phone's `ready` resumes it. Home offers
+ *   it as "Resume your game" on the first screen of a 360x640 phone (10.15).
  *
  * ## Running it
  *
@@ -259,19 +260,70 @@ try {
   check(/come back/.test(blackWait ?? ''), 'black is told who it is waiting for', blackWait);
   await black.page.screenshot({ path: `${OUT}/3-black-suspended.png` });
 
-  step(8, 'A cold start: a new page at `/`, the game found on home, tapped once');
+  step(8, 'A cold start: a new page at `/`, the game found on home, Resume tapped once');
   const again = await openPage(white.context, 'white again');
   check((await again.evaluate(() => location.pathname)) === '/', 'the relaunch lands on home, not in the game');
   await again.waitForSelector(`[data-game="${code}"]`, { timeout: 15_000 });
   const line = await again.textContent(`[data-game="${code}"]`);
   check(/paused/.test(line ?? ''), 'home lists the game as paused', line?.replace(/\s+/g, ' ').trim());
   await again.screenshot({ path: `${OUT}/4-cold-start-home.png` });
+  // On a small phone the list is below the fold, so Play offers the game in
+  // progress itself (stage 10.15): one button, on the first screen.
+  await again.setViewportSize({ width: 360, height: 640 });
+  await again.screenshot({
+    path: `${OUT}/4b-cold-start-home-360x640.png`,
+    // As a player sees it: the simulator panel exists only under ?sim=1.
+    style: '.sim-panel { display: none !important; }',
+  });
+  const resume = await again.evaluate(() => {
+    const button = document.querySelector('[data-resume]');
+    return button
+      ? {
+          code: button.dataset.resume,
+          text: button.textContent.trim(),
+          bottom: button.getBoundingClientRect().bottom + scrollY,
+          height: button.getBoundingClientRect().height,
+        }
+      : null;
+  });
+  check(resume?.code === code, 'home offers "Resume your game" for this game', resume?.code);
+  check(
+    resume?.text === `Resume your game at ${FIELD.name}`,
+    'and names the ground it is on',
+    resume?.text,
+  );
+  // A field can be called anything up to sixty characters. The button keeps
+  // to one line and to the screen's width whatever the name.
+  const long = await again.evaluate(() => {
+    const button = document.querySelector('[data-resume]');
+    if (!button) return null;
+    const before = button.textContent;
+    button.textContent = `Resume your game at ${'Queen Elizabeth Olympic Park North Lawn '.repeat(2)}`;
+    const box = button.getBoundingClientRect();
+    button.textContent = before;
+    return { height: box.height, right: box.right, width: innerWidth };
+  });
+  check(
+    resume !== null && resume.height < 60 && long !== null && long.height === resume.height &&
+      long.right <= long.width,
+    'on one line, even with a long name',
+    `${resume?.height}px tall; with a long name ${JSON.stringify(long)}`,
+  );
+  check(
+    resume !== null && resume.bottom <= 640,
+    'on the first screen of a 360x640 phone',
+    resume ? `ends at ${Math.round(resume.bottom)}px` : 'absent',
+  );
+  await again.setViewportSize({ width: 480, height: 900 });
   // The relay stays cut on the relaunch. The page believes each swallowed `pos`
   // was delivered, which is also what happens for real when the server drops
   // a relay inside its interval floor: sent, and counting for nothing. So the
   // new page's first relay is given a round trip to be confirmed, and when no
   // snapshot agrees, `ready` has to go anyway (`RELAY_CONFIRM_MS`).
-  await again.click(`[data-game="${code}"]`);
+  // Through the Resume button, which is the same join as tapping the line
+  // (`check-games` taps the line). The line is the fallback so an older build
+  // still gets this far.
+  await again.click(resume ? '[data-resume]' : `[data-game="${code}"]`);
   await again.waitForSelector('[data-board]', { timeout: 15_000 });
 
   step(9, 'The returning phone is on a1 again and says so; the game resumes without a tap');

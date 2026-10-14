@@ -31,6 +31,10 @@
  * 5. A stranger sees none of it.
  * 6. The tidy-up offer appears only once the list has grown, starts with
  *    **nothing ticked**, and removes exactly what was chosen (stage 2.3.4.2).
+ * 7. A long list does not grow home: a seventh game costs no page at all, and
+ *    New game and the join box stay on the first screen of a 360x640 phone,
+ *    above both lists (O-16, O-51). Step 5 holds a brand-new player's
+ *    Calibrate to the same fold.
  *
  * Creating the games goes through the API rather than the create screen. That
  * screen is `check-invite.mjs`'s subject and is covered there in detail; what is
@@ -55,7 +59,11 @@ const args = new Map(
     return [k, rest.length > 0 ? rest.join('=') : 'true'];
   }),
 );
-const ORIGIN = args.get('origin') ?? 'http://127.0.0.1:8799';
+// `--base` is what most drivers take, and before O-51 this one ignored it and
+// quietly drove whatever was on 8799. Either names the server now.
+const ORIGIN =
+  args.get('origin') ??
+  (args.has('base') ? new URL(args.get('base')).origin : 'http://127.0.0.1:8799');
 const OUT = args.get('out') ?? mkdtempSync(join(tmpdir(), 'satchess-games-'));
 /** Fresh every run, so a re-run does not inherit the previous one's account. */
 const PLAYER = `player-${Date.now().toString(36)}`;
@@ -97,6 +105,23 @@ const FIELD = {
   createdAt: 1000,
   updatedAt: 1000,
 };
+
+/**
+ * The phone sizes home is held to (O-51). 480x900 flattered it: a 390-wide
+ * phone wraps more lines, and a browser's own bars take 120 px or more off the
+ * height.
+ *
+ * - `PHONE`, 390x664, is a common phone with its browser bars showing, which
+ *   is how a page first opens. What the list costs is measured here.
+ * - `SMALL`, 360x640, is the small end. Its first screen is the fold that New
+ *   game, Join and (for a new player) Calibrate must sit above.
+ * - `SCROLLED`, 390x844, is the same phone once scrolling has tucked the bars
+ *   away, which a mobile browser does as soon as you scroll. "How many screens
+ *   long is home" is a question about scrolling, so it is asked in these.
+ */
+const PHONE = { width: 390, height: 664 };
+const SMALL = { width: 360, height: 640 };
+const SCROLLED = { width: 390, height: 844 };
 
 let failures = 0;
 const check = (ok, what, detail = '') => {
@@ -156,6 +181,39 @@ async function lines({ page }) {
   );
 }
 
+/**
+ * Where home's parts sit, in page pixels from the top.
+ *
+ * `content` is the bottom of the last thing home drew, not
+ * `document.body.scrollHeight`. Under `?sim=1` the app reserves 16rem of empty
+ * space below everything so the simulator panel cannot cover the last button
+ * (`body:has(.sim-panel) #app` in `app.css`), and a player's phone has no
+ * panel and no reserve. Measuring the scroll height counted that reserve as
+ * home, which is why this check began failing at `3ab9e99` (O-51): stage 10.7
+ * added a row to the panel and grew the reserve from 14rem to 16rem, and
+ * nothing a player sees had changed.
+ */
+async function homeLayout({ page }) {
+  return page.evaluate(() => {
+    const box = (sel) => document.querySelector(sel)?.getBoundingClientRect();
+    const top = (sel) => (box(sel)?.top ?? NaN) + scrollY;
+    const bottom = (sel) => (box(sel)?.bottom ?? NaN) + scrollY;
+    const app = document.querySelector('#app');
+    return {
+      content: Math.round(app.lastElementChild.getBoundingClientRect().bottom + scrollY),
+      // The games section's whole cost: its heading, lines and buttons, measured
+      // as how far it pushes the fields list down.
+      list: Math.round(top('[data-fields]') - top('[data-games]')),
+      newGame: Math.round(bottom('[data-new]')),
+      calibrate: Math.round(bottom('[data-calibrate]')),
+      join: Math.round(bottom('[data-join]')),
+      code: Math.round(top('[data-code]')),
+      games: Math.round(top('[data-games]')),
+      fields: Math.round(top('[data-fields]')),
+    };
+  });
+}
+
 async function waitForLine({ page }, joinCode) {
   try {
     await page.waitForSelector(`[data-game="${joinCode}"]`, { timeout: 15_000 });
@@ -166,7 +224,7 @@ async function waitForLine({ page }, joinCode) {
   }
 }
 
-console.log(`screenshots -> ${OUT}\n`);
+console.log(`server -> ${ORIGIN}\nscreenshots -> ${OUT}\n`);
 
 try {
   console.log('1. Signed out, there is no app at all — the gate, not an empty home screen');
@@ -233,6 +291,30 @@ try {
   await stranger.page.waitForTimeout(1000);
   check((await lines(stranger)).length === 0, 'a different account lists nothing');
 
+  console.log('\n5b. A new player sees how to start, on the first screen of a small phone');
+  // The stranger is a brand-new account: no games, no fields. Without a field
+  // there is no New game, so Calibrate has to stand in Play where New game
+  // would be — below the lists it was off the first screen at 360x640, and the
+  // only thing on screen under Play was a box for somebody else's code.
+  await stranger.page.setViewportSize(SMALL);
+  const fresh = await homeLayout(stranger);
+  check(
+    fresh.calibrate <= SMALL.height,
+    'Calibrate a new field is on the first screen',
+    `ends at ${fresh.calibrate}px on a ${SMALL.width}x${SMALL.height} phone`,
+  );
+  check(
+    fresh.calibrate < fresh.code,
+    'and above the join box, where New game stands for a player with a field',
+    `Calibrate ${fresh.calibrate}px, join box ${fresh.code}px`,
+  );
+  check(await stranger.page.isVisible('[data-no-fields]'), 'with the line saying why');
+  await stranger.page.screenshot({
+    path: `${OUT}/2b-new-player-360x640.png`,
+    // As a player sees it: the simulator panel exists only under ?sim=1.
+    style: '.sim-panel { display: none !important; }',
+  });
+
   console.log('\n6. Tidying up is an offer, and only once the list has grown');
   await home(one);
   await one.page.waitForTimeout(1000);
@@ -241,35 +323,131 @@ try {
     'one game is not enough to be offered a tidy-up',
   );
   const codes = [first];
-  for (let i = 0; i < 6; i++) codes.push(await createGame(one));
+  for (let i = 0; i < 5; i++) codes.push(await createGame(one));
+  // Six first, so step 7 can compare six with seven. Six is already past the
+  // cap, so "Show 1 more game" and the tidy offer are both drawn; a seventh
+  // adds nothing that is drawn, and must cost nothing.
+  await home(one);
+  check(await waitForLine(one, codes[5]), 'six games are listed');
+  // New game needs a field, and phone one has one only once the account's
+  // copy (kept by phone two's join, decision 0027) has synced down.
+  await one.page.waitForSelector('[data-new]', { timeout: 15_000 }).catch(() => {});
+  await one.page.setViewportSize(PHONE);
+  const six = await homeLayout(one);
+  await one.page.setViewportSize({ width: 480, height: 900 });
+  codes.push(await createGame(one));
   await home(one);
   // The newest, not the first: the list is ordered most-wanted-first and capped,
   // so the earliest game is now one of the ones deliberately not drawn.
   check(await waitForLine(one, codes[6]), 'the games are listed');
+  await one.page.waitForSelector('[data-new]', { timeout: 15_000 }).catch(() => {});
   check((await one.page.$$('[data-tidy]')).length === 1, 'and now the offer appears');
   await one.page.screenshot({ path: `${OUT}/4-grown.png`, fullPage: true });
 
   // Home is the way into a game, not the game list. An uncapped list grows
   // without bound — a suspended game can never be tidied away — and pushes
-  // everything below it, the fields and Calibrate and New game and the join
-  // box, off the end of the page.
+  // everything below it off the end of the page.
   //
-  // The assertion is a **bound, not a fold**. "New game above the fold" is not
-  // achievable by capping and never was: measured on a 480x900 phone, it sits at
-  // y=542 with no games and crosses 900 at three, and the fields list above it
-  // has the same shape with a limit of two hundred. That ordering question is
-  // real, is older than this list, and is logged as O-16 rather than answered
-  // here. What this checks is the thing the cap is actually for: seven games
-  // must not cost more page than five.
-  console.log('\n7. A long list does not grow without bound');
+  // Until O-51 this asserted that `document.body.scrollHeight` stayed under two
+  // screens. That number included the simulator's 16rem reserve, which no
+  // player has, and it began failing when 10.7 grew the reserve; home itself had
+  // not changed. It was also a weak guard: without the reserve, an uncapped
+  // seven-game home still fit in two screens, so it would not have caught the
+  // regression it was written for. What the cap is for is now asserted
+  // directly, and New game is held to the fold that O-16 asked for, which the
+  // old bound could not do because Play then sat below both lists.
+  console.log('\n7. A long list does not grow home, and Play stays on the first screen');
   check((await lines(one)).length === 5, 'only the first few games are drawn');
-  const viewport = one.page.viewportSize();
-  const height = await one.page.evaluate(() => document.body.scrollHeight);
+  await one.page.setViewportSize(PHONE);
+  const seven = await homeLayout(one);
   check(
-    height < viewport.height * 2,
-    'and the whole of home still fits in two screens with seven games',
-    `${height}px against a ${viewport.height}px screen`,
+    seven.list === six.list,
+    'a seventh game costs no page at all',
+    `the games section is ${seven.list}px with seven and ${six.list}px with six`,
   );
+  // On its own this bound would no longer catch an uncapped list (seven lines
+  // instead of five plus a button is about 140 px, and fits); the check above
+  // is the one that does. This one holds the page as a whole, so that what sits
+  // below Play — the lists, Calibrate — cannot quietly grow into a third screen.
+  await one.page.setViewportSize(SCROLLED);
+  const scrolled = await homeLayout(one);
+  check(
+    scrolled.content < SCROLLED.height * 2,
+    'the whole of home fits in two screens with seven games',
+    `${scrolled.content}px against a ${SCROLLED.width}x${SCROLLED.height} screen, not counting the simulator's reserve`,
+  );
+  // The fold is a real phone's, the viewport: the simulator panel over the
+  // bottom of the screen exists only under ?sim=1.
+  await one.page.setViewportSize(SMALL);
+  const small = await homeLayout(one);
+  check(
+    small.newGame <= SMALL.height && small.join <= SMALL.height,
+    'New game and the join box are on the first screen of a small phone with seven games',
+    `New game ends at ${small.newGame}px, Join at ${small.join}px, screen ${SMALL.width}x${SMALL.height}`,
+  );
+  check(
+    small.code < small.games && small.code < small.fields,
+    'and above both lists, so neither can push them down',
+    `join box ${small.code}px, games ${small.games}px, fields ${small.fields}px`,
+  );
+  await one.page.screenshot({
+    path: `${OUT}/4b-grown-360x640.png`,
+    // As a player sees it: the simulator panel exists only under ?sim=1.
+    style: '.sim-panel { display: none !important; }',
+  });
+  await one.page.setViewportSize({ width: 480, height: 900 });
+
+  console.log('\n7b. A code half typed survives the fixes arriving underneath it');
+  // Home redrew whole on every GPS fix until the O-51 round 2 review, and that
+  // emptied the join box about once a second. Now only the readout redraws.
+  // The simulator sends a fix a second; the readout's redraws are counted so
+  // that "several fixes arrived" is a fact rather than a sleep.
+  await one.page.click('[data-code]');
+  await one.page.keyboard.type('AB');
+  await one.page.keyboard.press('ArrowLeft');
+  await one.page.keyboard.type('X');
+  await one.page.evaluate(() => {
+    window.__liveRedraws = 0;
+    window.__codeBox = document.querySelector('[data-code]');
+    new MutationObserver(() => window.__liveRedraws++).observe(
+      document.querySelector('[data-home-live]'),
+      { childList: true },
+    );
+  });
+  let redraws = 0;
+  try {
+    await one.page.waitForFunction(() => window.__liveRedraws >= 3, undefined, { timeout: 15_000 });
+    redraws = await one.page.evaluate(() => window.__liveRedraws);
+  } catch {
+    // Reported below.
+  }
+  check(redraws >= 3, 'the readout redrew for several fixes', `${redraws} redraws`);
+  const box = await one.page.evaluate(() => {
+    const input = document.querySelector('[data-code]');
+    return {
+      value: input?.value,
+      focused: document.activeElement === input,
+      caret: input?.selectionStart,
+      same: input === window.__codeBox,
+    };
+  });
+  check(box.value === 'AXB', 'the typed code is still there', JSON.stringify(box));
+  check(box.focused && box.caret === 2, 'with the focus and the caret where they were');
+  check(box.same, 'because the box itself was never redrawn');
+  // "Show more" does redraw home whole, so it carries the box across.
+  await one.page.click('[data-more]');
+  await one.page.waitForFunction(
+    () => document.querySelectorAll('[data-games] [data-game]').length === 7,
+    undefined,
+    { timeout: 15_000 },
+  );
+  check(
+    (await one.page.inputValue('[data-code]')) === 'AXB',
+    'and a full redraw carries it across',
+  );
+  await one.page.click('[data-more]');
+  await one.page.fill('[data-code]', '');
+
   check((await one.page.$$('[data-more]')).length === 1, 'the rest are one tap away');
   await one.page.click('[data-more]');
   await one.page.waitForFunction(
@@ -309,6 +487,66 @@ try {
   await one.page.click('[data-done]');
   await one.page.waitForSelector('[data-calibrate]', { timeout: 15_000 });
   check((await lines(one)).length === 5, 'and home agrees when you come back to it');
+
+  console.log('\n7c. Leaving home while it reloads its lists does not drag you back');
+  // A field sync that changes this phone's fields redraws home, and the
+  // redraw awaits the game list first. Until the O-51 round 3 review, tapping
+  // Calibrate during that wait was undone when the list arrived: home was
+  // mounted over the screen the player had just opened. Both requests are held
+  // so the order is certain: home drawn, then the sync, then the tap, then the
+  // list.
+  const three = await phone('phone three');
+  await signIn(three, PLAYER);
+  let releaseSync;
+  const syncHeld = new Promise((resolve) => {
+    releaseSync = resolve;
+  });
+  await three.page.route('**/api/fields/sync', async (route) => {
+    await syncHeld;
+    await route.continue();
+  });
+  let listCalls = 0;
+  let releaseList;
+  const listGate = new Promise((resolve) => {
+    releaseList = resolve;
+  });
+  let listHeld;
+  const listArrived = new Promise((resolve) => {
+    listHeld = resolve;
+  });
+  await three.page.route('**/api/games', async (route) => {
+    listCalls += 1;
+    if (listCalls === 2) {
+      listHeld();
+      await listGate;
+    }
+    await route.continue();
+  });
+  // A phone that has never synced: the account's field is news to it.
+  await home(three);
+  releaseSync();
+  let refreshed = true;
+  await Promise.race([
+    listArrived,
+    three.page.waitForTimeout(15_000).then(() => {
+      refreshed = false;
+    }),
+  ]);
+  check(refreshed, 'the sync brought in a field and home began to redraw');
+  await three.page.click('[data-calibrate]');
+  await three.page.waitForSelector('[data-step]', { timeout: 15_000 });
+  const listDone = three.page.waitForResponse((r) => r.url().endsWith('/api/games'));
+  releaseList();
+  await listDone;
+  // The swap would follow the response within a task or two; a second is
+  // ample, and the thing being checked is that nothing happens.
+  await three.page.waitForTimeout(1000);
+  check(
+    (await three.page.$$('[data-step]')).length === 1 &&
+      (await three.page.$$('[data-code]')).length === 0,
+    'the player stays on Calibrate when the list arrives',
+  );
+  await three.context.close();
 
   console.log('\n8. Nothing threw');
   check(consoleErrors.length === 0, 'no console errors', consoleErrors.join(' | ').slice(0, 300));

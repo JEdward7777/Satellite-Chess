@@ -101,6 +101,18 @@ button.secondary {
   border: 2px solid var(--line);
 }
 
+/*
+ * "Resume your game at <field>" on home (stage 10.15): one line whatever the
+ * field is called, so it never pushes New game and the join box down. A long
+ * name ends in an ellipsis; the list below has it in full.
+ */
+button.resume {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 input[type="text"] {
   width: 100%;
   min-height: 48px;
@@ -480,6 +492,16 @@ h2 {
 .fields li[role="button"],
 .games li[role="button"] {
   cursor: pointer;
+}
+
+/*
+ * A field's name is whatever somebody typed, up to sixty characters, and may
+ * have no spaces in it at all. Without this an unbroken name cannot wrap, and
+ * the list line holding it widens the whole page past the phone's edge.
+ */
+.fields strong,
+.games strong {
+  overflow-wrap: anywhere;
 }
 
 /*

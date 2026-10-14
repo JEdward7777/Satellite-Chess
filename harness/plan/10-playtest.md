@@ -245,3 +245,50 @@ file. Expect most of it to be written after the first real game.
     read on a small screen, and does turning it off end the watcher's page
     at once? Check that a refused (over the cap) watcher page closes
     promptly on a real phone; on wrangler dev a Node client took about 10 s.
+
+- `10.15` active: Play above the lists on home (O-51, O-16)
+  - `check-games` had failed "home fits in two screens with seven games"
+    since `3ab9e99` (stage 10.7). Nothing a player sees had changed: the
+    check measured `document.body.scrollHeight`, which includes the 16rem
+    reserve kept under `?sim=1` for the simulator panel, and 10.7 grew that
+    reserve from 14rem to 16rem (1771 px to 1807 px against a 1800 px bound).
+    But the screenshot showed the real problem O-16 had logged: New game and
+    the join box sat 1.5 screens down on a 390x844 phone.
+  - `10.15.1` done: Home is ordered readout, Play, Your games, Your fields
+    and Calibrate. New game and the join box are on the first screen and no
+    list can push them down. A player with no field gets the no-fields line
+    and Calibrate in Play, where New game would be (round 1 review: at
+    360x640 a new player otherwise saw only a join box). A player with a game
+    in play (active or suspended) gets one "Resume your game" button at the
+    top of Play for the most recently touched one (`resumeGame` in
+    `views/games.ts`), naming its field on one line.
+  - `10.15.2` done: `check-games` step 7 measures home without the
+    simulator's reserve, at phone sizes rather than 480x900. It asserts what
+    the cap is for (a seventh game costs the same page as a sixth, at
+    390x664: the old bound, once the reserve was taken out, would not have
+    caught an uncapped list), the fold (New game and Join on the first screen
+    of a 360x640 phone, above both lists), and the page as a whole (two
+    screens of a 390x844 phone, the height once scrolling hides the browser
+    bars). A new account's Calibrate is held to the 360x640 fold, and
+    `check-resume` holds "Resume your game" to it, with its field's name on
+    one line, and resumes through it. `check-games` step 7b types a partial
+    code, waits for three fixes, and checks the text, focus and caret.
+    Each new check was shown to fail on the regression it guards against.
+    The driver also takes `--base` now and prints the server it drives.
+  - `10.15.3` todo: On a real phone with a few games and fields: is New game
+    where the thumb expects it, is "Resume your game" found and never
+    confused with New game, and does a new player find Calibrate?
+  - `10.15.4` done: Home no longer redraws whole on every GPS fix, which
+    emptied the join box about once a second under somebody typing a code
+    (round 2 review; older than this stage). A fix redraws only the notice,
+    the readout and a location error (`data-home-live`). The redraws that
+    are left ("Show more", a field sync landing) carry the box's text, focus
+    and caret across (`client/draft.ts`). No other screen has a text box
+    that a fix redraws: calibrate already skips its name step, and field,
+    create, account and opponent do not listen to fixes.
+    Round 3 review, two more found on the way: a field sync's redraw of home
+    awaited the game list and then mounted home even if the player had
+    tapped Calibrate meanwhile (`showHome` now gives up when another screen
+    was opened during the wait; `check-games` step 7c holds both requests to
+    force the order), and an unbroken field name widened the page to 1128 px
+    at 320 wide (`overflow-wrap: anywhere` on both lists' names).

@@ -83,6 +83,7 @@ import {
   hiddenGameCount,
   homeGames,
   mountTidy,
+  resumeGame,
   shouldOfferTidy,
 } from './views/games.js';
 import { mountInvite } from './views/invite.js';
@@ -91,6 +92,7 @@ import { mountScan } from './views/scan.js';
 import { mountSurvey } from './views/survey.js';
 import type { Color } from '../shared/squares.js';
 import { connectToGame } from './net.js';
+import { type InputDraft, readDraft, restoreDraft } from './draft.js';
 import { withOptimism } from './optimistic.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
@@ -259,9 +261,10 @@ async function boot(): Promise<void> {
   // game owns these rows and the phone only ever reads them (decision 0033).
   const games: GamesTransport = browserGamesTransport();
 
-  // Asked once, here, because the answer needs `await` and the home screen
-  // repaints on every GPS fix — a check that far down would run several times a
-  // second to produce the same constant. It cannot change while the page is open.
+  // Asked once, here, because the answer needs `await` and home draws more than
+  // once (each mount, "Show more", a field sync) — a check that far down would
+  // run again to produce the same constant. It cannot change while the page is
+  // open.
   const platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
   const scanning = await detectScanSupport(browserScanEnv());
 
@@ -286,7 +289,14 @@ async function boot(): Promise<void> {
    * changes the field list under somebody scrolled down it.
    */
   let teardown: (() => void) | null = null;
+  /**
+   * How many screens have been mounted. A screen that awaits before mounting
+   * (home does) reads it first, and gives up if another screen was mounted in
+   * the meantime — the player has gone somewhere else and should stay there.
+   */
+  let screens = 0;
   const swap = (mount: () => () => void, keepScroll = false) => {
+    screens += 1;
     teardown?.();
     teardown = mount();
     if (!keepScroll) window.scrollTo(0, 0);
@@ -300,15 +310,25 @@ async function boot(): Promise<void> {
    * stage 6.3 it is not: a phone that has never walked out a board can join a game
    * on someone else's field, and it needs a screen with a code box on it to do so.
    */
-  const showHome = async (keepScroll = false) => {
+  const showHome = async (keepScroll = false, keepDraft = false) => {
     // The URL keeps whatever brought us here, so a reload from the board resumes
     // the game. Home is not that game, and a reload here should not re-join one.
     forgetDeepLink();
+    const asked = screens;
     // Both awaited together: the fields come off this phone in a millisecond and
     // the games come off the network, and waiting for them one after the other
     // would hold the home screen behind a request that is allowed to fail.
     const [fields, listed] = await Promise.all([store.list(), games.list()]);
+    // Another screen was opened while the lists were loading: most often a
+    // field sync's `refreshHome` and a tap on Calibrate a moment later. The
+    // player left home; the lists arriving must not drag them back to it. If
+    // what was opened meanwhile is home itself (two syncs landing together),
+    // drawing it again with these lists is right: they are the newer read.
+    if (screens !== asked && refreshHome === null) return;
     const myGames = listed.kind === 'ok' ? listed.games : [];
+    // Read now, after the awaits and just before the old home is torn down, so
+    // a code typed while the lists were loading is not lost to the redraw.
+    const draft = keepDraft ? readDraft(root.querySelector<HTMLInputElement>('[data-code]')) : null;
     swap(() => {
       const teardownHome = mountHome(root, {
         gps,
@@ -325,8 +345,9 @@ async function boot(): Promise<void> {
         onJoin: (code) => showJoin(code),
         onScan: () => showScan(),
         onTidy: () => showTidy(myGames),
+        draft,
       });
-      refreshHome = () => void showHome(true);
+      refreshHome = () => void showHome(true, true);
       return () => {
         refreshHome = null;
         teardownHome();
@@ -774,6 +795,8 @@ interface HomeDeps {
   onJoin(joinCode: string): void;
   onScan(): void;
   onTidy(): void;
+  /** What was in the join box when home last redrew itself in place. */
+  draft?: InputDraft | null;
 }
 
 /**
@@ -781,22 +804,34 @@ interface HomeDeps {
  *
  * The readout stays because it is the thing you look at before deciding whether
  * it is worth walking out a board at all.
+ *
+ * **Play comes before both lists** (O-16, O-51). New game and the join box are
+ * what somebody standing in a park opened the app to tap, and the two lists
+ * both grow: games are capped at {@link HOME_SHOWN}, but fields are not. With
+ * the lists first, a player with a few games and a couple of fields found New
+ * game a screen and a half down on a 390x844 phone. Above them, it sits on the
+ * first screen and does not move however long either list gets — and
+ * `check-games.mjs` asserts exactly that.
  */
 function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
   /**
    * Whether the games list is showing everything.
    *
-   * Lives out here rather than in `paint`, because `paint` runs again on every
-   * GPS fix — several times a second — and a flag inside it would collapse the
-   * list under somebody's thumb.
+   * Lives out here rather than in `paint`, because `paint` is what the toggle
+   * itself calls to redraw, and a flag inside it would reset on every redraw.
    */
   let allGames = false;
 
-  const paint = (state: GpsState) => {
+  /**
+   * The part of home that changes with each GPS fix: the pre-flight notice, the
+   * readout, and a location error. Only this is redrawn on a fix (O-51 round 2
+   * review). Home used to redraw whole on every fix, several times a second,
+   * and that emptied the join box under the thumb of somebody typing a code.
+   */
+  const liveHtml = (state: GpsState): string => {
     const fix = state.fix;
     const units = displayUnits().get();
-    root.innerHTML = `
-      ${homeHeaderHtml(deps.identity, deps.confirmed)}
+    return `
       ${
         // The pre-flight check (stage 2.2.3): above everything, because it is
         // only worth anything before somebody sets off. Recomputed on each
@@ -818,26 +853,35 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         <dd data-distance>${formatDistance(state.distanceM, units)}</dd>
       </dl>
       ${state.error ? `<p class="notice" data-error="${state.error.code}">${gpsErrorWords(state.error, units)}</p>` : ''}
-      ${gamesSectionHtml(deps, allGames)}
-      <h2>Your fields</h2>
-      <ul class="fields" data-fields>
-        ${deps.fields.map((spec) => fieldItem(spec, units)).join('')}
-      </ul>
-      ${
-        deps.fields.length === 0
-          ? `<p class="dim" data-no-fields>
-               No fields yet. Walk one out, or join a game on someone else's — a
-               game brings its own field with it.
-             </p>`
-          : ''
-      }
-      <p><button data-calibrate>Calibrate a new field</button></p>
+    `;
+  };
+
+  /** Everything, drawn when home mounts and when "Show more" is tapped. */
+  const paint = () => {
+    const units = displayUnits().get();
+    // A full redraw replaces the join box, so what was typed in it, and the
+    // caret, are carried across. Carried in from the previous mount too, when
+    // a field sync redraws home under somebody typing (`refreshHome`).
+    const draft = readDraft(root.querySelector<HTMLInputElement>('[data-code]')) ?? carried;
+    carried = null;
+    root.innerHTML = `
+      ${homeHeaderHtml(deps.identity, deps.confirmed)}
+      <div data-home-live>${liveHtml(deps.gps.state)}</div>
       <h2>Play</h2>
+      ${resumeHtml(deps.games)}
       ${
         // Starting a game means choosing a field to play it on, so this is the
         // one control that really does need one. Joining does not: the field
-        // travels with the game (stage 6.3).
-        deps.fields.length > 0 ? `<p><button data-new>New game</button></p>` : ''
+        // travels with the game (stage 6.3). With no field yet, the way to get
+        // one stands where New game would, so a new player's first screen says
+        // how to start rather than offering only a box for somebody else's code.
+        deps.fields.length > 0
+          ? `<p><button data-new>New game</button></p>`
+          : `<p class="dim" data-no-fields>
+               No fields yet. Walk one out, or join a game on someone else's — a
+               game brings its own field with it.
+             </p>
+             <p><button data-calibrate>Calibrate a new field</button></p>`
       }
       ${
         // Offered only where it will work. Where it will not, the advice below
@@ -846,14 +890,24 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         deps.scanning === 'ready' ? `<p><button data-scan>Scan an invite</button></p>` : ''
       }
       <p>
-        <label>${
-          deps.fields.length > 0 || deps.scanning === 'ready' ? 'Or join a code' : 'Join a code'
-        }<br />
+        <label>Or join a code<br />
           <input data-code type="text" maxlength="8" placeholder="ABC 123" />
         </label>
       </p>
       <p><button data-join class="secondary">Join</button></p>
       ${scanAdviceHtml(deps)}
+      ${gamesSectionHtml(deps, allGames)}
+      ${
+        // The list is always in the page, empty or not, because drivers wait
+        // for it to be attached; with nothing in it it has no height. The
+        // heading and Calibrate come only with a field to put under them —
+        // with none, Calibrate is up in Play.
+        deps.fields.length > 0 ? '<h2>Your fields</h2>' : ''
+      }
+      <ul class="fields" data-fields>
+        ${deps.fields.map((spec) => fieldItem(spec, units)).join('')}
+      </ul>
+      ${deps.fields.length > 0 ? '<p><button data-calibrate>Calibrate a new field</button></p>' : ''}
     `;
     root
       .querySelector<HTMLButtonElement>('[data-account]')
@@ -862,6 +916,10 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
       .querySelector<HTMLButtonElement>('[data-calibrate]')
       ?.addEventListener('click', deps.onCalibrate);
     root.querySelector<HTMLButtonElement>('[data-new]')?.addEventListener('click', deps.onNew);
+    // Resuming is joining by code, exactly as tapping the game's line is.
+    root.querySelector<HTMLButtonElement>('[data-resume]')?.addEventListener('click', (event) => {
+      deps.onJoin((event.currentTarget as HTMLElement).dataset.resume as string);
+    });
     root.querySelector<HTMLButtonElement>('[data-join]')?.addEventListener('click', () => {
       const typed = root.querySelector<HTMLInputElement>('[data-code]')?.value.trim() ?? '';
       // Nothing typed is not a mistake worth a screen about it.
@@ -876,7 +934,7 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
     root.querySelector<HTMLButtonElement>('[data-tidy]')?.addEventListener('click', deps.onTidy);
     root.querySelector<HTMLButtonElement>('[data-more]')?.addEventListener('click', () => {
       allGames = !allGames;
-      paint(deps.gps.state);
+      paint();
     });
     // Tapping a game is the same act as typing its code, so it goes down the
     // same path: `showJoin` re-takes the seat, which is idempotent, and works
@@ -891,9 +949,15 @@ function mountHome(root: HTMLElement, deps: HomeDeps): () => void {
         if (field) deps.onOpen(field);
       });
     }
+    restoreDraft(root.querySelector<HTMLInputElement>('[data-code]'), draft);
   };
 
-  const unsubscribe = deps.gps.subscribe(paint);
+  let carried = deps.draft ?? null;
+  paint();
+  const unsubscribe = deps.gps.subscribe((state) => {
+    const live = root.querySelector<HTMLElement>('[data-home-live]');
+    if (live) live.innerHTML = liveHtml(state);
+  });
   return () => {
     unsubscribe();
     root.innerHTML = '';
@@ -938,6 +1002,22 @@ function gamesSectionHtml(deps: HomeDeps, all: boolean): string {
         : ''
     }
   `;
+}
+
+/**
+ * "Resume your game at <field>", at the top of Play, or nothing (stage 10.15).
+ *
+ * One button for the most recent game in play (`resumeGame`), so that a player
+ * mid-game finds it on the first screen of even a small phone. It names the
+ * ground, so that a player with two games going knows which one this is; a
+ * long name is cut with an ellipsis by CSS, keeping the button to one line.
+ * The list below still has the line for it, and for every other game.
+ */
+function resumeHtml(games: readonly ListedGame[]): string {
+  const game = resumeGame(games);
+  if (game === null) return '';
+  const where = game.fieldName ? ` at ${escapeHtml(game.fieldName)}` : '';
+  return `<p><button class="resume" data-resume="${escapeHtml(game.joinCode)}">Resume your game${where}</button></p>`;
 }
 
 /**

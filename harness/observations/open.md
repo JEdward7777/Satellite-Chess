@@ -174,24 +174,6 @@ doing if `rejected` ever turns out to be non-empty in practice; the fix is a
 `refused` map beside `acked`, holding the `updatedAt` that was turned down, so
 the field is re-offered when it changes and not before.
 
-### O-16 — Two unbounded lists sit above the home screen's primary actions
-**Spotted:** 2026-09-13, stage 2.3.4, by looking at a screenshot
-**Why it matters:** Home is ordered readout → Your games → Your fields →
-Calibrate → Play. Both lists grow, and everything a player came to tap is below
-them. Measured in a browser at 480x900, "New game" sits at y=542 with no games,
-y=709 with one, and **crosses the fold at three**; the fields list above it has
-the same shape with a cap of two hundred. So a regular player eventually opens
-the app and cannot see the button that starts a game.
-**Not doing yet because:** the game list was capped at `HOME_SHOWN` on
-2026-09-13, which bounds the new half of the problem — seven games now cost the
-same page as five, with the rest one tap away — and that was the part this stage
-introduced. The rest is older and bigger than one stage: the honest fix is
-either to put Play above the lists, or to give both lists a collapsed default,
-and both change a screen that three other drivers assert against. Worth doing
-deliberately rather than at the end of a session. `scripts/check-games.mjs`
-asserts the bound (home fits in two screens with seven games) rather than the
-fold, so the constraint does not quietly regress in the meantime.
-
 ### O-17 — A session is written to KV and read back a second later
 **Spotted:** 2026-09-16, stage 2.2.1
 **Why it matters:** The OAuth callback writes the session record to KV and
@@ -679,22 +661,8 @@ turn out to matter.
 **Not doing yet because:** it changes every screen, and the trade-off
 (accessibility against a stray zoom mid-game) is the owner's call. Stage 10.8
 left the meta alone.
-
-### O-51 — `check-games` fails its home-height check with seven games
-**Spotted:** 2026-09-30, phase 4 of run 2 (O-50); confirmed at `d3f5fa3`, before that work
-**Why it matters:** step 7 of `scripts/check-games.mjs` asserts that home
-still fits in two screens with seven games listed. It measures 1807 px
-against a 900 px screen and fails, every run, at HEAD as well as with
-O-50's change. Home has grown since the check was written (units advice,
-the record and account lines), so either the screen has got too long or the
-threshold is stale. Nobody has looked at which.
-**Also:** `check-games` takes `--origin`, not `--base`, and defaults to port
-8799 when it is not given, so a run against another port silently hits
-whatever is on 8799.
-**Fix, when wanted:** screenshot home with seven games and decide: shorten
-home (fewer lines per game, the fields section collapsed), or re-set the
-threshold to what home is meant to be.
-**Not doing yet because:** found while verifying O-50, and unrelated to it.
+**Owner's decision, 2026-10-13: not now.** Board zoom works great, and the
+owner does not want to risk regressing it. Leave the meta as it is.
 
 ### O-54 — An unreadable field reads as "0.1 m from your back rank" on `ready`
 **Spotted:** 2026-10-03, round 6 review of phase 5 of run 2 (O-49)
@@ -751,4 +719,32 @@ all. The shared parts are the clock, carry, handshake, record, archive,
 replay and zoom, with a per-game rules module behind one interface.
 **Not doing yet because:** parked until the queue is empty (after `8.5.4`
 and O-37). It starts with an architecture decision, not code.
+**Scheduled, 2026-10-13: run 3 builds checkers.** Phase 2 of run 3 is the
+multi-game architecture, with chess moved behind a rules interface and no
+change in behavior; phase 3 is checkers rules on the server; phase 4 is
+checkers on the phone. The owner's decisions:
+- **American checkers** (8×8, men move forward diagonally, kings both ways).
+- **Walk each hop of a multi-jump**, rather than carrying the piece to its
+  last square in one walk.
+- **"Jumps are required" is a setting chosen when the game is created,
+  default off**, so children can play without the forced-capture rule.
+- Notation is **PDN**.
+- **The game is chosen at New game** (Chess or Checkers), and replay, the
+  share card, head-to-head and watching all support it.
 
+### O-58 — Play against a computer opponent when no friend is available
+**Spotted:** 2026-10-13, the owner's idea (parked)
+**Why it matters:** a player alone on a field could still get their walking
+in, against an off-the-shelf engine: chess, and checkers once it exists.
+**Notes:**
+- Run the engine on the phone, so it costs no server requests (a Stockfish
+  WASM build, for example). Check its license against this project's MIT:
+  Stockfish is GPL, so it may need to be a separately loaded asset, or a
+  different engine.
+- The engine's moves appear on the board. Does the player walk both sides,
+  or only their own, with the engine's pieces moved at once? That needs a
+  design pass.
+- Engine games should probably not count toward the meters record, or
+  should count separately; likewise head-to-head.
+- For checkers it depends on the multi-game architecture (O-57).
+**Not doing yet because:** a future item, behind checkers.

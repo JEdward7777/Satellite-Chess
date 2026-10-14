@@ -9,6 +9,7 @@ import {
   describeGame,
   hiddenGameCount,
   homeGames,
+  resumeGame,
   shouldOfferTidy,
   tidyCandidates,
 } from '../src/client/views/games.js';
@@ -140,8 +141,8 @@ describe('homeGames', () => {
   });
 
   it('caps the list, because home is the way into a game and not the game list', () => {
-    // The rest of the home screen — the fields, Calibrate, New game, the join
-    // box — sits below this section. An uncapped list puts all of it off the
+    // The fields and Calibrate sit below this section (Play is above it since
+    // stage 10.15). An uncapped list puts all of it off the
     // bottom of the phone, which is what the first version did.
     const live = Array.from({ length: 12 }, (_, i) =>
       listed({ joinCode: `LIV${i}00`, status: 'active' }),
@@ -177,6 +178,32 @@ describe('homeGames', () => {
   it('offers nothing to expand when everything already fits', () => {
     const games = [listed({ joinCode: 'AAA111', status: 'active' })];
     expect(hiddenGameCount(games)).toBe(0);
+  });
+});
+
+describe('resumeGame', () => {
+  it('offers the most recently touched game in play', () => {
+    const games = [
+      listed({ joinCode: 'OLD111', status: 'active', lastMoveAt: NOW - DAY, updatedAt: NOW - DAY }),
+      listed({ joinCode: 'NEW222', status: 'active', lastMoveAt: NOW - 5000, updatedAt: NOW - 5000 }),
+    ];
+    expect(resumeGame(games)?.joinCode).toBe('NEW222');
+  });
+
+  it('counts a suspended game as in play, since it can be walked back to', () => {
+    const games = [
+      listed({ joinCode: 'FIN111', status: 'finished', updatedAt: NOW }),
+      listed({ joinCode: 'SUS222', status: 'suspended', suspendedAt: NOW - DAY, suspendedBy: 'b', updatedAt: NOW - DAY }),
+    ];
+    expect(resumeGame(games)?.joinCode).toBe('SUS222');
+  });
+
+  it('offers nothing for games nobody is in the middle of', () => {
+    const games = (['waiting', 'staging', 'finished', 'aborted'] as const).map((status, i) =>
+      listed({ joinCode: `NOT${i}00`, status, updatedAt: NOW }),
+    );
+    expect(resumeGame(games)).toBeNull();
+    expect(resumeGame([])).toBeNull();
   });
 });
 

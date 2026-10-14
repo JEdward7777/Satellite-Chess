@@ -4,6 +4,36 @@ Moved here once promoted to a stage, fixed, or dismissed. Keep the outcome — a
 dismissed observation is as valuable as a fixed one, because it stops the next
 session re-raising it.
 
+### O-51 — `check-games` fails its home-height check with seven games
+**Resolved:** 2026-10-13, stage 10.15 (with O-16)
+**Outcome:** The check was measuring the simulator, not home. It read
+`document.body.scrollHeight`, which under `?sim=1` includes a 16rem reserve
+below everything so the simulator panel cannot cover the last button. Each
+commit's own driver, run at each commit: 1725 px at `783dfcd` where it was
+written, 1771 px from `b6db23a` (the "Signed in as" line, 2.2.3–2.2.5), and
+1807 px from `3ab9e99` (10.7), which added a row to the panel and grew the
+reserve from 14rem to 16rem: 36 px over a 1800 px bound with nothing a
+player sees changed. Nothing in run 2 moved it. Without the reserve, home
+with seven games is about 1500 px, and an *uncapped* list would also have
+fit, so the old bound no longer guarded the cap. Step 7 now measures the
+page without the reserve and at phone sizes, asserts a seventh game costs
+no page against a sixth (fails if the cap goes), New game and Join on the
+first screen of a 360x640 phone above both lists (fails with the old order:
+Join at 1478 px), and home within two screens of a 390x844 phone. The driver takes `--base` too and prints its server.
+
+### O-16 — Two unbounded lists sit above the home screen's primary actions
+**Resolved:** 2026-10-13, stage 10.15 (with O-51)
+**Outcome:** Play now comes straight after the readout: readout, Play
+("Resume your game" when a game is in play, New game, Scan, the join box),
+Your games, Your fields and Calibrate. A player with no field gets the
+no-fields line and Calibrate in Play instead of New game. With seven games
+and two fields, New game moved from y=1283 to y=278 and the join box from
+1381 to 376 on a 390x844 phone, and neither list can push them down however
+long it gets. The game list keeps its `HOME_SHOWN` cap; the fields
+list is still uncapped but now only lengthens the page below everything a
+player came to tap. `check-games` asserts the fold, which O-16 said capping
+alone could not give.
+
 ### O-37 — A live link, so friends can watch the game from the sofa
 **Resolved:** 2026-10-08, stage 10.14 (decision 0055)
 **Outcome:** Built to the owner's 2026-10-04 design. Both players agree (one
