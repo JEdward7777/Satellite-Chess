@@ -12,8 +12,8 @@ import {
   northOnScreen,
   projectionFor,
   squareUnderFoot,
-  startingPieces,
 } from '../src/client/render.js';
+import { startingPieces } from '../src/shared/games/chess.js';
 
 const A1 = { lat: 51.4779, lng: -0.0015 };
 const SQUARE_M = 8;

@@ -9,8 +9,9 @@ import {
   readPieceLook,
   writePieceLook,
 } from '../src/client/piece-look.js';
-import { DISC_RING, PIECE_LOOKS, inksFor, pieceSvg } from '../src/client/pieces.js';
-import { type PieceType, pieceBoxPx, projectionFor } from '../src/client/render.js';
+import { DISC_RING, PIECE_LOOKS, inksFor, pieceSvg } from '../src/client/games/chess/pieces.js';
+import { pieceBoxPx, projectionFor } from '../src/client/render.js';
+import type { PieceType } from '../src/shared/games/chess.js';
 
 function memoryStorage(): LookStorage & { map: Map<string, string> } {
   const map = new Map<string, string>();

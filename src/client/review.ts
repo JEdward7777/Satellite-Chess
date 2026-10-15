@@ -16,7 +16,7 @@
  * saves a file where a page-initiated download is blocked (decision 0041).
  */
 
-import { buildPgn, pgnFileName } from '../shared/pgn.js';
+import type { GameArt } from './games/types.js';
 import { personalResult } from '../shared/record.js';
 import { type GameReport, type PlayerWalk, type ReportMove, walksOf } from '../shared/review.js';
 import type { Color } from '../shared/squares.js';
@@ -72,9 +72,14 @@ export function browserReviewTransport(): ReviewTransport {
   };
 }
 
-/** The file, ready to share. Pure, and therefore callable inside a tap. */
-export function pgnOf(report: GameReport): { text: string; fileName: string } {
-  return { text: buildPgn(report), fileName: pgnFileName(report) };
+/**
+ * The game's record file (the PGN, for chess), ready to share. Pure, and
+ * therefore callable inside a tap, once the game's art — which carries the
+ * writer, so a phone fetches each game's writer only when it shows that game
+ * (decision 0056) — is here.
+ */
+export function recordOf(report: GameReport, art: GameArt): { text: string; fileName: string } {
+  return { text: art.writeRecord(report), fileName: art.recordFileName(report) };
 }
 
 // ---------------------------------------------------------------------------

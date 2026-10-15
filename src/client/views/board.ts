@@ -33,7 +33,9 @@ import {
   reachFromSquares,
   refusedAccuracyWords,
 } from '../../shared/reach.js';
+import { CHESS } from '../../shared/games/chess.js';
 import { type Color, type Square, toSquare } from '../../shared/squares.js';
+import { artFor } from '../games/registry.js';
 import { type GpsProvider, type GpsState, qualityLabel } from '../gps.js';
 import { pieceLook } from '../piece-look.js';
 import { type PreviewLevel, previewVerdict, testSquare } from '../preview.js';
@@ -44,7 +46,6 @@ import {
   canvasSizePx,
   drawBoard,
   squareUnderFoot,
-  startingPieces,
   zoomFrameFor,
 } from '../render.js';
 import { BOARD_FRAME_HTML, attachBoardZoom } from './board-gestures.js';
@@ -82,7 +83,10 @@ const TEST_HINT =
 export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   const geo = deriveGeometry(deps.field);
   const orientation = deps.orientation ?? 'w';
-  const pieces = startingPieces();
+  // A chess starting position, for the look of it: the preview is a field,
+  // not a game, and chess is what it has always shown.
+  const pieces = CHESS.piecesOf(CHESS.initialState({}));
+  let live = true;
 
   root.innerHTML = `
     <div class="board-screen">
@@ -173,6 +177,9 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
       zoom: zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null),
       orientation,
       pieces,
+      art: artFor(CHESS.type, () => {
+        if (live) paint();
+      }),
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
@@ -272,6 +279,7 @@ export function mountBoard(root: HTMLElement, deps: BoardDeps): () => void {
   const offLook = looks.subscribe(() => paint());
 
   return () => {
+    live = false;
     offLook();
     zoom.detach();
     unsubscribe();

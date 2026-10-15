@@ -13,7 +13,7 @@
  * picks its own look, and the opponent never knows.
  */
 
-import type { PieceLook } from './pieces.js';
+import type { PieceLook } from './games/types.js';
 
 /** The `localStorage` key. Words only; nothing here is secret. */
 export const PIECE_LOOK_KEY = 'satchess.pieceLook';

@@ -41,9 +41,10 @@
  * canvas and one to write it as inline SVG, so the board, the carry readout and
  * the promotion picker all show the same pieces.
  *
- * It is bundled into `app.js`, never fetched: the service worker caches the
- * shell for a field with no signal, and a piece set on a CDN would be a board
- * of blanks there.
+ * It is not in `app.js`: it is chess's art (decision 0056), fetched from our
+ * own origin as `/games/chess.js` when a chess board is first shown, and
+ * precached by the service worker with the shell, so a field with no signal
+ * still has pieces. Never from a CDN, which would be a board of blanks there.
  *
  * ## Two looks
  *
@@ -63,10 +64,13 @@
  * color.
  */
 
-import type { Color } from '../shared/squares.js';
-import type { Piece, PieceType } from './render.js';
+import type { PieceType } from '../../../shared/games/chess.js';
+import type { PieceOn } from '../../../shared/games/types.js';
+import type { Color } from '../../../shared/squares.js';
+import type { PieceLook } from '../types.js';
 
-export type PieceLook = 'standard' | 'disc';
+/** A piece, as the board passes one: the type is chess's letter. */
+type Piece = PieceOn;
 
 /**
  * The artwork's license, for the credits on the account screen.
@@ -411,7 +415,7 @@ export function drawPiece(
     artPx = boxPx * ART_ON_DISC;
   }
 
-  const art = ART[piece.color][piece.type];
+  const art = ART[piece.color][piece.type as PieceType];
   const inks = inksFor(piece.color, look);
   const k = artPx / ART_BOX;
   ctx.translate(cx - artPx / 2, cy - artPx / 2 + art.dy * k);
@@ -450,7 +454,7 @@ function short(n: number): string {
  * one also names the piece or its square in words.
  */
 export function pieceSvg(piece: Piece, look: PieceLook): string {
-  const art = ART[piece.color][piece.type];
+  const art = ART[piece.color][piece.type as PieceType];
   const inks = inksFor(piece.color, look);
   let disc = '';
   let scale = 1;

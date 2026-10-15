@@ -27,6 +27,7 @@
  * that travels does not.
  */
 
+import type { GameOptions, GameType } from './games/types.js';
 import type { EndReason, ResultOutcome } from './protocol.js';
 import type { Color } from './squares.js';
 import type { Tracks } from './track.js';
@@ -74,6 +75,15 @@ export interface ReportMove {
  */
 export interface GameReport {
   joinCode: string;
+  /**
+   * Which game (decision 0056). **Absent is chess**: a chess report leaves it
+   * out, so a report, and the archive built from it, is byte for byte what it
+   * was before there were game types, and an archive written before them
+   * reads as chess.
+   */
+  gameType?: GameType;
+  /** The game's creation settings; absent when it had none, as chess never does. */
+  options?: GameOptions;
   /** The name a player gave the field, or null for one nobody named. */
   fieldName: string | null;
   /** When the game was created. */

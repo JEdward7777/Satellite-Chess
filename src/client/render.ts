@@ -25,7 +25,8 @@ import {
 } from '../shared/field.js';
 import type { LatLng } from '../shared/geo.js';
 import { type Rect, type ZoomFrame, type ZoomView, isZoomed, zoomProjection } from './board-zoom.js';
-import { type PieceLook, drawPiece } from './pieces.js';
+import type { PieceOn } from '../shared/games/types.js';
+import type { GameArt, PieceLook } from './games/types.js';
 import {
   type Color,
   type FileRank,
@@ -35,12 +36,8 @@ import {
   toSquare,
 } from '../shared/squares.js';
 
-export type PieceType = 'k' | 'q' | 'r' | 'b' | 'n' | 'p';
-
-export interface Piece {
-  type: PieceType;
-  color: Color;
-}
+/** A piece on the board: the game's own letter for it, and its side. */
+export type Piece = PieceOn;
 
 export type PieceMap = Partial<Record<Square, Piece>>;
 
@@ -49,6 +46,13 @@ export interface BoardView {
   /** Whose side is at the bottom of the screen. */
   orientation: Color;
   pieces: PieceMap;
+  /**
+   * How this game's pieces are drawn (decision 0056), fetched on demand
+   * (`games/registry.ts`). Null while it is still on its way: the board is
+   * drawn without pieces, and the view repaints when it lands. Absent is the
+   * same: a board with no art draws no pieces.
+   */
+  art?: GameArt | null;
   /** Where the player is, or null before the first fix. */
   pos: LatLng | null;
   accuracyM: number;
@@ -315,23 +319,6 @@ export function northOnScreen(geo: FieldGeometry, orientation: Color): { x: numb
   const u = Math.cos(radians);
   const v = Math.sin(radians);
   return orientation === 'w' ? { x: u, y: -v } : { x: -u, y: v };
-}
-
-/**
- * The starting position, so the board can be looked at before phase 4 exists.
- *
- * The real position comes from the game state; nothing here is authoritative.
- */
-export function startingPieces(): PieceMap {
-  const back: PieceType[] = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
-  const pieces: PieceMap = {};
-  for (let file = 0; file < 8; file++) {
-    pieces[toSquare(file, 0)] = { type: back[file], color: 'w' };
-    pieces[toSquare(file, 1)] = { type: 'p', color: 'w' };
-    pieces[toSquare(file, 6)] = { type: 'p', color: 'b' };
-    pieces[toSquare(file, 7)] = { type: back[file], color: 'b' };
-  }
-  return pieces;
 }
 
 /**
@@ -688,41 +675,6 @@ function drawDestinations(
 }
 
 /**
- * Read a FEN's placement field into a piece map.
- *
- * Deliberately not chess.js: the server is the only rules authority and sends
- * legal destinations with every carry, so the client needs to know *where the
- * pieces are* and nothing more. Twenty lines here against ~50 kB of bundle on a
- * phone with one bar.
- */
-export function piecesFromFen(fen: string): PieceMap {
-  const pieces: PieceMap = {};
-  const ranks = fen.split(' ')[0]?.split('/') ?? [];
-  // FEN lists rank 8 first; our rank index counts up from rank 1.
-  ranks.forEach((row, index) => {
-    const rank = 7 - index;
-    let file = 0;
-    for (const ch of row) {
-      const skip = Number(ch);
-      if (Number.isFinite(skip) && skip > 0) {
-        file += skip;
-        continue;
-      }
-      if (file > 7 || rank < 0) break;
-      const lower = ch.toLowerCase();
-      if (lower === 'k' || lower === 'q' || lower === 'r' || lower === 'b' || lower === 'n' || lower === 'p') {
-        pieces[toSquare(file, rank)] = {
-          type: lower,
-          color: ch === lower ? 'b' : 'w',
-        };
-      }
-      file += 1;
-    }
-  });
-  return pieces;
-}
-
-/**
  * The side of the largest upright square that fits inside one cell, in pixels.
  *
  * Not {@link cellPx}: on a rectangular or skewed board the mean cell is wider
@@ -740,6 +692,8 @@ function drawPieces(
   view: BoardView,
   projection: Projection,
 ): void {
+  const art = view.art;
+  if (art == null) return;
   const box = pieceBoxPx(view.geo, projection);
   const look = view.look ?? 'standard';
   // The server's position still has the carried piece on its origin until it
@@ -751,11 +705,11 @@ function drawPieces(
     if (square === lifted) {
       ctx.save();
       ctx.globalAlpha = LIFTED_PIECE_ALPHA;
-      drawPiece(ctx, piece, look, centre.x, centre.y, box);
+      art.drawPiece(ctx, piece, look, centre.x, centre.y, box);
       ctx.restore();
       continue;
     }
-    drawPiece(ctx, piece, look, centre.x, centre.y, box);
+    art.drawPiece(ctx, piece, look, centre.x, centre.y, box);
   }
 }
 
@@ -870,7 +824,7 @@ function drawInHand(
   ctx.strokeStyle = carry.mine ? PLAYER_EDGE : OPPONENT_DOT;
   ctx.lineWidth = 3;
   ctx.stroke();
-  drawPiece(ctx, carry.piece, view.look ?? 'standard', at.x, at.y, at.size);
+  view.art?.drawPiece(ctx, carry.piece, view.look ?? 'standard', at.x, at.y, at.size);
 }
 
 function drawPlayer(

@@ -40,7 +40,10 @@
  * player ticks, off every time. Nothing is sent to make it or to share it.
  */
 
+import { descriptorFor } from '../../shared/games/catalog.js';
 import type { GameReport } from '../../shared/review.js';
+import { loadArt } from '../games/registry.js';
+import type { GameArt } from '../games/types.js';
 import type { Color } from '../../shared/squares.js';
 import {
   DISTANCE_HONESTY,
@@ -49,7 +52,7 @@ import {
   headlineDetailWords,
   headlineWords,
   moveWords,
-  pgnOf,
+  recordOf,
   resultWords,
   shareMessageWords,
   walkRows,
@@ -123,7 +126,23 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
       // by a walk off the field.
       if (!live) return;
       if (result.kind === 'ok') {
-        draw(result.report, result.you);
+        // The game's art carries its record writer and its pieces (decision
+        // 0056), and the file must be built before Share can be tapped. It is
+        // fetched once, from the service worker's cache when there is no signal.
+        const report = result.report;
+        void loadArt(descriptorFor(report.gameType).type).then(
+          (art) => {
+            if (live) draw(report, result.you, art);
+          },
+          () => {
+            if (!live) return;
+            body.innerHTML = `<p class="dim" data-review-unavailable="offline">
+               This phone could not load this game's pieces. Check the connection and try again.
+             </p>
+             <p><button class="secondary" data-review-retry>Try again</button></p>`;
+            body.querySelector('[data-review-retry]')?.addEventListener('click', load);
+          },
+        );
         return;
       }
       body.innerHTML =
@@ -137,17 +156,17 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     });
   };
 
-  function draw(report: GameReport, you: Color | null): void {
+  function draw(report: GameReport, you: Color | null, art: GameArt): void {
     // Built now, in one synchronous pass, so that the Share handler below has
     // nothing left to await. This is the whole reason the screen holds a report
     // rather than fetching one when the button is tapped.
-    const pgn = pgnOf(report);
+    const pgn = recordOf(report, art);
     const units = displayUnits().get();
     body.innerHTML = reviewHtml(report, you, pgn, deps.joinCode, units);
     unmountReplay?.();
-    unmountReplay = mountReplay(body, report, you ?? 'w', units);
+    unmountReplay = mountReplay(body, report, you ?? 'w', units, art);
     unmountCard?.();
-    unmountCard = mountCard(body, report, you, units, deps.shareImage ?? shareImage, () => live);
+    unmountCard = mountCard(body, report, you, units, art, deps.shareImage ?? shareImage, () => live);
     body.querySelector<HTMLButtonElement>('[data-review-h2h]')?.addEventListener('click', () => deps.onOpponent?.());
 
     const say = (words: string): void => {
@@ -219,6 +238,7 @@ function mountCard(
   report: GameReport,
   you: Color | null,
   units: Units,
+  art: GameArt,
   send: typeof shareImage,
   isLive: () => boolean,
 ): () => void {
@@ -250,7 +270,7 @@ function mountCard(
     const card = shareCard(report, you, units, { showFieldName: nameBox?.checked === true });
     if (card === null) return;
     const canvas = document.createElement('canvas');
-    drawShareCard(canvas, card, looks.get());
+    drawShareCard(canvas, card, art, looks.get());
     message = cardMessageWords(card);
     void cardPng(canvas).then((blob) => {
       // A later draw (the box ticked again) or the screen gone: this one is stale.
@@ -308,7 +328,13 @@ function mountCard(
  * controls, and the move list as a fourth. Opens on the last step, the
  * position the game ended in. Returns the teardown.
  */
-function mountReplay(body: HTMLElement, report: GameReport, orientation: Color, units: Units): () => void {
+function mountReplay(
+  body: HTMLElement,
+  report: GameReport,
+  orientation: Color,
+  units: Units,
+  art: GameArt,
+): () => void {
   const section = body.querySelector<HTMLElement>('[data-replay]');
   const canvas = section?.querySelector<HTMLCanvasElement>('[data-board]') ?? null;
   if (section === null || canvas === null) return () => {};
@@ -330,7 +356,7 @@ function mountReplay(body: HTMLElement, report: GameReport, orientation: Color, 
     const frame = replayFrame(report, fens, ply);
     const { width, height } = canvasSizePx(canvas);
     const { frame: zoomFrame } = zoomFrameFor(REPLAY_GEOMETRY, orientation, width, height);
-    drawReplay(canvas, { frame, orientation, look: looks.get(), zoom: zoom.settle(zoomFrame, null) });
+    drawReplay(canvas, { frame, orientation, art, look: looks.get(), zoom: zoom.settle(zoomFrame, null) });
     // At 1x a finger on the board scrolls the page, which is long; zoomed in,
     // it pans the board instead, as on the game screen.
     canvas.style.touchAction = zoom.zoomed() ? 'none' : 'pan-y';

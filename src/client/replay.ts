@@ -9,11 +9,11 @@
  * Scrubbing sends nothing.
  *
  * **No rules engine.** The positions are the report's moves applied in order
- * by `applyMoveToFen`, as the board's own prediction does: every move in a
- * report was judged legal by the server when it was played, so all that is
- * needed is to move the pieces, including castling's rook, an en passant
- * capture and a promotion. chess.js stays out of the bundle (`optimistic.ts`
- * says why).
+ * by the game's position codec (`applyKnown`, `shared/games/`), as the board's
+ * own prediction does: every move in a report was judged legal by the server
+ * when it was played, so all that is needed is to move the pieces — for chess,
+ * including castling's rook, an en passant capture and a promotion. chess.js
+ * stays out of the bundle (`optimistic.ts` says why).
  *
  * Everything is in squares from a1's centre. Nothing here is a distance: on a
  * board that is not square a step along a file and a step along a rank are
@@ -25,10 +25,8 @@ import type { GameReport, ReportMove, ReportPosition } from '../shared/review.js
 import { type Color, type Square, toSquare } from '../shared/squares.js';
 import { isCarryingTag, plyOfTag } from '../shared/track.js';
 import type { Units } from '../shared/units.js';
-import { applyMoveToFen } from './optimistic.js';
+import { descriptorFor } from '../shared/games/catalog.js';
 import { colorWords, moveWords } from './review.js';
-
-export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 /** A place on the board, in squares from a1's centre. */
 export interface Spot {
@@ -67,21 +65,18 @@ export interface ReplayFrame {
  * only ever holds moves it judged legal.
  */
 export function replayFens(report: GameReport): string[] {
-  const fens = [START_FEN];
-  let fen = START_FEN;
+  const game = descriptorFor(report.gameType);
+  const start = game.initialState(report.options ?? {});
+  const fens = [start];
+  let fen = start;
   for (const move of report.moves) {
-    const promotion = promotionOf(move.uci);
-    const next = applyMoveToFen(fen, move.from, move.to, promotion);
+    // The report keeps no waypoints yet: a chess move has none (decision 0056).
+    const next = game.applyKnown(fen, { from: move.from, via: [] }, move.to, game.choiceOf(move.uci));
     if (next === fen) break;
     fen = next;
     fens.push(fen);
   }
   return fens;
-}
-
-function promotionOf(uci: string): 'q' | 'r' | 'b' | 'n' | undefined {
-  const p = uci.slice(4, 5).toLowerCase();
-  return p === 'q' || p === 'r' || p === 'b' || p === 'n' ? p : undefined;
 }
 
 /** A scrubber value, made a ply that exists. */
@@ -148,7 +143,7 @@ export function replayFrame(report: GameReport, fens: readonly string[], ply: nu
   return {
     ply: at,
     plies,
-    fen: fens[at] ?? START_FEN,
+    fen: fens[at] ?? descriptorFor(report.gameType).initialState(report.options ?? {}),
     move,
     carry: move === null ? null : carryPath(move, approach, carried),
     approach,

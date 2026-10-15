@@ -748,3 +748,43 @@ in, against an off-the-shelf engine: chess, and checkers once it exists.
   should count separately; likewise head-to-head.
 - For checkers it depends on the multi-game architecture (O-57).
 **Not doing yet because:** a future item, behind checkers.
+
+### O-59 — Threefold repetition never ends a game
+**Spotted:** 2026-10-14, moving chess behind the game interface (stage 11.1)
+**Why it matters:** the server judges every move with a `Chess` built from
+the stored FEN alone, and a FEN carries no history. chess.js counts
+repetitions from its own move history, so `isThreefoldRepetition()` is
+always false and the `threefold_repetition` result can never be reached.
+Checked: Nf3 Nf6 Ng1 Ng8 twice from FENs one move at a time reports false at
+every step; the same moves on one `Chess` report true. The fifty-move rule
+does work, because the FEN carries the halfmove clock. Players can still
+agree a draw.
+**Notes:** the fix is to replay the stored moves (or keep a count of
+position keys in the game) before asking. It changes results, so it is not
+part of a refactor that promised none; `worker/games/chess.ts` says so.
+**Not doing yet because:** found during 11.1, which must not change
+behavior.
+
+### O-60 — `check-review` and `check-record` sometimes lose the first place of a move under load
+**Spotted:** 2026-10-15, running the drivers for stage 11.1
+**Why it matters:** a driver that fails for no reason trains everyone to
+rerun it, which is how a real failure gets waved through.
+**What happens:** in "Fool's mate, every piece carried", a phone that has
+just walked onto its destination shows "1 in reach", the driver taps the
+square, and no `place` frame is ever sent (traced with a websocket log); it
+times out 15 s later. It is the first move of either side, both times
+moving up the screen. **It fails at HEAD 762d8f3 too** (two of three runs
+there on the same machine, same signature), so it is older than the game
+interface. `check-record` fails the same way, at the same step ("Fool's
+mate, every piece carried", a 15 s timeout): two of four runs on the 11.1
+code and two of three at HEAD, in the round-1 review. Adding a screenshot before each tap made eight runs in a row
+pass, so it is a race with the last fix. Unconfirmed guess: the tap lands
+on the piece-in-hand plate (O-44), drawn up and to the right of a dot that
+has entered the square from below but not yet reached its middle; a tap on
+the plate is swallowed by design, and its hint did not show in the
+driver's readout.
+**Notes:** fix in the driver (wait for the dot to settle, or tap away from
+the plate) once the cause is confirmed; or reconsider whether a tap on my
+own plate over a legal destination should place.
+**Not doing yet because:** out of scope for 11.1, which must not change
+behavior.

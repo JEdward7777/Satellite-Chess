@@ -16,8 +16,8 @@ import {
 } from '../src/shared/track.js';
 import { fromSquare } from '../src/shared/squares.js';
 import { moveWords } from '../src/client/review.js';
+import { START_FEN } from '../src/shared/games/chess.js';
 import {
-  START_FEN,
   carryWords,
   clampPly,
   hasWalks,
@@ -29,7 +29,7 @@ import {
   walkNoteWords,
 } from '../src/client/replay.js';
 import { replayCarryHtml, reviewHtml } from '../src/client/views/review.js';
-import { pgnOf } from '../src/client/review.js';
+import { pgnOf } from '../src/client/games/chess/index.js';
 
 /**
  * The replay (stage 8.3, decision 0052): the track a game keeps, and what the

@@ -46,6 +46,15 @@ const SHELL = '/';
  */
 const CRITICAL = [SHELL, '/app.js', '/app.css'];
 
+/**
+ * Each game's art (decision 0056), installed with the critical files and as
+ * critically. `app.js` fetches a game's pieces only when that game is shown,
+ * and a chess board opened on a field with no signal would otherwise have
+ * none. A game added to `scripts/build-client.mjs` that should play offline
+ * from the first launch is added here as well.
+ */
+const GAME_ART = ['/games/chess.js'];
+
 /** Nice to have offline; a 404 on one of these must not cost us the whole shell. */
 const OPTIONAL = [
   '/manifest.webmanifest',
@@ -62,7 +71,7 @@ self.addEventListener('install', (event) => {
         OPTIONAL.map((url) => cache.add(url).catch(() => undefined)),
       );
       // All-or-nothing, and last, so a rejection here leaves nothing activated.
-      await cache.addAll(CRITICAL);
+      await cache.addAll([...CRITICAL, ...GAME_ART]);
       await self.skipWaiting();
     })(),
   );
@@ -121,8 +130,61 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // A game's art (decision 0056), asked for by `app.js` as
+  // `/games/<game>.js?v=<hash of the file it was built with>`.
+  if (url.pathname.startsWith('/games/')) {
+    event.respondWith(gameArt(request, url));
+    return;
+  }
+
   event.respondWith(staleWhileRevalidate(request, request));
 });
+
+/**
+ * A game's art: the exact version asked for, never another one while the
+ * network can be reached.
+ *
+ * Stale-while-revalidate is wrong here. `app.js` names the version it was
+ * built with, and an older file under the same name could be missing what the
+ * newer `app.js` calls. So a versioned request is answered from the cache only
+ * if that version is there, and otherwise from the network, which then
+ * replaces every older copy of the file. Only when the network cannot be
+ * reached is the latest copy held answered instead, whatever its version —
+ * the precached one, on a first launch with no signal — because pieces from
+ * the last deploy beat a board of blanks in a field.
+ */
+async function gameArt(request, url) {
+  const cache = await caches.open(CACHE);
+  const exact = await cache.match(request);
+  if (exact) return exact;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      for (const key of await cache.keys()) {
+        const held = new URL(key.url);
+        if (held.pathname === url.pathname && held.search !== '' && held.search !== url.search) {
+          await cache.delete(key);
+        }
+      }
+      // Under the version, and under the plain name the precache uses, which
+      // is the copy an offline request falls back to.
+      await cache.put(request, response.clone());
+      await cache.put(new Request(url.pathname), response.clone());
+      return response;
+    }
+    // The server answered, but not with the file (a 404 mid-deploy, a 5xx):
+    // the copy held beats an error page where a module should be.
+    const held = await cache.match(url.pathname);
+    return held ?? response;
+  } catch {
+    const latest = await cache.match(url.pathname);
+    if (latest) return latest;
+    return new Response('Offline, and this has not been cached yet.', {
+      status: 503,
+      headers: { 'content-type': 'text/plain' },
+    });
+  }
+}
 
 /**
  * Serve the cached copy at once, and quietly replace it for next time.

@@ -91,3 +91,4 @@ The conditions under which this should be reopened.
 | [0053](0053-the-share-card-draws-carries-not-walks.md) | The share card draws carries, not walks; the field is named only when ticked; no date, code or names; made on the phone, pushed, kept nowhere | accepted |
 | [0054](0054-head-to-head-is-folded-from-each-players-own-rows-by-a-pair-id.md) | Head-to-head is folded from each player's own rows by a pair id (never an account); the opponent's name is the reader's own | accepted (amends rule 4 of 0040) |
 | [0055](0055-a-game-can-be-watched-live-on-a-link-both-players-agreed-to.md) | A game can be watched live, on a link both players agreed to, in board space only; six watchers, no delay | accepted |
+| [0056](0056-each-game-sits-behind-one-interface-and-loads-its-own-pieces.md) | Each game sits behind one interface (descriptor, server rules, phone art); a carry is a lift, waypoints, a place; the phone fetches only that game's pieces; absent is chess | accepted |

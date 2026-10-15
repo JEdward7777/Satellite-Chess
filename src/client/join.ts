@@ -22,6 +22,7 @@
  */
 
 import type { FieldSnapshot } from '../shared/field.js';
+import { DEFAULT_GAME_TYPE, type GameType, parseGameType } from '../shared/games/types.js';
 import { normaliseJoinCode } from '../shared/joincode.js';
 import type { Color } from '../shared/squares.js';
 
@@ -52,6 +53,11 @@ export interface JoinSuccess {
   colour: Color;
   /** The field the game is played on. The joiner may never have seen it before. */
   field: FieldSnapshot;
+  /**
+   * Which game (decision 0056), so its pieces can be fetched while the socket
+   * opens. Absent is chess, and a chess join leaves it out.
+   */
+  gameType?: GameType;
 }
 
 export interface JoinRejection {
@@ -163,6 +169,7 @@ export async function joinGame(
   let body: {
     color?: Color;
     field?: FieldSnapshot;
+    gameType?: unknown;
     archived?: boolean;
     error?: string;
     message?: string;
@@ -188,5 +195,14 @@ export async function joinGame(
     return reject('server');
   }
 
-  return { ok: true, code, colour: body.color, field: body.field };
+  // A type this build does not know is dropped here: the board then draws the
+  // snapshot's own type, which is what decides (`descriptorFor`).
+  const gameType = parseGameType(body.gameType);
+  return {
+    ok: true,
+    code,
+    colour: body.color,
+    field: body.field,
+    ...(gameType === null || gameType === DEFAULT_GAME_TYPE ? {} : { gameType }),
+  };
 }

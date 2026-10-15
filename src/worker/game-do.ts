@@ -19,7 +19,6 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import { Chess, type Square } from 'chess.js';
 
 import {
   type ClockState,
@@ -40,7 +39,13 @@ import {
 } from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
-import { buildPgn } from '../shared/pgn.js';
+import {
+  type CarryPath,
+  DEFAULT_GAME_TYPE,
+  type GameOptions,
+  type GameRules,
+  type GameType,
+} from '../shared/games/types.js';
 import {
   TRACK_MAX_FIXES,
   type Tracks,
@@ -81,7 +86,7 @@ import {
   type ResultReason,
   type ServerMsg,
 } from '../shared/protocol.js';
-import { type Color, isSquare } from '../shared/squares.js';
+import { type Color, type Square, isSquare, startZoneSquares } from '../shared/squares.js';
 import {
   WATCH_CLOSE,
   WATCH_CLOSE_REASON,
@@ -105,6 +110,7 @@ import {
   collectionDue,
   collectionKind,
 } from './collection.js';
+import { rulesFor } from './games/index.js';
 import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
 import { pairIdFor } from './user-record.js';
@@ -181,6 +187,10 @@ export interface CreateGameOptions {
   reachBonusSquares?: Partial<Record<Color, number>>;
   /** The reach rule for this game. Omitted means {@link DEFAULT_REACH}. */
   reach?: ReachConfig;
+  /** Which game (decision 0056). Omitted means chess. */
+  gameType?: GameType;
+  /** That game's creation settings; normalised by its rules before storing. */
+  options?: GameOptions;
 }
 
 // The index signature is what `sql.exec<T>()` requires: it returns
@@ -188,6 +198,10 @@ export interface CreateGameOptions {
 interface GameRow {
   join_code: string;
   status: GameStatus;
+  /** NULL is chess (schema 9, decision 0056). */
+  game_type: string | null;
+  /** NULL is no settings. */
+  options_json: string | null;
   fen: string;
   field_snapshot_json: string;
   white_player_id: string | null;
@@ -259,10 +273,52 @@ interface CarryRow {
   lift_lng: number;
   lift_acc: number;
   lift_at: number;
+  /** Waypoints stopped on since the lift, as JSON, or NULL for none (schema 9). */
+  via_json: string | null;
   [key: string]: SqlStorageValue;
 }
 
-const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+/**
+ * One waypoint a carry stopped on (decision 0056), as `carry.via_json` and
+ * `moves.via_json` hold it: the square, and the fix it was judged against.
+ * Kept in the object like a lift's fix; a report turns it into squares.
+ */
+interface StoredWaypoint {
+  sq: Square;
+  lat: number;
+  lng: number;
+  acc: number;
+  at: number;
+}
+
+/**
+ * A carry's stored waypoints, read defensively: anything that is not a list
+ * of them is none. NULL — every chess carry — is none.
+ */
+function waypointsOf(json: string | null): StoredWaypoint[] {
+  if (json === null || json === '') return [];
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (w): w is StoredWaypoint =>
+        typeof w === 'object' &&
+        w !== null &&
+        isSquare((w as StoredWaypoint).sq) &&
+        typeof (w as StoredWaypoint).lat === 'number' &&
+        typeof (w as StoredWaypoint).lng === 'number' &&
+        typeof (w as StoredWaypoint).acc === 'number' &&
+        typeof (w as StoredWaypoint).at === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** The path a stored carry has walked: its origin and each waypoint since. */
+function pathOf(carry: CarryRow): CarryPath {
+  return { from: carry.from_sq, via: waypointsOf(carry.via_json).map((w) => w.sq) };
+}
 
 /**
  * A stored fix, as squares from a1's centre — or null where there is no fix.
@@ -297,6 +353,13 @@ function boardPositionOf(
 const RECORD_RETRY_BASE_MS = 30_000;
 const RECORD_MAX_ATTEMPTS = 10;
 
+/**
+ * Said to a move in a game whose type this build has no rules for (decision
+ * 0056) — a game created by a newer deploy, with this one rolled back over it.
+ * Its moves are refused rather than judged by another game's rules.
+ */
+const UNKNOWN_GAME_MESSAGE = 'This game cannot be played on this version of the server.';
+
 /** Validate a client-supplied fix. Everything from a client is untrusted. */
 function asPosFix(value: unknown): PosFix | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -308,44 +371,6 @@ function asPosFix(value: unknown): PosFix | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(acc)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || acc < 0) return null;
   return { lat, lng, acc, ts: typeof fix.ts === 'number' ? fix.ts : 0 };
-}
-
-/**
- * Promotion is a pure UI choice with no travel involved, so anything unrecognised
- * becomes a queen rather than an error — that is what the player meant.
- */
-function normalisePromotion(value: unknown): 'q' | 'r' | 'b' | 'n' {
-  return value === 'r' || value === 'b' || value === 'n' ? value : 'q';
-}
-
-/**
- * Could `color` conceivably deliver mate with what is on the board?
- *
- * Used only for flag-fall: a lone king, or a king with a single bishop or knight,
- * cannot force mate, so an opponent running out of time draws rather than loses.
- * Deliberately the simple test rather than an exhaustive one — the rare
- * king-and-two-knights case is theoretically winnable and counts as material here,
- * which matches how the rule is usually applied.
- */
-function hasMatingMaterial(chess: Chess, color: Color): boolean {
-  let minors = 0;
-  for (const row of chess.board()) {
-    for (const square of row) {
-      if (square === null || square.color !== color) continue;
-      switch (square.type) {
-        case 'k':
-          break;
-        case 'b':
-        case 'n':
-          minors += 1;
-          break;
-        default:
-          // A pawn, rook or queen is always enough.
-          return true;
-      }
-    }
-  }
-  return minors >= 2;
 }
 
 export class GameDO extends DurableObject<Env> {
@@ -400,6 +425,12 @@ export class GameDO extends DurableObject<Env> {
     // let in while the read was outstanding. From here to the INSERT nothing is
     // awaited, so nothing can interleave.
     if (isInitialised(this.sql)) return false;
+    // The router has already refused a type this build does not know, so this
+    // is a programming error rather than a request to answer.
+    const gameType = options.gameType ?? DEFAULT_GAME_TYPE;
+    const rules = rulesFor(gameType);
+    if (rules === null) throw new Error(`no rules for game type ${JSON.stringify(gameType)}`);
+    const settings = rules.normaliseOptions(options.options ?? {});
     applySchema(this.sql);
 
     const now = Date.now();
@@ -411,15 +442,18 @@ export class GameDO extends DurableObject<Env> {
 
     this.sql.exec(
       `INSERT INTO game (
-         id, join_code, status, fen, field_snapshot_json,
+         id, join_code, status, game_type, options_json, fen, field_snapshot_json,
          white_player_id, black_player_id, white_account, black_account,
          white_ms_remaining, black_ms_remaining, increment_ms, initial_ms,
          active_color, last_clock_start_at,
          white_reach_bonus_sq, black_reach_bonus_sq, reach_json,
          rev, created_at, updated_at
-       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
+       ) VALUES (1, ?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'w', NULL, ?, ?, ?, 1, ?, ?)`,
       options.joinCode,
-      STARTING_FEN,
+      rules.type,
+      // None is NULL rather than `{}`: what every chess game holds.
+      Object.keys(settings).length === 0 ? null : JSON.stringify(settings),
+      rules.initialState(settings),
       JSON.stringify(options.field),
       white,
       black,
@@ -473,7 +507,7 @@ export class GameDO extends DurableObject<Env> {
     playerId: string,
     account: string | null = null,
   ): Promise<
-    | { ok: true; color: Color; field: FieldSnapshot }
+    | { ok: true; color: Color; field: FieldSnapshot; gameType?: GameType }
     | { ok: false; reason: 'not_found' | 'full' }
   > {
     const game = this.game();
@@ -502,7 +536,7 @@ export class GameDO extends DurableObject<Env> {
       // A game that finished before stage 8.4 has no `gc` timer at all; this
       // is where it gets one.
       await this.armCollection(now);
-      return { ok: true, color: existing, field: this.fieldOf(game) };
+      return { ok: true, color: existing, field: this.fieldOf(game), ...this.joinedType(game) };
     }
 
     const free: Color | null =
@@ -533,7 +567,7 @@ export class GameDO extends DurableObject<Env> {
     // Both seats now have lines: the joiner's is new, and the creator's says
     // `staging` rather than `waiting`.
     await this.syncIndex(now);
-    return { ok: true, color: free, field: this.fieldOf(game) };
+    return { ok: true, color: free, field: this.fieldOf(game), ...this.joinedType(game) };
   }
 
   // -------------------------------------------------------------------------
@@ -1321,8 +1355,12 @@ export class GameDO extends DurableObject<Env> {
       return;
     }
 
-    const chess = new Chess(game.fen);
-    const piece = chess.get(from as Square);
+    const rules = this.rulesOf(game);
+    if (rules === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: UNKNOWN_GAME_MESSAGE });
+      return;
+    }
+    const piece = rules.pieceAt(game.fen, from);
     if (!piece || piece.color !== who.color) {
       this.send(ws, {
         t: 'error',
@@ -1335,10 +1373,8 @@ export class GameDO extends DurableObject<Env> {
 
     // Nothing is gained by letting someone carry a piece that cannot go anywhere,
     // and it would strand them mid-field having spent clock time.
-    const destinations = chess
-      .moves({ square: from as Square, verbose: true })
-      .map((move) => move.to);
-    if (destinations.length === 0) {
+    const next = rules.stops(game.fen, { from, via: [] }, this.optionsOf(game, rules));
+    if (next.places.length === 0 && next.waypoints.length === 0) {
       this.send(ws, {
         t: 'error',
         code: 'no_legal_moves',
@@ -1352,7 +1388,7 @@ export class GameDO extends DurableObject<Env> {
       geometryFromSnapshot(this.fieldOf(game)),
       pos,
       pos.acc,
-      from as Square,
+      from,
       this.reachOf(game),
       this.reachBonus(game, who.color),
     );
@@ -1438,7 +1474,13 @@ export class GameDO extends DurableObject<Env> {
 
     const now = Date.now();
 
-    // Chess legality first, and the order matters.
+    const rules = this.rulesOf(game);
+    if (rules === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: UNKNOWN_GAME_MESSAGE });
+      return;
+    }
+
+    // Legality first, and the order matters.
     //
     // Legality does not depend on where anyone is standing, so it is both the
     // cheaper check and the clearer one. Run the other way round, a player who
@@ -1447,34 +1489,35 @@ export class GameDO extends DurableObject<Env> {
     // baffling thing to read when the real problem is that bishops do not move
     // like that.
     //
-    // The server's own rules engine decides. The client runs the same library for
-    // instant highlighting, but its opinion is only a hint.
-    const chess = new Chess(game.fen);
-    let move;
-    try {
-      move = chess.move({
-        from: carry.from_sq,
-        to,
-        promotion: normalisePromotion(msg?.promotion),
-      });
-    } catch {
-      // chess.js 1.x throws on an illegal move where 0.x returned null. Catching
-      // is not optional: an uncaught throw here would fault the object.
+    // The server's own rules engine decides (chess.js, for chess). The client
+    // has no engine at all: its destination dots are the list this object sent.
+    const path = pathOf(carry);
+    const move = rules.play(game.fen, path, to, msg?.promotion, this.optionsOf(game, rules));
+    if (move === null) {
       this.send(ws, {
         t: 'error',
         code: 'illegal_move',
         message: `${carry.from_sq}–${to} is not a legal move.`,
-        move: { from: carry.from_sq as Square, to: to as Square },
+        move: { from: carry.from_sq, to },
       });
       return;
     }
 
+    // The walk judged is the one this place ends: from the lift, or from the
+    // last waypoint when the carry stopped on the way (decision 0056). For
+    // chess, which never stops, it is the lift, as it always was. (With
+    // waypoints, `carriedM` below is then the last leg alone: stage 11.2 sums
+    // the legs, which only it can test.)
+    const via = waypointsOf(carry.via_json);
+    const lastStop = via[via.length - 1];
     const verdict = checkCarry(
       geometryFromSnapshot(this.fieldOf(game)),
-      { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at },
+      lastStop === undefined
+        ? { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at }
+        : { pos: { lat: lastStop.lat, lng: lastStop.lng }, accuracyM: lastStop.acc, at: lastStop.at },
       { pos, accuracyM: pos.acc, at: now },
-      carry.from_sq as Square,
-      to as Square,
+      lastStop?.sq ?? carry.from_sq,
+      to,
       this.reachOf(game),
       this.reachBonus(game, who.color),
     );
@@ -1484,7 +1527,7 @@ export class GameDO extends DurableObject<Env> {
         code: verdict.code ?? 'out_of_reach',
         message: verdict.message ?? 'Out of reach.',
         ...(verdict.refusal ? { refusal: verdict.refusal } : {}),
-        move: { from: carry.from_sq as Square, to: to as Square },
+        move: { from: carry.from_sq, to },
       });
       return;
     }
@@ -1495,18 +1538,20 @@ export class GameDO extends DurableObject<Env> {
 
     this.sql.exec(
       `INSERT INTO moves (
-         seq, color, uci, san, fen_after, from_sq, to_sq,
+         seq, color, uci, san, fen_after, from_sq, to_sq, via_json,
          lift_lat, lift_lng, lift_acc, lift_at,
          place_lat, place_lng, place_acc, place_at,
          carried_m, carried_ms, server_ms, clock_ms_after
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       seq,
       who.color,
-      move.lan,
-      move.san,
-      chess.fen(),
+      move.uci,
+      move.notation,
+      move.state,
       move.from,
       move.to,
+      // NULL for a move with no waypoints, which is every chess move.
+      via.length === 0 ? null : JSON.stringify(via),
       carry.lift_lat,
       carry.lift_lng,
       carry.lift_acc,
@@ -1527,7 +1572,7 @@ export class GameDO extends DurableObject<Env> {
               last_clock_start_at = ?, draw_offer_from = NULL, abort_offer_from = NULL,
               updated_at = ?
         WHERE id = 1`,
-      chess.fen(),
+      move.state,
       clockAfter.active,
       clockAfter.whiteMs,
       clockAfter.blackMs,
@@ -1536,39 +1581,21 @@ export class GameDO extends DurableObject<Env> {
     );
     this.clearCarry();
 
-    const ended = this.detectTerminal(chess, now);
+    const ended = this.detectTerminal(rules, move.state, game, now);
     if (!ended) await this.armFlag();
 
     this.bumpRev();
     this.broadcastState();
   }
 
-  /** Record a result if the position is terminal. Returns whether it did. */
-  private detectTerminal(chess: Chess, now: number): boolean {
-    let outcome: ResultOutcome | null = null;
-    let reason: ResultReason | null = null;
-
-    if (chess.isCheckmate()) {
-      // chess.js reports whose turn it is *after* the move, and that side is mated.
-      outcome = chess.turn() === 'w' ? '0-1' : '1-0';
-      reason = 'checkmate';
-    } else if (chess.isStalemate()) {
-      outcome = '1/2-1/2';
-      reason = 'stalemate';
-    } else if (chess.isInsufficientMaterial()) {
-      outcome = '1/2-1/2';
-      reason = 'insufficient_material';
-    } else if (chess.isThreefoldRepetition()) {
-      outcome = '1/2-1/2';
-      reason = 'threefold_repetition';
-    } else if (chess.isDraw()) {
-      // Whatever is left is the fifty-move rule.
-      outcome = '1/2-1/2';
-      reason = 'fifty_move_rule';
-    }
-
-    if (outcome === null || reason === null) return false;
-    void this.finish(outcome, reason, now);
+  /**
+   * Record a result if the position is terminal, by the game's own rules
+   * (checkmate, stalemate and the draws for chess). Returns whether it did.
+   */
+  private detectTerminal(rules: GameRules, state: string, game: GameRow, now: number): boolean {
+    const end = rules.ending(state, this.optionsOf(game, rules));
+    if (end === null) return false;
+    void this.finish(end.outcome, end.reason, now);
     return true;
   }
 
@@ -1994,7 +2021,14 @@ export class GameDO extends DurableObject<Env> {
   ): { ok: boolean; nearestM: number; reachM: number } {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, color, this.reachOf(game), this.reachBonus(game, color));
+      return inStartZone(
+        geo,
+        pos,
+        color,
+        this.reachOf(game),
+        this.reachBonus(game, color),
+        this.startZoneOf(game, color),
+      );
     } catch {
       return { ok: false, nearestM: Infinity, reachM: 0 };
     }
@@ -2374,14 +2408,17 @@ export class GameDO extends DurableObject<Env> {
       return;
     }
 
-    // A player who runs out of time but whose opponent could never deliver mate
-    // draws rather than loses, as over the board.
+    // The game's own rule for a fallen flag: in chess, a player who runs out of
+    // time but whose opponent could never deliver mate draws rather than loses,
+    // as over the board. A game whose rules this build lacks still ends on the
+    // clock: the flag has fallen whatever is on the board.
+    const rules = this.rulesOf(game);
     const winner: Color = flagged === 'w' ? 'b' : 'w';
-    if (!hasMatingMaterial(new Chess(game.fen), winner)) {
-      await this.finish('1/2-1/2', 'insufficient_material', now);
-    } else {
-      await this.finish(winner === 'w' ? '1-0' : '0-1', 'timeout', now);
-    }
+    const end = rules?.timeout(game.fen, flagged) ?? {
+      outcome: winner === 'w' ? '1-0' : '0-1',
+      reason: 'timeout',
+    };
+    await this.finish(end.outcome, end.reason, now);
 
     this.bumpRev();
     this.broadcastState();
@@ -2642,7 +2679,14 @@ export class GameDO extends DurableObject<Env> {
     // 2. The archive. Built by the same path the review screen reads, so the
     // file a player downloads tomorrow is the one they could download today.
     const report = this.buildReport(game);
-    const pgn = buildPgn(report);
+    // The game's own record file (decision 0056): the PGN, for chess. A game
+    // whose rules this build lacks is kept rather than archived without one.
+    const rules = this.rulesOf(game);
+    if (rules === null) {
+      console.error('finished game kept: no rules to write its record with');
+      return false;
+    }
+    const pgn = rules.writeRecord(report);
     const digest = await sha256Hex(JSON.stringify(toArchive(report, pgn, 0)));
     const archivedAt = this.meta('archive_digest') === digest ? Number(this.meta('archived_at')) : null;
     if (archivedAt === null) {
@@ -2848,6 +2892,61 @@ export class GameDO extends DurableObject<Env> {
     return JSON.parse(game.field_snapshot_json) as FieldSnapshot;
   }
 
+  /**
+   * The rules this game is played by (decision 0056): chess for a game with
+   * no type, which is every game created before there were types. Null for a
+   * type this build does not know — a game rolled back across a deploy that
+   * removed its rules — whose moves are refused rather than judged as chess.
+   */
+  private rulesOf(game: GameRow): GameRules | null {
+    return rulesFor(game.game_type);
+  }
+
+  /**
+   * Which game this is and its settings, for anything that leaves the object:
+   * a snapshot, a watcher's view, a report (decision 0056). **Nothing for
+   * chess with no settings**, so every chess message and archive is byte for
+   * byte what it was before there were game types, and a reader that finds
+   * no type reads chess.
+   */
+  private gameTypeFields(game: GameRow): { gameType?: GameType; options?: GameOptions } {
+    const rules = this.rulesOf(game);
+    const type = rules?.type ?? DEFAULT_GAME_TYPE;
+    const options = rules === null ? {} : this.optionsOf(game, rules);
+    return {
+      ...(type === DEFAULT_GAME_TYPE ? {} : { gameType: type }),
+      ...(Object.keys(options).length === 0 ? {} : { options }),
+    };
+  }
+
+  /** The type a join answers with: nothing for chess (decision 0056). */
+  private joinedType(game: GameRow): { gameType?: GameType } {
+    const type = this.gameTypeFields(game).gameType;
+    return type === undefined ? {} : { gameType: type };
+  }
+
+  /**
+   * A player's start zone in this game (decision 0005): the back rank, for
+   * chess. A game with no rules here has the back rank too, so a handshake
+   * never depends on rules this build lacks.
+   */
+  private startZoneOf(game: GameRow, color: Color): Square[] {
+    return this.rulesOf(game)?.startZone(color) ?? startZoneSquares(color);
+  }
+
+  /**
+   * The game's creation settings, as its rules read them. Snapshotted at
+   * creation like the reach rule, so a game cannot change rules mid-play.
+   */
+  private optionsOf(game: GameRow, rules: GameRules): GameOptions {
+    if (!game.options_json) return rules.normaliseOptions({});
+    try {
+      return rules.normaliseOptions(JSON.parse(game.options_json) as unknown);
+    } catch {
+      return rules.normaliseOptions({});
+    }
+  }
+
   /** The handicap, in squares. */
   private reachBonus(game: GameRow, color: Color): number {
     return color === 'w' ? game.white_reach_bonus_sq : game.black_reach_bonus_sq;
@@ -2877,8 +2976,14 @@ export class GameDO extends DurableObject<Env> {
   ): boolean {
     try {
       const geo = geometryFromSnapshot(this.fieldOf(game));
-      return inStartZone(geo, pos, color, this.reachOf(game), this.reachBonus(game, color))
-        .ok;
+      return inStartZone(
+        geo,
+        pos,
+        color,
+        this.reachOf(game),
+        this.reachBonus(game, color),
+        this.startZoneOf(game, color),
+      ).ok;
     } catch {
       // A malformed snapshot must not take the object down.
       return false;
@@ -2919,6 +3024,7 @@ export class GameDO extends DurableObject<Env> {
       rev: game.rev,
       joinCode: game.join_code,
       status: game.status,
+      ...this.gameTypeFields(game),
       fen: game.fen,
       field: this.fieldOf(game),
       reach: this.reachOf(game),
@@ -2978,21 +3084,29 @@ export class GameDO extends DurableObject<Env> {
   private carryState(game: GameRow): GameSnapshot['carry'] {
     const carry = this.carry();
     if (carry === null) return null;
+    const path = pathOf(carry);
     let destinations: Square[] = [];
+    let waypoints: Square[] = [];
     try {
-      destinations = new Chess(game.fen)
-        .moves({ square: carry.from_sq as Square, verbose: true })
-        .map((move) => move.to);
+      const rules = this.rulesOf(game);
+      if (rules !== null) {
+        const next = rules.stops(game.fen, path, this.optionsOf(game, rules));
+        destinations = next.places;
+        waypoints = next.waypoints;
+      }
     } catch {
       // A carry whose origin no longer holds a piece should be impossible, but
       // must not take the snapshot down.
     }
     return {
       color: carry.color,
-      from: carry.from_sq as Square,
+      from: carry.from_sq,
       piece: carry.piece,
       at: carry.lift_at,
       destinations,
+      // Left out when empty, so a chess carry is exactly what it always was.
+      ...(path.via.length === 0 ? {} : { via: [...path.via] }),
+      ...(waypoints.length === 0 ? {} : { waypoints }),
     };
   }
 
@@ -3240,6 +3354,7 @@ export class GameDO extends DurableObject<Env> {
       v: PROTOCOL_VERSION,
       rev: game.rev,
       status: game.status,
+      ...this.gameTypeFields(game),
       fen: game.fen,
       clock: this.clockOf(game),
       serverNow: Date.now(),
@@ -3414,6 +3529,7 @@ export class GameDO extends DurableObject<Env> {
 
     return {
       joinCode: game.join_code,
+      ...this.gameTypeFields(game),
       fieldName,
       startedAt: game.created_at,
       finishedAt: game.result_at,

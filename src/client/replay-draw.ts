@@ -26,8 +26,9 @@ import type { FieldGeometry } from '../shared/field.js';
 import { boardPointOfIndex } from '../shared/field.js';
 import type { Color } from '../shared/squares.js';
 import type { ZoomView } from './board-zoom.js';
-import type { PieceLook } from './pieces.js';
-import { type Projection, boardBoundsPx, drawBoard, piecesFromFen } from './render.js';
+import { descriptorOf } from '../shared/games/catalog.js';
+import type { GameArt, PieceLook } from './games/types.js';
+import { type Projection, boardBoundsPx, drawBoard } from './render.js';
 import type { ReplayFrame, Spot } from './replay.js';
 
 /**
@@ -53,6 +54,8 @@ export interface ReplayView {
   frame: ReplayFrame;
   /** Whose side is at the bottom: the reader's. */
   orientation: Color;
+  /** The game's pieces (decision 0056); null draws the board without them. */
+  art: GameArt | null;
   look?: PieceLook;
   zoom?: ZoomView | null;
 }
@@ -84,7 +87,8 @@ export function drawReplay(canvas: HTMLCanvasElement, view: ReplayView): Project
   const projection = drawBoard(canvas, {
     geo: REPLAY_GEOMETRY,
     orientation: view.orientation,
-    pieces: piecesFromFen(frame.fen),
+    pieces: view.art === null ? {} : descriptorOf(view.art.type).piecesOf(frame.fen),
+    art: view.art,
     pos: null,
     accuracyM: 0,
     reachM: 0,

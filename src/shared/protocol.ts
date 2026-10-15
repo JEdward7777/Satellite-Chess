@@ -19,6 +19,7 @@
 
 import type { FieldSnapshot } from './field.js';
 import type { ClockState } from './clock.js';
+import type { GameOptions, GameType } from './games/types.js';
 import type { ReachConfig, Refusal } from './reach.js';
 import type { Color, Square } from './squares.js';
 import type { WatchState } from './watch.js';
@@ -153,8 +154,19 @@ export interface CarryState {
   piece: string;
   /** Server time of the lift. */
   at: number;
-  /** Legal destinations for the carried piece. */
+  /** Legal destinations for the carried piece: squares that end the move. */
   destinations: Square[];
+  /**
+   * Squares the piece has stopped on since the lift, in order (decision
+   * 0056): the hops of a multi-jump walked so far. Absent when there are
+   * none, which for chess is always.
+   */
+  via?: Square[];
+  /**
+   * Where the carry may stop next and go on from, beside `destinations`
+   * which end it. Absent when there are none, which for chess is always.
+   */
+  waypoints?: Square[];
 }
 
 /** Everything a client needs to render the game. Sent on every change. */
@@ -163,6 +175,15 @@ export interface GameSnapshot {
   rev: number;
   joinCode: string;
   status: GameStatus;
+  /**
+   * Which game this is (decision 0056). **Absent is chess**, and a chess
+   * game leaves it out, so a chess snapshot is byte for byte what it was
+   * before there were game types.
+   */
+  gameType?: GameType;
+  /** The game's creation settings. Absent when it has none, as chess never does. */
+  options?: GameOptions;
+  /** The position, in the game's own notation: a FEN for chess. */
   fen: string;
   field: FieldSnapshot;
   /**
@@ -259,6 +280,27 @@ export interface LiftMsg {
   leg?: string;
 }
 
+/**
+ * "I am standing on the square this piece hops through" (decision 0056).
+ *
+ * A carry is a lift, then zero or more waypoints, then a place. Each waypoint
+ * is judged for reach where it is made and for a possible walk since the last
+ * stop, as a place is, and the carry goes on from there: a checkers multi-jump
+ * walks each hop. Only a game whose rules offer waypoints takes one. **Chess
+ * never does**, and the server answers one in a chess game exactly as it
+ * answers any type it does not take. One per hop, each one a tap: inbound
+ * and billed like a lift.
+ */
+export interface WaypointMsg {
+  t: 'waypoint';
+  /** The square stood on: named `to`, as on a place, since `at` is a server time everywhere else. */
+  to: Square;
+  pos: PosFix;
+  /** The walk this stop ends, as on {@link LiftMsg}. */
+  travelM?: number;
+  leg?: string;
+}
+
 /** Put the carried piece back. Free; you only paid clock time. */
 export interface DropMsg {
   t: 'drop';
@@ -268,7 +310,11 @@ export interface DropMsg {
 export interface PlaceMsg {
   t: 'place';
   to: Square;
-  /** Only for promotions; a pure UI choice, no travel involved. */
+  /**
+   * A choice made as the piece goes down, with no travel involved: a chess
+   * promotion (`q`, `r`, `b`, `n`). The name is chess's; any game's place
+   * choice travels here (decision 0056).
+   */
   promotion?: 'q' | 'r' | 'b' | 'n';
   pos: PosFix;
   /** As on {@link LiftMsg}: the walk this place ends. */
@@ -348,6 +394,7 @@ export interface SyncMsg {
 export type ClientMsg =
   | PosMsg
   | LiftMsg
+  | WaypointMsg
   | DropMsg
   | PlaceMsg
   | ReadyMsg

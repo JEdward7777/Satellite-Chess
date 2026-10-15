@@ -15,7 +15,7 @@ import { type FieldSpec, snapshotField } from '../shared/field.js';
 import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
-import { buildPgn, pgnFileName } from '../shared/pgn.js';
+import { DEFAULT_GAME_TYPE } from '../shared/games/types.js';
 import type { GameReport } from '../shared/review.js';
 import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
@@ -23,6 +23,7 @@ import type { Color } from '../shared/squares.js';
 import { asUnits } from '../shared/units.js';
 import { cleanOpponentName, isPairId } from '../shared/head-to-head.js';
 import { GameDO } from './game-do.js';
+import { rulesFor } from './games/index.js';
 import { UserDO } from './user-do.js';
 import { SurveyDO } from './survey-do.js';
 import { surveyRoutes } from './survey.js';
@@ -664,6 +665,12 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
     return apiError('bad_field', 'That field is not usable. Re-calibrate and try again.', 400);
   }
 
+  // Which game (decision 0056). Left out, it is chess, which is every create
+  // body a phone has ever sent; a name this build has no rules for is refused
+  // rather than quietly played as chess.
+  const rules = rulesFor(body.gameType);
+  if (rules === null) return apiError('bad_game', 'This server does not know that game.', 400);
+
   const creatorColor: Color = body.color === 'b' ? 'b' : 'w';
   const initialMs = asPositiveInt(body.initialMs) ?? DEFAULT_TIME_CONTROL.initialMs;
   const incrementMs = asNonNegativeInt(body.incrementMs) ?? DEFAULT_TIME_CONTROL.incrementMs;
@@ -676,6 +683,10 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
       creatorAccount: account,
       creatorColor,
       field,
+      gameType: rules.type,
+      // The game's own settings, read by its own rules: unknown keys dropped,
+      // absent ones defaulted. Chess has none.
+      options: rules.normaliseOptions(body.options),
       initialMs,
       incrementMs,
       // Clamped with the same shared rule the create screen uses, because the
@@ -716,7 +727,13 @@ async function joinGame(
     // The field travels back with the seat (stage 6.3). A phone that arrived by
     // scanning a QR has calibrated nothing, and this is the only thing it is
     // missing — the game snapshotted the creator's field when it was created.
-    return json({ color: result.color, field: result.field });
+    // The game's type with it (decision 0056), so the phone can fetch that
+    // game's pieces while the socket opens. Left out for chess.
+    return json({
+      color: result.color,
+      field: result.field,
+      ...(result.gameType === undefined ? {} : { gameType: result.gameType }),
+    });
   }
   if (result.reason === 'full') {
     return apiError('game_full', 'That game already has two players.', 409);
@@ -849,7 +866,10 @@ async function reviewGame(
     // The RPC stub's types widen a tuple to an array (a track fix is one,
     // `shared/track.ts`); what crosses is the object `buildReport` made.
     const report = result.report as GameReport;
-    read = { you: result.you, report, pgn: buildPgn(report) };
+    // The game's own record file (decision 0056): the PGN, for chess.
+    const rules = rulesFor(report.gameType);
+    if (rules === null) return refused();
+    read = { you: result.you, report, pgn: rules.writeRecord(report) };
   } else if (result.reason === 'not_a_player') {
     return refused();
   } else {
@@ -865,10 +885,12 @@ async function reviewGame(
 
   // A plain object rather than a `Headers`, for the same reason every other
   // route here passes one: the spread of a `Headers` is `{}` (`gotchas.md`).
+  // An archive's type is read like any other's: absent is chess.
+  const rules = rulesFor(read.report.gameType) ?? rulesFor(DEFAULT_GAME_TYPE)!;
   return new Response(read.pgn, {
     headers: {
-      'content-type': 'application/x-chess-pgn; charset=utf-8',
-      'content-disposition': `attachment; filename="${pgnFileName(read.report)}"`,
+      'content-type': `${rules.record.mime}; charset=utf-8`,
+      'content-disposition': `attachment; filename="${rules.recordFileName(read.report)}"`,
       'cache-control': 'no-store',
     },
   });

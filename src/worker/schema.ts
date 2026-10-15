@@ -20,7 +20,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -29,6 +29,15 @@ const STATEMENTS = [
      id                  INTEGER PRIMARY KEY CHECK (id = 1),
      join_code           TEXT    NOT NULL,
      status              TEXT    NOT NULL,
+     -- Which game this is (schema 9, decision 0056). NULL is chess: every game
+     -- created before there were game types, read exactly as it was played.
+     game_type           TEXT,
+     -- The game's creation settings as JSON (checkers: "jumps are required"),
+     -- fixed for the life of the game like the reach rule. NULL is none,
+     -- which is what chess always has. Schema 9.
+     options_json        TEXT,
+     -- The position, in the game's own notation: a FEN for chess. The name
+     -- is chess's because chess came first.
      fen                 TEXT    NOT NULL,
      -- The field is snapshotted at creation so a re-calibration elsewhere cannot
      -- reshape a game in progress. Raw corners are the source of truth.
@@ -105,6 +114,11 @@ const STATEMENTS = [
      fen_after      TEXT    NOT NULL,
      from_sq        TEXT    NOT NULL,
      to_sq          TEXT    NOT NULL,
+     -- The waypoints the carry stopped on between the lift and the place, as
+     -- JSON [{sq, lat, lng, acc, at}, …] (schema 9, decision 0056): the hops
+     -- of a checkers multi-jump. NULL for a move with none, which is every
+     -- chess move.
+     via_json       TEXT,
      lift_lat       REAL,
      lift_lng       REAL,
      lift_acc       REAL,
@@ -177,7 +191,11 @@ const STATEMENTS = [
      lift_lat REAL    NOT NULL,
      lift_lng REAL    NOT NULL,
      lift_acc REAL    NOT NULL,
-     lift_at  INTEGER NOT NULL
+     lift_at  INTEGER NOT NULL,
+     -- Each waypoint stopped on since the lift, as JSON [{sq, lat, lng, acc,
+     -- at}, …] (schema 9, decision 0056). NULL until the first, and for chess
+     -- for ever: a chess carry is a lift and a place.
+     via_json TEXT
    )`,
 
   // A Durable Object has exactly one alarm and this design needs several
@@ -257,6 +275,17 @@ function upgradeGameTable(sql: SqlStorage): void {
     sql.exec(`ALTER TABLE game ADD COLUMN abort_offer_from TEXT`);
   }
 
+  // Schema 9: which game, and its settings (decision 0056). NULL for both,
+  // which reads as chess with no settings — what every game already here is.
+  // Nothing is written into the rows: an absent type is the back-compat rule,
+  // not a value to backfill.
+  if (!columns.has('game_type')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN game_type TEXT`);
+  }
+  if (!columns.has('options_json')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN options_json TEXT`);
+  }
+
   // Schema 3: which account each seat accrues to (stage 2.3.4). NULL for every
   // game that predates it, which is the correct answer rather than a missing
   // one — those seats were taken by a phone with no session behind it, so there
@@ -324,10 +353,29 @@ function upgradePresenceTable(sql: SqlStorage): void {
   }
 }
 
+/**
+ * Schema 9: a carry's waypoints, in the carry being walked and in each stored
+ * move (decision 0056). NULL in both, which is a carry with none — every
+ * carry and move already here, all of them chess.
+ */
+function upgradeCarryTables(sql: SqlStorage): void {
+  for (const table of ['carry', 'moves'] as const) {
+    const columns = new Set(
+      [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('${table}')`)].map(
+        (row) => row.name,
+      ),
+    );
+    if (columns.size > 0 && !columns.has('via_json')) {
+      sql.exec(`ALTER TABLE ${table} ADD COLUMN via_json TEXT`);
+    }
+  }
+}
+
 export function applySchema(sql: SqlStorage): void {
   for (const statement of STATEMENTS) sql.exec(statement);
   upgradeGameTable(sql);
   upgradePresenceTable(sql);
+  upgradeCarryTables(sql);
   sql.exec(
     `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`,

@@ -106,6 +106,12 @@ export function toArchive(report: GameReport, pgn: string, now: number): Archive
     archivedAt: now,
     pgn,
     report: {
+      // Absent for chess (decision 0056), so a chess archive is what it was
+      // before there were game types, and one written before them reads as
+      // chess. The version is unchanged for the same reason 0052 gave: the
+      // field is optional, and every v1 reader copes with its absence.
+      ...(report.gameType === undefined ? {} : { gameType: report.gameType }),
+      ...(report.options === undefined ? {} : { options: { ...report.options } }),
       fieldName: report.fieldName,
       startedAt: report.startedAt,
       finishedAt: report.finishedAt,

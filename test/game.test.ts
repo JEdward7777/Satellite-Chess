@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { type FieldSpec, deriveGeometry } from '../src/shared/field.js';
 import { fromLocal } from '../src/shared/geo.js';
 import type { CarryState } from '../src/shared/protocol.js';
+import { PROMOTION_CHOICES, promotesOn } from '../src/shared/games/chess.js';
 import {
-  PROMOTION_CHOICES,
   carryGuidance,
   carryPiece,
   carryPrompt,
@@ -12,7 +12,6 @@ import {
   carryReadout,
   metres,
   myReachBonusSquares,
-  promotesOn,
   suspendedPrompt,
 } from '../src/client/views/game.js';
 

@@ -571,4 +571,14 @@ is; this says what will bite you when you touch it.*
   player's snapshot. `test/worker/watch.test.ts` scans every frame of a
   whole game for a coordinate, and `scripts/check-watch.mjs` does it in a
   browser.
+- **Chess is behind the game interface, and absent is chess** (stage 11.1,
+  decision 0056). chess.js lives only in `worker/games/chess.ts`; the phone
+  has a position codec (`shared/games/chess.ts`) and fetches the pieces and
+  the PGN writer as `/games/chess.js` (`client/games/registry.ts`). A view
+  that draws pieces passes `art` (from `artFor`, null while it loads) and
+  repaints when it lands; a board with no `art` draws no pieces. A snapshot,
+  report, archive or watcher frame carries `gameType` only when it is not
+  chess, so a chess one is byte for byte what it was:
+  `scripts/check-golden.mjs` compares two servers. The build fails if
+  `app.js` bundles a game's art or any client file bundles chess.js.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

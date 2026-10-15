@@ -15,7 +15,6 @@ import {
   headlineDetailWords,
   headlineWords,
   moveWords,
-  pgnOf,
   resultWords,
   secondsWords,
   shareMessageWords,
@@ -23,6 +22,7 @@ import {
   walkWords,
   whereWords,
 } from '../src/client/review.js';
+import { pgnOf } from '../src/client/games/chess/index.js';
 import { DISTANCE_HONESTY as RECORD_HONESTY } from '../src/client/record.js';
 import { reviewHtml } from '../src/client/views/review.js';
 

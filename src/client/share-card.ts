@@ -49,9 +49,10 @@ import { walksOf } from '../shared/review.js';
 import type { Color, Square } from '../shared/squares.js';
 import { type Units, boardWords } from '../shared/units.js';
 import { DEFAULT_FIELD_NAME, SHARED_FIELD_NAME } from './fields.js';
-import type { PieceLook } from './pieces.js';
+import { descriptorOf } from '../shared/games/catalog.js';
+import type { GameArt, PieceLook } from './games/types.js';
 import { distanceWords } from './record.js';
-import { drawBoard, piecesFromFen } from './render.js';
+import { drawBoard } from './render.js';
 import { REPLAY_GEOMETRY, type StraightCarry, drawCarries } from './replay-draw.js';
 import { replayFens } from './replay.js';
 import { colorWords, resultWords } from './review.js';
@@ -319,7 +320,12 @@ const BOARD_RATIO = 1;
  * The card, drawn onto `canvas` at {@link CARD_WIDTH} × {@link CARD_HEIGHT}
  * whatever the phone's pixel ratio: a picture has one size.
  */
-export function drawShareCard(canvas: HTMLCanvasElement, card: ShareCard, look?: PieceLook): void {
+export function drawShareCard(
+  canvas: HTMLCanvasElement,
+  card: ShareCard,
+  art: GameArt,
+  look?: PieceLook,
+): void {
   canvas.width = CARD_WIDTH;
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext('2d');
@@ -352,7 +358,8 @@ export function drawShareCard(canvas: HTMLCanvasElement, card: ShareCard, look?:
   const projection = drawBoard(board, {
     geo: REPLAY_GEOMETRY,
     orientation: card.orientation,
-    pieces: piecesFromFen(card.fen),
+    pieces: descriptorOf(art.type).piecesOf(card.fen),
+    art,
     pos: null,
     accuracyM: 0,
     reachM: 0,

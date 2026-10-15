@@ -26,7 +26,7 @@ import {
 import { headlineWords, moveWords, resultWords, walkWords, whereWords } from '../src/client/review.js';
 import { replayFens } from '../src/client/replay.js';
 import { reviewHtml } from '../src/client/views/review.js';
-import { pgnOf } from '../src/client/review.js';
+import { pgnOf } from '../src/client/games/chess/index.js';
 import { shareImage } from '../src/client/share.js';
 import { RECENT_CARRIES, carryEmphasis } from '../src/client/replay-draw.js';
 import { DEFAULT_FIELD_NAME, SHARED_FIELD_NAME } from '../src/client/fields.js';

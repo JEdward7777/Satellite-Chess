@@ -19,6 +19,7 @@ rather than reading them all.
 | 8 | Post-game: PGN, distance, replay | [`08-postgame.md`](08-postgame.md) |
 | 9 | Hardening: bad GPS, tree cover, small fields | [`09-hardening.md`](09-hardening.md) |
 | 10 | Playtest: an actual game with an actual human | [`10-playtest.md`](10-playtest.md) |
+| 11 | Other games: one interface, checkers next | [`11-games.md`](11-games.md) |
 
 Phases 0–7 give a game two people can really play. Everything after that is
 review, polish and finding out what the field does to it.

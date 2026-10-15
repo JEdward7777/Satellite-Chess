@@ -14,7 +14,9 @@
  * locale's, or this device's remembered choice). No map, no place, no names.
  */
 
+import { descriptorFor } from '../../shared/games/catalog.js';
 import type { Color } from '../../shared/squares.js';
+import { artFor } from '../games/registry.js';
 import type { WatchLink } from '../../shared/watch.js';
 import { canvasSizePx, zoomFrameFor } from '../render.js';
 import { pieceLook } from '../piece-look.js';
@@ -82,6 +84,7 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
   const units = displayUnits();
   let net: WatchNetState = connection.state;
   let orientation: Color = 'w';
+  let live = true;
 
   const zoom = attachBoardZoom({
     canvas,
@@ -117,8 +120,14 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
     const view = net.view;
     const { width, height } = canvasSizePx(canvas);
     const { frame } = zoomFrameFor(REPLAY_GEOMETRY, orientation, width, height);
+    // Absent is chess (decision 0056), which is also what is drawn before the
+    // first view arrives: the starting position.
+    const game = descriptorFor(view?.gameType);
     drawWatch(canvas, {
-      fen: view?.fen ?? 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      fen: view?.fen ?? game.initialState(view?.options ?? {}),
+      art: artFor(game.type, () => {
+        if (live) paint();
+      }),
       orientation,
       look: looks.get(),
       zoom: zoom.settle(frame, null),
@@ -196,6 +205,7 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
   paint();
 
   return () => {
+    live = false;
     offNet();
     offLook();
     offUnits();

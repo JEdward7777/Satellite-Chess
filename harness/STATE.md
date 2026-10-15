@@ -4,40 +4,55 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 3 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phase 1 is done**: `10.15`, **O-51 and
-O-16, Play above the lists on home** (`2026-10-13-01`), clean after three
-review rounds. Home is ordered readout, Play ("Resume your game at <field>"
-when a game is in play, New game or, with no field, Calibrate; the join
-box), Your games, Your fields. A GPS fix redraws only the readout, so a
-code half typed survives. The rest of run 3 is **checkers**, in three
-phases the owner decided on 2026-10-13 (O-57): **phase 2** the multi-game
-architecture, with chess moved behind a rules interface and no behavior
-change; **phase 3** checkers rules on the server (American checkers, walk
-each hop of a multi-jump, "jumps are required" a creation setting that is
-off by default, PDN); **phase 4** checkers on the phone (Chess or Checkers
-at New game, pieces, and replay, share card, head-to-head and watch). Run 2
-(ten phases, `10.9` to `10.14`) is summarized in `2026-10-08-03`.
+(`harness/pipeline/ratchet.md`). **Phase 1 is done** (`10.15`, Play above
+the lists on home, `2026-10-13-01`). **Phase 2 is done**: `11.1`, **chess
+behind a multi-game interface with no behavior change** (O-57, decision 0056,
+`2026-10-15-01`), clean in one review round. Each game is a descriptor (both
+runtimes: lattice, start zone, options, record format, the engine-free
+position codec), server rules (`worker/games/`, chess.js) and phone art
+fetched on demand (`/games/chess.js`). A carry is a lift, waypoints, a place;
+the `waypoint` message and `via_json` storage exist, unused by chess.
+Schema 9 adds `game_type` (NULL is chess). **Absent is chess** on every
+message, report and archive. `scripts/check-golden.mjs` compares two servers
+game by game: old and new were identical in all 63 parts. The rest of run 3:
+**phase 3** checkers rules on the server, **phase 4** checkers on the phone
+(Chess or Checkers at New game, pieces, replay, share card, head-to-head and
+watch). Run 2 (`10.9` to `10.14`) is summarized in `2026-10-08-03`.
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
-`10.10`, `10.11`, `10.12`, `10.14` and `10.15`. All but `8.5` wait only on a
-real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`,
-`10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`); `8.5` also
-has `8.5.5` and `8.5.6`.
-**Next action**: **run 3 phase 2, the multi-game architecture** (O-57). It
-starts with an architecture decision (0056 is the next free number), then
-moves chess behind the rules interface with no change a player can see.
+`10.10`, `10.11`, `10.12`, `10.14`, `10.15` and `11`. All but `8.5` and `11`
+wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
+`10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
+`10.15.3`); `8.5` also has `8.5.5` and `8.5.6`.
+**Next action**: **run 3 phase 3, `11.2` checkers on the server.**
+- American rules: men move forward diagonally, kings both ways, a man
+  reaching the far rank is crowned.
+- **Each hop of a multi-jump is walked**, as server-confirmed waypoints:
+  add the `waypoint` handler; `stops` returns the hops.
+- **"Jumps are required"** is a creation option, **default off**; when off, a
+  player may stop a multi-jump early.
+- **PDN** for the record file, and **no moves left ends the game**.
+- Carryover from the 11.1 review:
+  - with waypoints, `carriedM` in `onPlace` is only the last leg and must
+    sum the legs;
+  - `descriptorFor` still draws an unknown type as chess and must stop;
+  - the golden normaliser blanks every `at` key, which is why the waypoint
+    square is `to`.
+- Run `check-golden` against a worktree of the commit before, to prove chess
+  is unchanged.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`1622b26d`, at `0215298`, deployed 2026-10-08: everything through live
-watching. **The coordinator deploys this phase (`10.15`) next.** The
-`ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in
-`wrangler.jsonc`. The operator has authorized deploys during the run once a
-phase is reviewed clean.
-**1392 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
+`18c3e77a`, at `762d8f3` (through `10.15`). **The coordinator deploys `11.1`
+next.** The `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is
+pinned in `wrangler.jsonc`. The operator has authorized deploys during the run
+once a phase is reviewed clean.
+**1406 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
 (`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
 and mind its caveat in `reference/gotchas.md`. A sweep over thousands of
-cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-13
-`check-games` (now green), `check-resume`, `check-join`, `check-calibrate`,
-`check-field`, `check-fields`, `check-deeplink`, `check-h2h`, `check-units`
-and `drive-game` passed.
+cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-15
+`drive-game`, `check-resume`, `-clock`, `-carry`, `-endings`, `-record`,
+`-review`, `-replay`, `-share`, `-h2h`, `-watch`, `-zoom`, `-units` and
+`-preview` passed. **`check-review` and `check-record` flake under load**
+(O-60, older than 11.1): rerun before believing a failure at "Fool's mate,
+every piece carried".
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-deeplink`, `check-field`, `check-fields`,
@@ -300,8 +315,8 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `1622b26d` (all of run 2, through live watching), `ARCHIVE`
-   id pinned. Finished games
+1. **Deployed** `18c3e77a` (through `10.15`), `ARCHIVE` id pinned; `11.1`
+   is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -354,7 +369,9 @@ game-rule work.
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **Run 3 continues with checkers** (phases 2 to 4 above). After it:
+3. **Run 3 continues with checkers** (`11.2` and `11.3` above). After it:
+   - **O-59** (threefold repetition never ends a game) and **O-60** (the
+     lost-tap driver flake).
    - **O-38**, the distance counter, once there are real-handset traces.
      **O-12** is still open too.
    - The owner's call **O-41** (deleting a game's archive). **O-47**

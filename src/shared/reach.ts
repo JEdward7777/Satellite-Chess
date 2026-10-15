@@ -528,6 +528,9 @@ export function checkCarry(
  * position is part of the game state and cannot be serialised, so instead of
  * trying to restore it we reset it: both players return to their own back rank,
  * which neutralises whatever positional advantage the interruption created.
+ *
+ * `zone` is the game's own start zone (decision 0056, `GameDescriptor`). Every
+ * game so far starts on its back rank, which is the default.
  */
 export function inStartZone(
   geo: FieldGeometry,
@@ -535,10 +538,11 @@ export function inStartZone(
   color: Color,
   cfg: ReachConfig = DEFAULT_REACH,
   bonusSquares = 0,
+  zone: readonly Square[] = startZoneSquares(color),
 ): { ok: boolean; nearestM: number; reachM: number } {
   const reachM = effectiveReachM(geo.meanSquareM, cfg, bonusSquares);
   let nearestM = Infinity;
-  for (const sq of startZoneSquares(color)) {
+  for (const sq of zone) {
     const d = distanceToSquareM(geo, pos, fromSquare(sq));
     if (d < nearestM) nearestM = d;
   }

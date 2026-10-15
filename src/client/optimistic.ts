@@ -27,8 +27,9 @@
  * - **A place is already known-legal.** Its destination came from
  *   `carry.destinations`, which the server generated with chess.js at lift time.
  *   Applying a move that has already been declared legal needs no move generation
- *   — only the three cases where the board changes somewhere other than
- *   `from`/`to`, which are castling, en passant and promotion.
+ *   — only the game's position codec (`applyKnown` in `shared/games/`), which for
+ *   chess handles the three cases where the board changes somewhere other than
+ *   `from`/`to`: castling, en passant and promotion.
  * - **A lift needs move generation, and so is predicted without its
  *   destinations.** The server refuses to lift a piece with no legal moves, and
  *   the client cannot know that locally. This is the one prediction that can be
@@ -42,6 +43,7 @@
 
 import { freeze } from '../shared/clock.js';
 import { deriveGeometry } from '../shared/field.js';
+import { descriptorFor } from '../shared/games/catalog.js';
 import type {
   ClientMsg,
   GameSnapshot,
@@ -50,7 +52,7 @@ import type {
   PosFix,
 } from '../shared/protocol.js';
 import { checkReachTo } from '../shared/reach.js';
-import { type Color, type Square, fromSquare, toSquare } from '../shared/squares.js';
+import type { Color, Square } from '../shared/squares.js';
 import { estimateServerNow } from './clock.js';
 import type { GpsFix } from './gps.js';
 import type { GameConnection, NetState } from './net.js';
@@ -71,115 +73,6 @@ type DropMsg = Extract<ClientMsg, { t: 'drop' }>;
 
 export function isPredictable(msg: ClientMsg): msg is PredictableMsg {
   return msg.t === 'lift' || msg.t === 'place' || msg.t === 'drop';
-}
-
-// ---------------------------------------------------------------------------
-// Applying a move to a position, without a rules engine
-// ---------------------------------------------------------------------------
-
-/** The placement field of a FEN as `board[rank][file]`, `''` for an empty square. */
-type Placement = string[][];
-
-export function parsePlacement(fen: string): Placement {
-  const board: Placement = Array.from({ length: 8 }, () => Array<string>(8).fill(''));
-  const rows = fen.split(' ')[0]?.split('/') ?? [];
-  // FEN lists rank 8 first; rank indices here count up from rank 1, as everywhere
-  // else in this project.
-  rows.forEach((row, index) => {
-    const rank = 7 - index;
-    if (rank < 0) return;
-    let file = 0;
-    for (const ch of row) {
-      const skip = Number(ch);
-      if (Number.isFinite(skip) && skip > 0) {
-        file += skip;
-        continue;
-      }
-      if (file > 7) break;
-      board[rank][file] = ch;
-      file += 1;
-    }
-  });
-  return board;
-}
-
-export function formatPlacement(board: Placement): string {
-  const rows: string[] = [];
-  for (let rank = 7; rank >= 0; rank -= 1) {
-    let row = '';
-    let empty = 0;
-    for (let file = 0; file < 8; file += 1) {
-      const piece = board[rank][file];
-      if (piece === '') {
-        empty += 1;
-        continue;
-      }
-      if (empty > 0) {
-        row += String(empty);
-        empty = 0;
-      }
-      row += piece;
-    }
-    if (empty > 0) row += String(empty);
-    rows.push(row);
-  }
-  return rows.join('/');
-}
-
-/**
- * Apply a known-legal move to a FEN, for rendering only.
- *
- * Only the placement field and the side to move are updated. Castling rights,
- * the en passant target and the halfmove clocks are left as they were, because
- * **the client reads none of them** — `piecesFromFen` takes the placement field
- * and nothing else, and whose turn it is comes from `clock.active`. The next
- * snapshot replaces the whole string a moment later anyway.
- *
- * The move must already be known legal: this is only ever called for a
- * destination the server itself enumerated. Nothing here validates anything.
- */
-export function applyMoveToFen(
-  fen: string,
-  from: Square,
-  to: Square,
-  promotion?: 'q' | 'r' | 'b' | 'n',
-): string {
-  const board = parsePlacement(fen);
-  const a = fromSquare(from);
-  const b = fromSquare(to);
-  const piece = board[a.rank][a.file];
-  if (piece === '') return fen;
-
-  const white = piece === piece.toUpperCase();
-  const kind = piece.toLowerCase();
-  const captured = board[b.rank][b.file];
-
-  board[a.rank][a.file] = '';
-  board[b.rank][b.file] = promotion
-    ? (white ? promotion.toUpperCase() : promotion)
-    : piece;
-
-  // Castling: the king moves two files, and the rook jumps over it. chess.js
-  // encodes castling as a king move only, so the rook has to be moved here or it
-  // is left stranded on the corner.
-  if (kind === 'k' && Math.abs(b.file - a.file) === 2) {
-    const kingside = b.file > a.file;
-    const rookFrom = kingside ? 7 : 0;
-    const rookTo = kingside ? b.file - 1 : b.file + 1;
-    board[a.rank][rookTo] = board[a.rank][rookFrom];
-    board[a.rank][rookFrom] = '';
-  }
-
-  // En passant: a pawn changing file onto an empty square captures the pawn
-  // beside it, not the one under it.
-  if (kind === 'p' && a.file !== b.file && captured === '') {
-    board[a.rank][b.file] = '';
-  }
-
-  const fields = fen.split(' ');
-  fields[0] = formatPlacement(board);
-  if (fields.length > 1) fields[1] = white ? 'b' : 'w';
-  return fields.join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -226,11 +119,9 @@ export function predict(
       if (game.carry !== null) return null;
       if (game.clock.active !== game.you) return null;
 
-      const piece = parsePlacement(game.fen)[fromSquare(msg.from).rank]?.[
-        fromSquare(msg.from).file
-      ];
-      if (!piece) return null;
-      const mine = (piece === piece.toUpperCase() ? 'w' : 'b') === game.you;
+      const piece = descriptorFor(game.gameType).pieceAt(game.fen, msg.from);
+      if (piece === null) return null;
+      const mine = piece.color === game.you;
       if (!mine) return null;
       if (!canReach(game, msg.pos, msg.from)) return null;
 
@@ -243,7 +134,7 @@ export function predict(
         carry: {
           color: game.you,
           from: msg.from,
-          piece: piece.toLowerCase(),
+          piece: piece.type,
           at: now,
           destinations: [],
         },
@@ -267,7 +158,12 @@ export function predict(
 
       return {
         ...game,
-        fen: applyMoveToFen(game.fen, carry.from, msg.to, msg.promotion),
+        fen: descriptorFor(game.gameType).applyKnown(
+          game.fen,
+          { from: carry.from, via: carry.via ?? [] },
+          msg.to,
+          msg.promotion,
+        ),
         carry: null,
         // The last-move highlight moves with the piece, rather than staying on
         // the opponent's move until the server answers. Only `from` and `to`

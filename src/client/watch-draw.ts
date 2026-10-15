@@ -16,24 +16,25 @@
  */
 
 import { boardPointOfIndex } from '../shared/field.js';
+import { descriptorOf } from '../shared/games/catalog.js';
 import type { Color } from '../shared/squares.js';
 import type { WatchSpot } from '../shared/watch.js';
 import type { ZoomView } from './board-zoom.js';
-import { type PieceLook, drawPiece } from './pieces.js';
+import type { GameArt, PieceLook } from './games/types.js';
 import {
   type Piece,
-  type PieceType,
   type Projection,
   canvasSizePx,
   drawBoard,
   inHandPlacement,
   pieceBoxPx,
-  piecesFromFen,
 } from './render.js';
 import { REPLAY_GEOMETRY } from './replay-draw.js';
 
 export interface WatchBoardView {
   fen: string;
+  /** The game's pieces (decision 0056); null draws the board without them. */
+  art: GameArt | null;
   orientation: Color;
   look: PieceLook;
   zoom: ZoomView | null;
@@ -64,19 +65,26 @@ export function watchSpotToScreen(projection: Projection, spot: WatchSpot): { x:
   return projection.toScreen(boardPointOfIndex(REPLAY_GEOMETRY, spot));
 }
 
-/** What is in hand, as a piece to draw, or null for anything unrecognised. */
-export function inHandPiece(carry: { color: Color; piece: string } | null): Piece | null {
+/**
+ * What is in hand, as a piece to draw, or null for anything this game's
+ * pieces do not include.
+ */
+export function inHandPiece(
+  carry: { color: Color; piece: string } | null,
+  pieceTypes: readonly string[],
+): Piece | null {
   if (carry === null) return null;
   const type = carry.piece.toLowerCase();
-  if (type.length !== 1 || !'kqrbnp'.includes(type)) return null;
-  return { type: type as PieceType, color: carry.color };
+  if (!pieceTypes.includes(type)) return null;
+  return { type, color: carry.color };
 }
 
 export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Projection | null {
   const projection = drawBoard(canvas, {
     geo: REPLAY_GEOMETRY,
     orientation: view.orientation,
-    pieces: piecesFromFen(view.fen),
+    pieces: view.art === null ? {} : descriptorOf(view.art.type).piecesOf(view.fen),
+    art: view.art,
     pos: null,
     accuracyM: 0,
     reachM: 0,
@@ -127,7 +135,7 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
 
   // The piece in hand goes with the carrier's dot while their phone is live,
   // exactly as on the players' screens (`carrierPosition` in `views/game.ts`).
-  const piece = inHandPiece(view.carry);
+  const piece = view.art === null ? null : inHandPiece(view.carry, descriptorOf(view.art.type).pieceTypes);
   const carrier = view.carry ? view.dots[view.carry.color] : null;
   if (piece !== null && carrier !== null && carrier.connected) {
     const dot = watchSpotToScreen(projection, carrier.at);
@@ -142,7 +150,7 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
     ctx.strokeStyle = DOT_INK[piece.color].fill;
     ctx.lineWidth = 3;
     ctx.stroke();
-    drawPiece(ctx, piece, view.look, plate.x, plate.y, plate.size);
+    view.art?.drawPiece(ctx, piece, view.look, plate.x, plate.y, plate.size);
   }
   return projection;
 }

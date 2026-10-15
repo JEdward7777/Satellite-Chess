@@ -24,7 +24,8 @@ import {
   whoLabel,
 } from '../account.js';
 import { type PieceLookStore, pieceLook } from '../piece-look.js';
-import { PIECE_ART_CREDIT, PIECE_ART_LICENSE, type PieceLook, pieceSvg } from '../pieces.js';
+import { artFor } from '../games/registry.js';
+import type { GameArt, PieceLook } from '../games/types.js';
 import type { RecordTransport } from '../record.js';
 import { type SignOutResult, signInHref } from '../session.js';
 import { mountRecord, privacyHtml, recordSectionHtml } from './record.js';
@@ -120,6 +121,15 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   const offLook = looks.subscribe(syncLook);
   syncLook();
 
+  // The pieces and their credits are chess's art, fetched on demand (decision
+  // 0056): drawn now if it is here, and the moment it lands if it is not.
+  let live = true;
+  const art = artFor('chess', () => {
+    const landed = artFor('chess');
+    if (live && landed !== null) fillBoardSection(root, landed);
+  });
+  if (art !== null) fillBoardSection(root, art);
+
   const units = deps.units ?? displayUnits();
   const unitButtons = root.querySelectorAll<HTMLButtonElement>('[data-units]');
   const unitsStatus = root.querySelector<HTMLElement>('[data-units-status]');
@@ -147,6 +157,7 @@ export function mountAccount(root: HTMLElement, deps: AccountDeps): () => void {
   const stopRecord = record === null ? () => undefined : mountRecord(record, deps.record, units, deps.onOpponent);
 
   return () => {
+    live = false;
     offUnits();
     offLook();
     stopRecord();
@@ -194,9 +205,10 @@ export function unitsStatusWords(status: UnitsStatus): string {
  * `<details>` so the license is on the phone without taking the screen.
  */
 export function boardSectionHtml(): string {
+  // Empty until the art is here (decision 0056); `fillBoardSection` draws them.
   const sample = (look: PieceLook) =>
-    `<span class="piece-icon">${pieceSvg({ type: 'b', color: 'w' }, look)}</span>` +
-    `<span class="piece-icon">${pieceSvg({ type: 'b', color: 'b' }, look)}</span>`;
+    `<span class="piece-icon" data-look-sample="${look}" data-color="w"></span>` +
+    `<span class="piece-icon" data-look-sample="${look}" data-color="b"></span>`;
   return `<h2>Board</h2>
     <p class="dim">How pieces are drawn on this phone. Try each outdoors and keep the one you can read at a glance.</p>
     <p class="look-choices">
@@ -204,9 +216,22 @@ export function boardSectionHtml(): string {
       <button class="secondary" data-look="disc">${sample('disc')} On discs</button>
     </p>
     <details class="dim" data-credits>
-      <summary>${escapeHtml(PIECE_ART_CREDIT)}</summary>
-      <pre class="license">${escapeHtml(PIECE_ART_LICENSE)}</pre>
+      <summary data-credit></summary>
+      <pre class="license" data-license></pre>
     </details>`;
+}
+
+/** The look switch's pieces and the art's credits, once the art is here. */
+export function fillBoardSection(root: HTMLElement, art: GameArt): void {
+  for (const icon of root.querySelectorAll<HTMLElement>('[data-look-sample]')) {
+    const look: PieceLook = icon.dataset.lookSample === 'disc' ? 'disc' : 'standard';
+    const color = icon.dataset.color === 'b' ? 'b' : 'w';
+    icon.innerHTML = art.pieceSvg({ type: art.samplePiece, color }, look);
+  }
+  const credit = root.querySelector<HTMLElement>('[data-credit]');
+  if (credit !== null) credit.textContent = art.credit;
+  const license = root.querySelector<HTMLElement>('[data-license]');
+  if (license !== null) license.textContent = art.license;
 }
 
 /**

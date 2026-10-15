@@ -6,14 +6,8 @@ import type { GameSnapshot, PosFix } from '../src/shared/protocol.js';
 import { DEFAULT_REACH } from '../src/shared/reach.js';
 import type { GameConnection, NetState } from '../src/client/net.js';
 import { clockReadout } from '../src/client/clock.js';
-import {
-  applyMoveToFen,
-  formatPlacement,
-  isSettled,
-  parsePlacement,
-  predict,
-  withOptimism,
-} from '../src/client/optimistic.js';
+import { isSettled, predict, withOptimism } from '../src/client/optimistic.js';
+import { applyMoveToFen, formatPlacement, parsePlacement } from '../src/shared/games/chess.js';
 
 /** An 8 m board, axis-aligned so board space and metres east/north coincide. */
 const A1 = { lat: 51.4779, lng: -0.0015 };

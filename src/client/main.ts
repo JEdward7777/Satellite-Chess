@@ -13,9 +13,11 @@ import {
   snapshotField,
 } from '../shared/field.js';
 import { decodeFieldLink } from '../shared/fieldlink.js';
+import { DEFAULT_GAME_TYPE, type GameType } from '../shared/games/types.js';
 import type { ListedGame } from '../shared/game-index.js';
 import { fromLocal } from '../shared/geo.js';
 import { formatJoinCode } from '../shared/joincode.js';
+import { loadArt } from './games/registry.js';
 import { parseAppRoute } from '../shared/routes.js';
 import { adoptField, keepGameField, offerFor } from './fields.js';
 import {
@@ -485,7 +487,7 @@ async function boot(): Promise<void> {
       // slow IndexedDB write must never sit between a tapped invite and a board,
       // and there is nothing on the next screen that depends on the answer.
       void keepGameField(store, outcome.field);
-      enterGame(outcome.code, outcome.field, outcome.colour);
+      enterGame(outcome.code, outcome.field, outcome.colour, outcome.gameType);
     });
   }
 
@@ -566,7 +568,16 @@ async function boot(): Promise<void> {
     );
   }
 
-  function enterGame(joinCode: string, field: FieldSnapshot, colour: Color): void {
+  function enterGame(
+    joinCode: string,
+    field: FieldSnapshot,
+    colour: Color,
+    gameType: GameType = DEFAULT_GAME_TYPE,
+  ): void {
+    // The game's pieces, fetched now so they are here before the socket's
+    // first snapshot is (decision 0056). The board draws without them until
+    // they land, and repaints when they do; a failure is the board's to retry.
+    loadArt(gameType).catch(() => undefined);
     // Wrapped so the three acts of a carry land on screen the moment they are
     // tapped. The messages on the wire are identical; only the wait is gone.
     const server = connectToGame({ joinCode });

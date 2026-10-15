@@ -28,7 +28,7 @@ import {
   toBoardPoint,
 } from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
-import type { CarryState, ErrorMsg, GameSnapshot } from '../../shared/protocol.js';
+import type { CarryState, ErrorMsg, GameSnapshot, PlaceMsg } from '../../shared/protocol.js';
 import {
   DEFAULT_REACH,
   accuracyTooPoor,
@@ -60,17 +60,17 @@ import {
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import { pieceLook } from '../piece-look.js';
-import { pieceSvg } from '../pieces.js';
+import { descriptorFor, descriptorOf } from '../../shared/games/catalog.js';
+import { DEFAULT_GAME_TYPE } from '../../shared/games/types.js';
+import { artFor } from '../games/registry.js';
 import {
   type BoardView,
   type Piece,
-  type PieceType,
   type Projection,
   canvasSizePx,
   drawBoard,
   hitsPlate,
   inHandPlate,
-  piecesFromFen,
   squareUnderFoot,
   zoomFrameFor,
 } from '../render.js';
@@ -107,28 +107,6 @@ import {
 // by driving Chromium against `?sim=1` instead, because every view bug in phase
 // 1 was invisible to a unit test and obvious in a screenshot.
 // ---------------------------------------------------------------------------
-
-/** What a pawn may become. Not a king, and not another pawn. */
-export type PromotionPiece = 'q' | 'r' | 'b' | 'n';
-
-export const PROMOTION_CHOICES: readonly { type: PromotionPiece; name: string }[] = [
-  { type: 'q', name: 'Queen' },
-  { type: 'r', name: 'Rook' },
-  { type: 'b', name: 'Bishop' },
-  { type: 'n', name: 'Knight' },
-];
-
-/**
- * Would putting the carried piece down on `to` promote it?
- *
- * Asked of the carry rather than of the FEN, because mid-carry the position
- * still shows the pawn on its origin — the board only changes when the piece
- * goes down — and `piece` is the server's word for what is actually in hand.
- */
-export function promotesOn(carry: Pick<CarryState, 'piece' | 'color'>, to: Square): boolean {
-  if (carry.piece.toLowerCase() !== 'p') return false;
-  return fromSquare(to).rank === (carry.color === 'w' ? 7 : 0);
-}
 
 /** The piece in hand, and the nearest place it can be put down. */
 export interface CarryGuidance {
@@ -278,11 +256,17 @@ export function carryReadout(guidance: CarryGuidance | null, units: Units = 'met
   return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM, units)}`;
 }
 
-/** The piece in hand, as the board draws it. Null for a letter this client does not know. */
-export function carryPiece(guidance: CarryGuidance): Piece | null {
+/**
+ * The piece in hand, as the board draws it. Null for a letter this game's
+ * pieces do not include; the game is chess unless said (decision 0056).
+ */
+export function carryPiece(
+  guidance: CarryGuidance,
+  pieceTypes: readonly string[] = descriptorOf(DEFAULT_GAME_TYPE).pieceTypes,
+): Piece | null {
   const type = guidance.piece.toLowerCase();
-  if (type.length !== 1 || !'kqrbnp'.includes(type)) return null;
-  return { type: type as PieceType, color: guidance.color };
+  if (!pieceTypes.includes(type)) return null;
+  return { type, color: guidance.color };
 }
 
 /**
@@ -471,15 +455,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       </div>
       <div class="promotion" data-promotion hidden>
         <p data-promotion-title>Promote to</p>
-        <div class="promotion-choices">
-          ${PROMOTION_CHOICES.map(
-            (choice) => `
-            <button data-promote="${choice.type}">
-              <span class="piece-icon" data-promote-icon="${choice.type}"></span>
-              <span>${choice.name}</span>
-            </button>`,
-          ).join('')}
-        </div>
+        <div class="promotion-choices" data-promotion-choices></div>
         <button data-promote-cancel class="secondary">Keep carrying</button>
       </div>
     </div>
@@ -518,6 +494,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let lastErrorSeen: string | null = null;
   /** A place that is waiting on the promotion picker being answered. */
   let pendingPromotion: { from: Square; to: Square } | null = null;
+  /** Which game's choices the picker holds, so they are built once a game. */
+  let shownChoicesFor: string | null = null;
+  /** False once torn down, for the art arriving after the screen has gone. */
+  let live = true;
   /**
    * The opponent's dot, smoothed between the relays that carry it.
    *
@@ -691,7 +671,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // A pawn landing on the last rank has to be asked about. Only for a square
     // the server already called legal: a stray tap should be refused by the
     // server as usual, not answered with a picker for a move that cannot happen.
-    if (game.carry && carry.destinations.includes(square) && promotesOn(game.carry, square)) {
+    if (
+      game.carry &&
+      carry.destinations.includes(square) &&
+      descriptorFor(game.gameType).asksChoice({ type: game.carry.piece, color: game.carry.color }, square)
+    ) {
       pendingPromotion = { from: carry.from, to: square };
       paint();
       return;
@@ -706,7 +690,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    * checks reach at the instant of the place — and a player can drift a couple
    * of metres in the time it takes to decide between a queen and a knight.
    */
-  function choosePromotion(promotion: PromotionPiece): void {
+  function choosePromotion(promotion: PlaceMsg['promotion']): void {
     const pending = pendingPromotion;
     const fix = fixNow();
     pendingPromotion = null;
@@ -761,11 +745,13 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       deps.connection.send({ t: 'claim' });
     }
   });
-  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-promote]')) {
-    button.addEventListener('click', () => {
-      choosePromotion(button.dataset.promote as PromotionPiece);
-    });
-  }
+  // The choices are built when the picker first opens (the game is known
+  // from the snapshot by then), so one listener on their row answers them all.
+  root.querySelector<HTMLElement>('[data-promotion-choices]')?.addEventListener('click', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-promote]');
+    const offered = descriptorFor(net.game?.gameType).choices.find((c) => c.type === button?.dataset.promote);
+    if (offered !== undefined) choosePromotion(offered.type as PlaceMsg['promotion']);
+  });
   root.querySelector<HTMLButtonElement>('[data-promote-cancel]')?.addEventListener('click', () => {
     // Cancelling abandons the *place*, not the carry — the piece is still in
     // hand and can go somewhere else, or back where it came from.
@@ -1174,18 +1160,25 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const { frame, base } = zoomFrameFor(geo, myColor(), width, height);
     const view = zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null);
 
+    // The game on the board (decision 0056): absent is chess. Its art is
+    // fetched on demand, and the board repaints when it lands.
+    const game = descriptorFor(net.game?.gameType);
+    const art = artFor(game.type, () => {
+      if (live) paint();
+    });
     drawnView = {
       geo,
       zoom: view,
       orientation: myColor(),
-      pieces: piecesFromFen(net.game?.fen ?? ''),
+      pieces: game.piecesOf(net.game?.fen ?? ''),
+      art,
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
       over: net.game ? isOver(net.game.status) : false,
       carry: carry && {
         ...carry,
-        piece: carryPiece(carry),
+        piece: carryPiece(carry, game.pieceTypes),
         hand: carrierPosition(carry, fix?.pos ?? null, opponent),
       },
       opponent,
@@ -1227,12 +1220,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     set('[data-carry-text]', carryReadout(carry, units.get()));
     // Rewritten only when it changes: this runs up to ten times a second while
     // the opponent's dot glides, and the icon is a few hundred bytes of SVG.
-    const inHand = carry ? carryPiece(carry) : null;
-    const carryKey = inHand ? `${inHand.color}${inHand.type}${looks.get()}` : '';
+    const inHand = carry ? carryPiece(carry, game.pieceTypes) : null;
+    // With the art in the key, an icon wanted before the art landed is drawn
+    // on the repaint that follows it.
+    const carryKey = inHand ? `${inHand.color}${inHand.type}${looks.get()}${art === null ? '' : art.type}` : '';
     if (carryKey !== shownCarryIcon) {
       shownCarryIcon = carryKey;
       const icon = root.querySelector('[data-carry-icon]');
-      if (icon) icon.innerHTML = inHand ? pieceSvg(inHand, looks.get()) : '';
+      if (icon) icon.innerHTML = inHand && art ? art.pieceSvg(inHand, looks.get()) : '';
     }
     for (const el of root.querySelectorAll<HTMLElement>('[data-carry], [data-carry-label]')) {
       el.hidden = carry === null;
@@ -1289,14 +1284,30 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       picker.hidden = pendingPromotion === null;
       if (pendingPromotion) {
         set('[data-promotion-title]', `Promote on ${pendingPromotion.to}`);
+        // The game's choices, built the first time the picker opens: the game
+        // is known from the snapshot by then, and is not at mount.
+        const row = root.querySelector<HTMLElement>('[data-promotion-choices]');
+        if (row !== null && shownChoicesFor !== game.type) {
+          shownChoicesFor = game.type;
+          shownPromotionIcons = '';
+          row.innerHTML = game.choices
+            .map(
+              (choice) => `
+            <button data-promote="${choice.type}">
+              <span class="piece-icon" data-promote-icon="${choice.type}"></span>
+              <span>${choice.name}</span>
+            </button>`,
+            )
+            .join('');
+        }
         // In the mover's own color and the phone's look, drawn when the picker
         // opens rather than at mount, because the seat is not known at mount.
-        const promoKey = `${myColor()}${looks.get()}`;
+        const promoKey = `${myColor()}${looks.get()}${art === null ? '' : art.type}`;
         if (promoKey !== shownPromotionIcons) {
           shownPromotionIcons = promoKey;
           for (const icon of root.querySelectorAll<HTMLElement>('[data-promote-icon]')) {
-            const type = icon.dataset.promoteIcon as PromotionPiece;
-            icon.innerHTML = pieceSvg({ type, color: myColor() }, looks.get());
+            const type = icon.dataset.promoteIcon ?? '';
+            icon.innerHTML = art === null ? '' : art.pieceSvg({ type, color: myColor() }, looks.get());
           }
         }
       }
@@ -1427,6 +1438,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   );
 
   return () => {
+    live = false;
     offLook();
     offGps();
     offNet();

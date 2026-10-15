@@ -17,6 +17,7 @@
 
 import type { ClockState } from './clock.js';
 import { type FieldGeometry, toBoardIndex } from './field.js';
+import type { GameOptions, GameType } from './games/types.js';
 import type { GameResult, GameStatus } from './protocol.js';
 import type { Color, Square } from './squares.js';
 
@@ -112,6 +113,11 @@ export interface WatchSnapshot {
   v: number;
   rev: number;
   status: GameStatus;
+  /** Which game (decision 0056). Absent is chess, which leaves it out. */
+  gameType?: GameType;
+  /** Its creation settings; absent when none, as chess never has. */
+  options?: GameOptions;
+  /** The position, in the game's own notation: a FEN for chess. */
   fen: string;
   clock: ClockState;
   /** Server time this was built, for the clock's offset (`client/clock.ts`). */
@@ -119,7 +125,7 @@ export interface WatchSnapshot {
   /** The board's longer side, in meters: a dimension, never a place (decision 0018). */
   boardM: number;
   players: { w: WatchPlayer; b: WatchPlayer };
-  /** Every move so far, in order, as SAN. */
+  /** Every move so far, in order, in the game's notation: SAN for chess. */
   moves: string[];
   lastMove: { from: Square; to: Square; san: string; color: Color; carriedM: number } | null;
   /** A piece in someone's hand. No destinations: the watcher is not playing. */
