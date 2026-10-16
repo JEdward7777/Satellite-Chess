@@ -226,7 +226,7 @@ describe('game types (decision 0056)', () => {
     expect(plain.status).toBe(201);
     expect(await plain.json()).not.toHaveProperty('gameType');
     expect((await create({ gameType: 'chess', options: { jumpsRequired: true } })).status).toBe(201);
-    const refused = await create({ gameType: 'checkers' });
+    const refused = await create({ gameType: 'backgammon' });
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: 'bad_game' });
   });

@@ -129,7 +129,8 @@ export interface WatchSnapshot {
   moves: string[];
   lastMove: { from: Square; to: Square; san: string; color: Color; carriedM: number } | null;
   /** A piece in someone's hand. No destinations: the watcher is not playing. */
-  carry: { color: Color; from: Square; piece: string } | null;
+  /** `via`: the squares a walked jump has stopped on so far; absent for none. */
+  carry: { color: Color; from: Square; piece: string; via?: Square[] } | null;
   result: GameResult | null;
   /** Who stopped the game, while it is suspended. */
   suspension: { by: Color | null } | null;

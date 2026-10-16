@@ -35,6 +35,7 @@ import {
   type RecordStanding,
   personalResult,
 } from './record.js';
+import type { GameType } from './games/types.js';
 import type { ResultReason } from './protocol.js';
 
 /** What a pair id looks like: 128 bits of a SHA-256, in lower-case hex. */
@@ -116,6 +117,8 @@ export interface OpponentTally {
 /** One game against one opponent, as their detail lists it. */
 export interface OpponentLine {
   joinCode: string;
+  /** Absent is chess (decision 0056). */
+  gameType?: GameType;
   result: PersonalResult;
   reason: ResultReason;
   standing: RecordStanding;
@@ -189,6 +192,7 @@ export function opponentDetail(
       .map(
         (game): OpponentLine => ({
           joinCode: game.joinCode,
+          ...(game.gameType === undefined ? {} : { gameType: game.gameType }),
           result: personalResult(game.outcome, game.color),
           reason: game.reason,
           standing: pairStandingOf(game),

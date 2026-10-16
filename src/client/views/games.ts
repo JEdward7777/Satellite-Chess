@@ -189,6 +189,8 @@ export function reasonWords(reason: ResultReason): string {
       return 'agreement';
     case 'abandoned':
       return 'nobody came back';
+    case 'no_moves':
+      return 'no moves left';
     default: {
       // A row written by an older or a newer build. The result it labels still
       // stands, so it reads as one rather than as "Won — undefined". The

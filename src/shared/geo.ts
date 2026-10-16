@@ -84,6 +84,18 @@ export function distanceM(a: LatLng, b: LatLng): number {
   return length(toLocal(a, b));
 }
 
+/**
+ * The length of a path through `points` in order: each leg a straight line,
+ * as {@link distanceM} measures it. A walked checkers jump's carry is this,
+ * lift to each waypoint to the place (decision 0057); a chess carry is the
+ * one leg. Zero for fewer than two points.
+ */
+export function pathLengthM(points: readonly LatLng[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distanceM(points[i - 1], points[i]);
+  return total;
+}
+
 /** Compass bearing of the vector, in degrees clockwise from true north. */
 export function bearingOf(v: Enu): number {
   const deg = Math.atan2(v.e, v.n) / DEG;

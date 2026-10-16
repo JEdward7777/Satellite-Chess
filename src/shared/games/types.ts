@@ -42,7 +42,7 @@ import type { Color, Square } from '../squares.js';
  * `shared/games/catalog.ts`, rules in `worker/games/` and art in
  * `client/games/`.
  */
-export type GameType = 'chess';
+export type GameType = 'chess' | 'checkers';
 
 /**
  * What a game with no type is (decision 0056). Every game created before game
@@ -53,7 +53,7 @@ export type GameType = 'chess';
 export const DEFAULT_GAME_TYPE: GameType = 'chess';
 
 /** Every game this build knows, in the order a creation screen offers them. */
-export const GAME_TYPES: readonly GameType[] = ['chess'];
+export const GAME_TYPES: readonly GameType[] = ['chess', 'checkers'];
 
 /**
  * A stored or sent game type, read: absent (null, undefined, empty) is chess;
@@ -139,7 +139,10 @@ export interface PlayedMove {
    * Stored and sent as `san`, which is the wire and archive name for it.
    */
   notation: string;
-  /** The move in long algebraic form (`e2e4`, `e7e8q`), stored as `uci`. */
+  /**
+   * The move in long algebraic form, stored as `uci`: chess's `e2e4`,
+   * `e7e8q`; checkers names every square stood on, `c3e5g7` (decision 0057).
+   */
   uci: string;
   from: Square;
   to: Square;

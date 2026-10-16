@@ -25,7 +25,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const USER_SCHEMA_VERSION = 4;
+export const USER_SCHEMA_VERSION = 5;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one account, and the CHECK
@@ -125,7 +125,10 @@ const STATEMENTS = [
      result_reason  TEXT,
      result_at      INTEGER,
      joined_at      INTEGER NOT NULL,
-     updated_at     INTEGER NOT NULL
+     updated_at     INTEGER NOT NULL,
+     -- Schema 5, decision 0056: which game. NULL is chess. Added by ALTER on
+     -- an older account, below.
+     game_type      TEXT
    )`,
 
   `CREATE INDEX IF NOT EXISTS game_index_updated_at ON game_index (updated_at DESC)`,
@@ -180,7 +183,9 @@ const STATEMENTS = [
      recorded_at      INTEGER NOT NULL,
      -- Schema 4, decision 0054: added by ALTER on an older account, below.
      pair_id          TEXT,
-     opponent_travel_m REAL
+     opponent_travel_m REAL,
+     -- Schema 5, decision 0056: which game. NULL is chess.
+     game_type        TEXT
    )`,
 
   // Names a player gave their opponents (stage 8.5.4, decision 0054). Schema
@@ -229,6 +234,13 @@ export function applyUserSchema(sql: SqlStorage): void {
   if (!recordColumns.has('opponent_travel_m')) {
     sql.exec(`ALTER TABLE record ADD COLUMN opponent_travel_m REAL`);
   }
+  // Schema 5: which game a line is (decision 0056). NULL, on every older row,
+  // is chess, which is what they all were.
+  if (!recordColumns.has('game_type')) sql.exec(`ALTER TABLE record ADD COLUMN game_type TEXT`);
+  const indexColumns = new Set(
+    [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('game_index')`)].map((row) => row.name),
+  );
+  if (!indexColumns.has('game_type')) sql.exec(`ALTER TABLE game_index ADD COLUMN game_type TEXT`);
   // Only a player's own opponents are ever looked up, and only by this.
   sql.exec(`CREATE INDEX IF NOT EXISTS record_pair_id ON record (pair_id)`);
   sql.exec(

@@ -57,7 +57,12 @@ export type ResultReason =
   | 'threefold_repetition'
   | 'fifty_move_rule'
   | 'agreement'
-  | 'abandoned';
+  | 'abandoned'
+  /**
+   * Checkers (decision 0057): the side to move had no legal move, or no
+   * pieces left, and lost. Chess never ends this way: stalemate is a draw.
+   */
+  | 'no_moves';
 
 /**
  * Why a game stopped: a result's reason, or `aborted`, which has no result.

@@ -40,6 +40,7 @@
  */
 
 import { SMALL_SQUARE_M } from './field.js';
+import type { GameType } from './games/types.js';
 import type { ResultOutcome, ResultReason } from './protocol.js';
 import type { Color } from './squares.js';
 
@@ -55,6 +56,11 @@ export interface RecordGame {
   joinCode: string;
   /** Which side this account played. */
   color: Color;
+  /**
+   * Which game (decision 0056). **Absent is chess**, as on every row written
+   * before there were game types. Read it with `parseGameType`.
+   */
+  gameType?: GameType;
   outcome: ResultOutcome;
   reason: ResultReason;
   finishedAt: number;
@@ -153,6 +159,8 @@ export interface RecordField {
 /** One line of the history the record screen lists. */
 export interface RecordLine {
   joinCode: string;
+  /** Absent is chess (decision 0056). */
+  gameType?: GameType;
   result: PersonalResult;
   reason: ResultReason;
   standing: RecordStanding;
@@ -260,6 +268,7 @@ export function summarizeRecord(games: readonly RecordGame[]): RecordSummary {
     .map(
       (game): RecordLine => ({
         joinCode: game.joinCode,
+        ...(game.gameType === undefined ? {} : { gameType: game.gameType }),
         result: personalResult(game.outcome, game.color),
         reason: game.reason,
         standing: standingOf(game),

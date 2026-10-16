@@ -15,7 +15,7 @@ import type { ResultOutcome, ResultReason } from '../shared/protocol.js';
 import { isPairId } from '../shared/head-to-head.js';
 import type { RecordGame } from '../shared/record.js';
 import type { Color } from '../shared/squares.js';
-import { MAX_FIELD_NAME_CHARS } from './user-games.js';
+import { MAX_FIELD_NAME_CHARS, gameTypeColumn, gameTypeOfColumn } from './user-games.js';
 
 /**
  * How many finished games one account's record may hold.
@@ -48,6 +48,8 @@ export interface RecordRow {
   /** Schema 4; null on a row written before it. */
   pair_id: string | null;
   opponent_travel_m: number | null;
+  /** Schema 5: NULL is chess (decision 0056). */
+  game_type: string | null;
   [key: string]: SqlStorageValue;
 }
 
@@ -69,6 +71,7 @@ export const RECORD_COLUMNS = [
   'diagonal_m',
   'pair_id',
   'opponent_travel_m',
+  'game_type',
 ] as const;
 
 export function bindValuesFor(game: RecordGame): SqlStorageValue[] {
@@ -91,6 +94,7 @@ export function bindValuesFor(game: RecordGame): SqlStorageValue[] {
     meters(game.diagonalM),
     isPairId(game.pairId) ? game.pairId : null,
     game.opponentTravelM === null || game.opponentTravelM === undefined ? null : meters(game.opponentTravelM),
+    gameTypeColumn(game.gameType),
   ];
 }
 
@@ -98,6 +102,7 @@ export function gameFromRow(row: RecordRow): RecordGame {
   return {
     joinCode: row.join_code,
     color: (row.color === 'b' ? 'b' : 'w') as Color,
+    ...gameTypeOfColumn(row.game_type),
     outcome: asOutcome(row.outcome),
     // A label on a result already decided; an unfamiliar one is still a result.
     reason: row.reason as ResultReason,

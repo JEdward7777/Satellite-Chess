@@ -38,6 +38,7 @@ import {
   toBoardIndex,
 } from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
+import { pathLengthM } from '../shared/geo.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
 import {
   type CarryPath,
@@ -118,7 +119,7 @@ import { applySchema, hasGameTables, isInitialised } from './schema.js';
 import { base64UrlEncode, timingSafeEqual } from './crypto.js';
 
 /**
- * The distance report a phone piggybacks on `pos`, `lift` and `place`: its
+ * The distance report a phone piggybacks on `pos`, `lift`, `waypoint` and `place`: its
  * page-long counter and which counter that is (decision 0040). Untrusted, and
  * validated by {@link creditTravel}.
  */
@@ -256,6 +257,8 @@ interface MoveRow {
   to_sq: string;
   carried_m: number;
   carried_ms: number;
+  /** Schema 9: a walked jump's waypoints, or NULL for none. */
+  via_json: string | null;
   lift_lat: number | null;
   lift_lng: number | null;
   lift_acc: number | null;
@@ -816,6 +819,22 @@ export class GameDO extends DurableObject<Env> {
         this.creditCarry(who, msg as TravelReport);
         if (await this.settleFallenFlag(ws)) return;
         await this.onLift(ws, who, msg as { from: string; pos: PosFix });
+        return;
+
+      case 'waypoint':
+        // Only a game whose rules stop on the way takes one (decision 0056).
+        // Asked before anything else, so a waypoint in a chess game is
+        // answered exactly as a type the server does not take: no walk
+        // credited, no flag settled, the same words.
+        if (!this.takesWaypoints()) {
+          this.send(ws, { t: 'error', code: 'bad_message', message: `Unknown message type ${JSON.stringify(t)}.` });
+          return;
+        }
+        // As a lift and a place: the walk this stop ends is credited first,
+        // then a fallen flag is settled before the stop is judged.
+        this.creditCarry(who, msg as TravelReport);
+        if (await this.settleFallenFlag(ws)) return;
+        await this.onWaypoint(ws, who, msg as { to: string; pos: PosFix });
         return;
 
       case 'drop':
@@ -1424,6 +1443,107 @@ export class GameDO extends DurableObject<Env> {
     this.broadcastState();
   }
 
+  /**
+   * Whether this game's carries may stop on the way (decision 0056): checkers
+   * yes, chess no, and a game with no rules here no.
+   */
+  private takesWaypoints(): boolean {
+    const game = this.game();
+    return game !== null && this.rulesOf(game)?.waypoints === true;
+  }
+
+  /**
+   * Stand on a square the carried piece hops through (decision 0057): one hop
+   * of a walked multi-jump, one tap and one message.
+   *
+   * Judged as a place is, against the last stop rather than the lift: the
+   * square must be one the rules offer as a waypoint from where the piece now
+   * is, the player must be within reach of it now, and the walk since the
+   * last stop must be possible. Nothing on the board changes: the piece is
+   * still in hand and every piece it has jumped is still on its square until
+   * the place, so a drop or a suspension undoes the whole move (decision
+   * 0009). The stop is stored with the carry, so it survives hibernation.
+   */
+  private async onWaypoint(
+    ws: WebSocket,
+    who: SocketAttachment,
+    msg: { to: string; pos: PosFix },
+  ): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+
+    if (game.status !== 'active') {
+      this.send(ws, { t: 'error', code: 'not_active', message: `The game is ${game.status}.` });
+      return;
+    }
+    const carry = this.carry();
+    if (carry === null || carry.color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_carrying', message: 'You are not carrying anything.' });
+      return;
+    }
+    if (game.active_color !== who.color) {
+      this.send(ws, { t: 'error', code: 'not_your_turn', message: 'It is not your turn.' });
+      return;
+    }
+
+    const to = msg?.to;
+    const pos = asPosFix(msg?.pos);
+    if (!isSquare(to) || pos === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: 'A square and a fix are required.' });
+      return;
+    }
+    const rules = this.rulesOf(game);
+    if (rules === null) {
+      this.send(ws, { t: 'error', code: 'bad_message', message: UNKNOWN_GAME_MESSAGE });
+      return;
+    }
+
+    // Legality first, for the reason `onPlace` gives.
+    const path = pathOf(carry);
+    const next = rules.stops(game.fen, path, this.optionsOf(game, rules));
+    if (!next.waypoints.includes(to)) {
+      this.send(ws, {
+        t: 'error',
+        code: 'illegal_move',
+        message: `The piece cannot hop to ${to} from where it is.`,
+        move: { from: carry.from_sq, to },
+      });
+      return;
+    }
+
+    const now = Date.now();
+    const via = waypointsOf(carry.via_json);
+    const lastStop = via[via.length - 1];
+    const verdict = checkCarry(
+      geometryFromSnapshot(this.fieldOf(game)),
+      lastStop === undefined
+        ? { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at }
+        : { pos: { lat: lastStop.lat, lng: lastStop.lng }, accuracyM: lastStop.acc, at: lastStop.at },
+      { pos, accuracyM: pos.acc, at: now },
+      lastStop?.sq ?? carry.from_sq,
+      to,
+      this.reachOf(game),
+      this.reachBonus(game, who.color),
+    );
+    if (!verdict.ok) {
+      this.send(ws, {
+        t: 'error',
+        code: verdict.code ?? 'out_of_reach',
+        message: verdict.message ?? 'Out of reach.',
+        ...(verdict.refusal ? { refusal: verdict.refusal } : {}),
+        move: { from: carry.from_sq, to },
+      });
+      return;
+    }
+
+    const stop: StoredWaypoint = { sq: to, lat: pos.lat, lng: pos.lng, acc: pos.acc, at: now };
+    this.sql.exec(`UPDATE carry SET via_json = ? WHERE id = 1`, JSON.stringify([...via, stop]));
+
+    this.bumpRev();
+    // Broadcast, as a lift is: the opponent watches the jump come hop by hop.
+    this.broadcastState();
+  }
+
   /** Put it back. Free — the piece never moved, so it costs only clock time. */
   private async onDrop(ws: WebSocket, who: SocketAttachment): Promise<void> {
     const carry = this.carry();
@@ -1505,9 +1625,7 @@ export class GameDO extends DurableObject<Env> {
 
     // The walk judged is the one this place ends: from the lift, or from the
     // last waypoint when the carry stopped on the way (decision 0056). For
-    // chess, which never stops, it is the lift, as it always was. (With
-    // waypoints, `carriedM` below is then the last leg alone: stage 11.2 sums
-    // the legs, which only it can test.)
+    // chess, which never stops, it is the lift, as it always was.
     const via = waypointsOf(carry.via_json);
     const lastStop = via[via.length - 1];
     const verdict = checkCarry(
@@ -1531,6 +1649,19 @@ export class GameDO extends DurableObject<Env> {
       });
       return;
     }
+
+    // The carry is every leg, lift to place, and the time is the whole time
+    // in hand (decision 0057): a walked jump is one move, and one carry.
+    // With no waypoint — every chess move — that is the verdict's own figures.
+    const carriedM =
+      via.length === 0
+        ? verdict.carriedM
+        : pathLengthM([
+            { lat: carry.lift_lat, lng: carry.lift_lng },
+            ...via.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+            { lat: pos.lat, lng: pos.lng },
+          ]);
+    const carriedMs = via.length === 0 ? verdict.carriedMs : Math.max(0, now - carry.lift_at);
 
     const clockAfter = applyMove(this.clockOf(game), now);
     const [seqRow] = [...this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM moves`)];
@@ -1560,8 +1691,8 @@ export class GameDO extends DurableObject<Env> {
       pos.lng,
       pos.acc,
       now,
-      verdict.carriedM,
-      verdict.carriedMs,
+      carriedM,
+      carriedMs,
       now,
       who.color === 'w' ? clockAfter.whiteMs : clockAfter.blackMs,
     );
@@ -2097,6 +2228,8 @@ export class GameDO extends DurableObject<Env> {
     return {
       joinCode: game.join_code,
       color,
+      // Left out for chess, so a chess line (and its digest) is what it was.
+      ...this.joinedType(game),
       status: game.status,
       // From the snapshot rather than from the account's own field list: the
       // game is played on the field as it was when the game was made, and a
@@ -2320,6 +2453,9 @@ export class GameDO extends DurableObject<Env> {
     return {
       joinCode: game.join_code,
       color,
+      // Which game, for the record and head-to-head (decision 0056): left out
+      // for chess, as every row before there were types.
+      ...this.joinedType(game),
       outcome,
       reason: game.result_reason as ResultReason,
       finishedAt: game.result_at,
@@ -2911,7 +3047,11 @@ export class GameDO extends DurableObject<Env> {
    */
   private gameTypeFields(game: GameRow): { gameType?: GameType; options?: GameOptions } {
     const rules = this.rulesOf(game);
-    const type = rules?.type ?? DEFAULT_GAME_TYPE;
+    // A stored type this build has no rules for is sent as it is stored, not
+    // left out: left out, it would read as chess on every phone (stage
+    // 11.2). A reader parses it (`parseGameType`), which is why the wire's
+    // `GameType` is only ever trusted through that.
+    const type = rules?.type ?? ((game.game_type ?? DEFAULT_GAME_TYPE) as GameType);
     const options = rules === null ? {} : this.optionsOf(game, rules);
     return {
       ...(type === DEFAULT_GAME_TYPE ? {} : { gameType: type }),
@@ -3365,7 +3505,17 @@ export class GameDO extends DurableObject<Env> {
         last === null
           ? null
           : { from: last.from, to: last.to, san: last.san, color: last.color, carriedM: last.carriedM },
-      carry: carry === null ? null : { color: carry.color, from: carry.from_sq as Square, piece: carry.piece },
+      carry:
+        carry === null
+          ? null
+          : {
+              color: carry.color,
+              from: carry.from_sq as Square,
+              piece: carry.piece,
+              // The hops of a walked jump so far (decision 0057), in squares;
+              // left out when there are none, as for every chess carry.
+              ...(pathOf(carry).via.length === 0 ? {} : { via: [...pathOf(carry).via] }),
+            },
       result:
         game.result_outcome === null
           ? null
@@ -3491,22 +3641,28 @@ export class GameDO extends DurableObject<Env> {
 
     const moves: ReportMove[] = [
       ...this.sql.exec<MoveRow>(
-        `SELECT seq, color, san, uci, from_sq, to_sq, carried_m, carried_ms,
+        `SELECT seq, color, san, uci, from_sq, to_sq, carried_m, carried_ms, via_json,
                 lift_lat, lift_lng, lift_acc, place_lat, place_lng, place_acc
            FROM moves ORDER BY seq`,
       ),
-    ].map((row) => ({
-      seq: row.seq,
-      color: row.color,
-      san: row.san,
-      uci: row.uci,
-      from: row.from_sq,
-      to: row.to_sq,
-      carriedM: row.carried_m,
-      carriedMs: row.carried_ms,
-      lift: boardPositionOf(geo, row.lift_lat, row.lift_lng, row.lift_acc),
-      place: boardPositionOf(geo, row.place_lat, row.place_lng, row.place_acc),
-    }));
+    ].map((row) => {
+      // Squares, like the lift and the place (decision 0041); left out for a
+      // move with no waypoint, which is every chess move.
+      const via = waypointsOf(row.via_json).map((w) => boardPositionOf(geo, w.lat, w.lng, w.acc));
+      return {
+        seq: row.seq,
+        color: row.color,
+        san: row.san,
+        uci: row.uci,
+        from: row.from_sq,
+        to: row.to_sq,
+        carriedM: row.carried_m,
+        carriedMs: row.carried_ms,
+        lift: boardPositionOf(geo, row.lift_lat, row.lift_lng, row.lift_acc),
+        ...(via.length === 0 ? {} : { via }),
+        place: boardPositionOf(geo, row.place_lat, row.place_lng, row.place_acc),
+      };
+    });
 
     // A seat nobody ever took has no presence row, and a measured zero is the
     // honest answer for it: nobody who was never here walked anywhere. Each

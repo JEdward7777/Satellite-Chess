@@ -15,7 +15,6 @@ import { type FieldSpec, snapshotField } from '../shared/field.js';
 import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
-import { DEFAULT_GAME_TYPE } from '../shared/games/types.js';
 import type { GameReport } from '../shared/review.js';
 import { isAppRoute } from '../shared/routes.js';
 import { clampHandicapSquares, reachFromSquares } from '../shared/reach.js';
@@ -885,12 +884,14 @@ async function reviewGame(
 
   // A plain object rather than a `Headers`, for the same reason every other
   // route here passes one: the spread of a `Headers` is `{}` (`gotchas.md`).
-  // An archive's type is read like any other's: absent is chess.
-  const rules = rulesFor(read.report.gameType) ?? rulesFor(DEFAULT_GAME_TYPE)!;
+  // An archive's type is read like any other's: absent is chess. One whose
+  // type this build has no rules for (a newer game, with this build rolled
+  // back over it) is served as the plain text it is, never named as a PGN.
+  const rules = rulesFor(read.report.gameType);
   return new Response(read.pgn, {
     headers: {
-      'content-type': `${rules.record.mime}; charset=utf-8`,
-      'content-disposition': `attachment; filename="${rules.recordFileName(read.report)}"`,
+      'content-type': `${rules?.record.mime ?? 'text/plain'}; charset=utf-8`,
+      'content-disposition': `attachment; filename="${rules?.recordFileName(read.report) ?? 'satellite-game.txt'}"`,
       'cache-control': 'no-store',
     },
   });

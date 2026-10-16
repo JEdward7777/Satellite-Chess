@@ -64,6 +64,13 @@ export interface ReportMove {
   carriedMs: number;
   /** Where the mover stood to lift, or null for a move with no fix stored. */
   lift: ReportPosition | null;
+  /**
+   * Where the mover stood at each waypoint, in order: each hop of a walked
+   * checkers jump but the last (decision 0057). **Absent for a move with
+   * none**, which is every chess move, so a chess report is what it was. The
+   * squares themselves are in `uci`.
+   */
+  via?: (ReportPosition | null)[];
   place: ReportPosition | null;
 }
 

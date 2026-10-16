@@ -30,6 +30,7 @@
  */
 
 import type { GameIndexEntry, GameIndexUpdate } from '../shared/game-index.js';
+import { DEFAULT_GAME_TYPE, type GameType } from '../shared/games/types.js';
 import type { GameStatus, ResultOutcome, ResultReason } from '../shared/protocol.js';
 import type { Color } from '../shared/squares.js';
 
@@ -55,6 +56,8 @@ export const MAX_FIELD_NAME_CHARS = 120;
 export interface GameIndexRow {
   join_code: string;
   color: string;
+  /** Schema 5: NULL is chess (decision 0056). */
+  game_type: string | null;
   status: string;
   field_name: string | null;
   last_move_at: number | null;
@@ -78,6 +81,7 @@ export interface GameIndexRow {
 export const GAME_INDEX_COLUMNS = [
   'join_code',
   'color',
+  'game_type',
   'status',
   'field_name',
   'last_move_at',
@@ -100,6 +104,7 @@ export function bindValuesFor(entry: GameIndexUpdate): SqlStorageValue[] {
   return [
     entry.joinCode,
     entry.color,
+    gameTypeColumn(entry.gameType),
     entry.status,
     entry.fieldName === null ? null : [...entry.fieldName].slice(0, MAX_FIELD_NAME_CHARS).join(''),
     entry.lastMoveAt,
@@ -112,12 +117,28 @@ export function bindValuesFor(entry: GameIndexUpdate): SqlStorageValue[] {
   ];
 }
 
+/**
+ * A game type as a column (decision 0056): NULL for chess and for anything
+ * that is not a short name, so a chess row stays what it was. A name this
+ * build does not know is kept: a newer game wrote it.
+ */
+export function gameTypeColumn(type: unknown): string | null {
+  if (typeof type !== 'string' || type === DEFAULT_GAME_TYPE || !/^[a-z0-9-]{1,32}$/.test(type)) return null;
+  return type;
+}
+
+/** A game type column read back: nothing for chess, the name otherwise. */
+export function gameTypeOfColumn(column: string | null | undefined): { gameType?: GameType } {
+  return column === null || column === undefined || column === '' ? {} : { gameType: column as GameType };
+}
+
 /** A row as the game that wrote it would recognise it. */
 export function entryFromRow(row: GameIndexRow): GameIndexEntry {
   const outcome = asOutcome(row.result_outcome);
   return {
     joinCode: row.join_code,
     color: asColor(row.color),
+    ...gameTypeOfColumn(row.game_type),
     status: asStatus(row.status),
     fieldName: row.field_name,
     lastMoveAt: row.last_move_at,

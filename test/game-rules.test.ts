@@ -55,7 +55,7 @@ describe('game types', () => {
     expect(parseGameType(null)).toBe('chess');
     expect(parseGameType('')).toBe('chess');
     expect(parseGameType('chess')).toBe('chess');
-    expect(parseGameType('checkers')).toBeNull();
+    expect(parseGameType('backgammon')).toBeNull();
     expect(parseGameType(7)).toBeNull();
     expect(DEFAULT_GAME_TYPE).toBe('chess');
   });

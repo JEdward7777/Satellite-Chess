@@ -57,7 +57,7 @@ export interface PgnOptions {
 export function buildPgn(report: GameReport, options: PgnOptions = {}): string {
   const tags = tagPairs(report, options.now ?? Date.now());
   const head = tags.map(([name, value]) => `[${name} "${escapeTag(value)}"]`).join('\n');
-  return `${head}\n\n${moveText(report)}\n`;
+  return `${head}\n\n${moveText(report, PGN_LEGEND, moveComment)}\n`;
 }
 
 /**
@@ -119,12 +119,19 @@ export function resultToken(report: Pick<GameReport, 'outcome'>): string {
  *
  * Wrapped to {@link MAX_LINE} on whitespace. A comment may be broken across
  * lines — it runs to its closing brace — so nothing has to overflow.
+ *
+ * Shared with the PDN (`shared/pdn.ts`), whose movetext is numbered the same
+ * way: the `w` seat moves first in both games (decision 0057).
  */
-function moveText(report: GameReport): string {
+export function moveText(
+  report: GameReport,
+  legend: string,
+  comment: (move: ReportMove) => string | null,
+): string {
   // The legend is one comment and many tokens: at 140-odd characters it would
   // be a single over-long line otherwise, and a comment may be broken on
   // whitespace because it runs to its closing brace.
-  const tokens: string[] = `{${PGN_LEGEND}}`.split(' ');
+  const tokens: string[] = `{${legend}}`.split(' ');
   let expected = 1;
   for (const move of report.moves) {
     const number = Math.floor((move.seq - 1) / 2) + 1;
@@ -138,8 +145,8 @@ function moveText(report: GameReport): string {
     }
     expected = move.seq + 1;
     tokens.push(move.san);
-    const comment = moveComment(move);
-    if (comment !== null) tokens.push(...comment.split(' '));
+    const said = comment(move);
+    if (said !== null) tokens.push(...said.split(' '));
   }
   // An aborted game has no result, and `*` alone reads as "still going".
   if (report.reason === 'aborted') tokens.push(...ABORTED_COMMENT.split(' '));
@@ -180,7 +187,7 @@ export function moveComment(move: ReportMove): string | null {
 }
 
 /** `4.20,1.05 acc 5 m` — where they stood, and how sure the phone was. */
-function position(pos: ReportPosition): string {
+export function position(pos: ReportPosition): string {
   const where = `${squares(pos.file)},${squares(pos.rank)}`;
   return pos.accuracyM > 0 ? `${where} acc ${meters(pos.accuracyM)} m` : where;
 }
@@ -211,21 +218,21 @@ export const ABORTED_COMMENT = '{Aborted by the players: no result.}';
  * is the `?` case: its clocks hold what is left rather than what they began
  * with, so there is no honest number to write.
  */
-function timeControl(report: Pick<GameReport, 'initialMs' | 'incrementMs'>): string {
+export function timeControl(report: Pick<GameReport, 'initialMs' | 'incrementMs'>): string {
   if (report.initialMs === null || !Number.isFinite(report.initialMs)) return '?';
   const initial = Math.max(0, Math.round(report.initialMs / 1000));
   const increment = Math.max(0, Math.round(report.incrementMs / 1000));
   return `${initial}+${increment}`;
 }
 
-function pgnDate(date: Date): string {
+export function pgnDate(date: Date): string {
   const y = String(date.getUTCFullYear()).padStart(4, '0');
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   const d = String(date.getUTCDate()).padStart(2, '0');
   return `${y}.${m}.${d}`;
 }
 
-function pgnTime(date: Date): string {
+export function pgnTime(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 }
@@ -237,11 +244,11 @@ function pgnTime(date: Date): string {
  * full of `12.4000000001` reads as a machine's file rather than a record of an
  * afternoon.
  */
-function meters(value: number): string {
+export function meters(value: number): string {
   return trim(Number.isFinite(value) && value > 0 ? value : 0, 1);
 }
 
-function seconds(ms: number): string {
+export function seconds(ms: number): string {
   return trim(Number.isFinite(ms) && ms > 0 ? ms / 1000 : 0, 1);
 }
 
@@ -259,7 +266,7 @@ function trim(value: number, places: number): string {
  * newline cannot appear at all. A field name is player-written text and is the
  * one value here that did not come from us.
  */
-function escapeTag(value: string): string {
+export function escapeTag(value: string): string {
   return value.replace(/[\\"]/g, (c) => `\\${c}`).replace(/[\r\n\t]+/g, ' ');
 }
 
@@ -278,7 +285,7 @@ export function pgnFileName(report: Pick<GameReport, 'fieldName' | 'startedAt'>)
   return `satellite-chess-${day}${where === '' ? '' : `-${where}`}.pgn`;
 }
 
-function slug(name: string): string {
+export function slug(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

@@ -581,4 +581,10 @@ is; this says what will bite you when you touch it.*
   chess, so a chess one is byte for byte what it was:
   `scripts/check-golden.mjs` compares two servers. The build fails if
   `app.js` bundles a game's art or any client file bundles chess.js.
+- **In checkers a `Color` is a seat, not a paint: `w` is Black** (stage
+  11.2, decision 0057). The dark pieces move first, and everything around
+  the rules says `w` moves first, so the `w` seat plays them. A phone that
+  writes "White" for `w` in a checkers game is wrong. And **a waypoint
+  changes no square**: the board moves only at the place, so a test that
+  reads `fen` after a `waypoint` sees the jumped piece still there.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

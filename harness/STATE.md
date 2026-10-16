@@ -4,55 +4,47 @@
 files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 3 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phase 1 is done** (`10.15`, Play above
-the lists on home, `2026-10-13-01`). **Phase 2 is done**: `11.1`, **chess
-behind a multi-game interface with no behavior change** (O-57, decision 0056,
-`2026-10-15-01`), clean in one review round. Each game is a descriptor (both
-runtimes: lattice, start zone, options, record format, the engine-free
-position codec), server rules (`worker/games/`, chess.js) and phone art
-fetched on demand (`/games/chess.js`). A carry is a lift, waypoints, a place;
-the `waypoint` message and `via_json` storage exist, unused by chess.
-Schema 9 adds `game_type` (NULL is chess). **Absent is chess** on every
-message, report and archive. `scripts/check-golden.mjs` compares two servers
-game by game: old and new were identical in all 63 parts. The rest of run 3:
-**phase 3** checkers rules on the server, **phase 4** checkers on the phone
-(Chess or Checkers at New game, pieces, replay, share card, head-to-head and
-watch). Run 2 (`10.9` to `10.14`) is summarized in `2026-10-08-03`.
+(`harness/pipeline/ratchet.md`). **Phases 1 to 3 are done**: `10.15` (Play
+above the lists on home, `2026-10-13-01`), `11.1` (chess behind a
+multi-game interface, decision 0056, `2026-10-15-01`) and **`11.2`,
+checkers rules on the server** (decision 0057, `2026-10-15-02`), clean in
+round 1. American checkers on the dark squares; the **`w` seat plays the
+dark pieces and moves first**; each hop of a multi-jump is a `waypoint`
+judged like a place, and **nothing is captured until the place**, so a
+drop or suspension mid-jump puts everything back. "Jumps are required" is a
+creation option, off by default. No moves left loses (`no_moves`); draws by
+agreement only. PDN is the record file. The type travels on every message,
+report, archive, record line and game list (UserDO schema 5); absent is
+still chess, and `check-golden` against `895c93b` was identical in all 63
+parts. The phone cannot create or draw checkers yet.
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
 `10.10`, `10.11`, `10.12`, `10.14`, `10.15` and `11`. All but `8.5` and `11`
 wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
 `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`.
-**Next action**: **run 3 phase 3, `11.2` checkers on the server.**
-- American rules: men move forward diagonally, kings both ways, a man
-  reaching the far rank is crowned.
-- **Each hop of a multi-jump is walked**, as server-confirmed waypoints:
-  add the `waypoint` handler; `stops` returns the hops.
-- **"Jumps are required"** is a creation option, **default off**; when off, a
-  player may stop a multi-jump early.
-- **PDN** for the record file, and **no moves left ends the game**.
-- Carryover from the 11.1 review:
-  - with waypoints, `carriedM` in `onPlace` is only the last leg and must
-    sum the legs;
-  - `descriptorFor` still draws an unknown type as chess and must stop;
-  - the golden normaliser blanks every `at` key, which is why the waypoint
-    square is `to`.
-- Run `check-golden` against a worktree of the commit before, to prove chess
-  is unchanged.
+**Next action**: **run 3 phase 4, `11.3` checkers on the phone**: Chess or
+Checkers at New game with the "Jumps are required" switch, the pieces,
+sending `waypoint` on a tap, naming seats (`w` is Black), replay, share
+card, head-to-head and watching. The full list, with the round-1 review's
+notes, is under 11.2 in `plan/11-games.md`:
+- after a waypoint, a tap on the origin square is a real place (a king's
+  jump can end where it began);
+- the record and head-to-head totals count chess and checkers together;
+- confirm in a real checkers program that PDN `1-0` means the dark side
+  won before the first `.pdn` is shared (open in decision 0057).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`18c3e77a`, at `762d8f3` (through `10.15`). **The coordinator deploys `11.1`
+`dacab02e`, at `895c93b` (through `11.1`). **The coordinator deploys `11.2`
 next.** The `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is
 pinned in `wrangler.jsonc`. The operator has authorized deploys during the run
 once a phase is reviewed clean.
-**1406 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
+**1435 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
 (`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
-and mind its caveat in `reference/gotchas.md`. A sweep over thousands of
-cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-15
-`drive-game`, `check-resume`, `-clock`, `-carry`, `-endings`, `-record`,
-`-review`, `-replay`, `-share`, `-h2h`, `-watch`, `-zoom`, `-units` and
-`-preview` passed. **`check-review` and `check-record` flake under load**
-(O-60, older than 11.1): rerun before believing a failure at "Fool's mate,
-every piece carried".
+and mind its caveat in `reference/gotchas.md` (a flag fall's ending awaits
+the accounts before its broadcast, so poll for it). A sweep over thousands
+of cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-15
+all 24 browser drivers passed on the 11.2 code. **`check-review` and
+`check-record` flake under load** (O-60): rerun before believing a failure
+at "Fool's mate, every piece carried".
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-deeplink`, `check-field`, `check-fields`,
@@ -315,7 +307,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `18c3e77a` (through `10.15`), `ARCHIVE` id pinned; `11.1`
+1. **Deployed** `dacab02e` (through `11.1`), `ARCHIVE` id pinned; `11.2`
    is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
@@ -369,7 +361,7 @@ game-rule work.
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **Run 3 continues with checkers** (`11.2` and `11.3` above). After it:
+3. **Run 3 continues with checkers on the phone** (`11.3` above). After it:
    - **O-59** (threefold repetition never ends a game) and **O-60** (the
      lost-tap driver flake).
    - **O-38**, the distance counter, once there are real-handset traces.

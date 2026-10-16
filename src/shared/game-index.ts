@@ -29,6 +29,7 @@
  */
 
 import { isOver } from './endings.js';
+import type { GameType } from './games/types.js';
 import { CLAIM_AFTER_MS, type GameResult, type GameStatus } from './protocol.js';
 import type { Color } from './squares.js';
 
@@ -45,6 +46,12 @@ export interface GameIndexEntry {
   joinCode: string;
   /** Which side this account plays. */
   color: Color;
+  /**
+   * Which game (decision 0056). **Absent is chess**, and a chess line leaves
+   * it out, so a chess line is what it was before there were game types. A
+   * name may be one a phone does not know yet: read it with `parseGameType`.
+   */
+  gameType?: GameType;
   status: GameStatus;
   /** The field's name at the moment the game snapshotted it, for the list line. */
   fieldName: string | null;

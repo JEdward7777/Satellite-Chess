@@ -5,10 +5,12 @@
  */
 
 import { type GameRules, type GameType, parseGameType } from '../../shared/games/types.js';
+import { CHECKERS_RULES } from './checkers.js';
 import { CHESS_RULES } from './chess.js';
 
 const RULES: Record<GameType, GameRules> = {
   chess: CHESS_RULES,
+  checkers: CHECKERS_RULES,
 };
 
 /**

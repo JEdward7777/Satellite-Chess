@@ -19,7 +19,10 @@
 import type { GameType } from '../../shared/games/types.js';
 import type { GameArt } from './types.js';
 
-const LOADERS: Record<GameType, () => Promise<GameArt>> = {
+// Partial while a game the server plays has no art on the phone yet:
+// checkers' rules came first (stage 11.2), its pieces with stage 11.3. Until
+// then a board of it draws no pieces, and nothing offers to create one.
+const LOADERS: Partial<Record<GameType, () => Promise<GameArt>>> = {
   chess: () => import('./chess/index.js').then((module) => module.CHESS_ART),
 };
 
@@ -41,7 +44,14 @@ export function loadArt(type: GameType): Promise<GameArt> {
   if (have !== undefined) return Promise.resolve(have);
   const inFlight = pending.get(type);
   if (inFlight !== undefined) return inFlight;
-  const started = LOADERS[type]().then(
+  const loader = LOADERS[type];
+  if (loader === undefined) {
+    // Marked failed, so a board repainting many times a second asks again
+    // only as often as after a failed fetch.
+    failedAt.set(type, Date.now());
+    return Promise.reject(new Error(`no pieces for ${type} in this build`));
+  }
+  const started = loader().then(
     (art) => {
       loaded.set(type, art);
       pending.delete(type);
