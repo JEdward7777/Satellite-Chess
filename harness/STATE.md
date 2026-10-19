@@ -21,11 +21,10 @@ wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
 `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`; `11` has **`11.4`**, the
 real-phone check of checkers, which needs the owner on a real phone.
-**Next action**: **the coordinator deploys `11.3`.** Run 3's planned phases
-are complete; the queue is **O-58** (a computer opponent) and other O-57
+**Next action**: Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
 games (other games on the same field), only when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`0d66a20c`, at `23cee67` (through `11.2`). The `ARCHIVE` KV namespace id
+`e5f5e086`, at `85d61ef` (through `11.3`: checkers is playable). The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during the run once a phase is reviewed
 clean.
@@ -300,8 +299,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `0d66a20c` (through `11.2`), `ARCHIVE` id pinned; `11.3`
-   is next. Finished games
+1. **Deployed** `e5f5e086` (through `11.3`), `ARCHIVE` id pinned. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
