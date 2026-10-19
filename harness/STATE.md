@@ -3,48 +3,41 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Run 3 of the pipeline is under way**
-(`harness/pipeline/ratchet.md`). **Phases 1 to 3 are done**: `10.15` (Play
-above the lists on home, `2026-10-13-01`), `11.1` (chess behind a
-multi-game interface, decision 0056, `2026-10-15-01`) and **`11.2`,
-checkers rules on the server** (decision 0057, `2026-10-15-02`), clean in
-round 1. American checkers on the dark squares; the **`w` seat plays the
-dark pieces and moves first**; each hop of a multi-jump is a `waypoint`
-judged like a place, and **nothing is captured until the place**, so a
-drop or suspension mid-jump puts everything back. "Jumps are required" is a
-creation option, off by default. No moves left loses (`no_moves`); draws by
-agreement only. PDN is the record file. The type travels on every message,
-report, archive, record line and game list (UserDO schema 5); absent is
-still chess, and `check-golden` against `895c93b` was identical in all 63
-parts. The phone cannot create or draw checkers yet.
+**Tree state**: clean. **Run 3 of the pipeline is complete**
+(`harness/pipeline/ratchet.md`): `10.15` (Play above the lists on home),
+`11.1` (chess behind a multi-game interface, decision 0056), `11.2`
+(checkers rules on the server, decision 0057) and **`11.3`, checkers on the
+phone** (decision 0058, `2026-10-18-01`), clean in round 2. New game offers
+Chess or Checkers with the "Jumps are required" switch (off by default);
+each hop of a jump is a tap (ring to hop, dot to place, "Stop here / Keep
+jumping / Cancel"); in checkers the `w` seat is called **Black** everywhere
+a player reads it, and chess's words are byte for byte unchanged; the record
+and head-to-head keep one distance and split results by game; an unknown
+game type says "update the app". `check-golden` against `23cee67`: identical
+in all 63 parts.
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
 `10.10`, `10.11`, `10.12`, `10.14`, `10.15` and `11`. All but `8.5` and `11`
 wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
-`10.15.3`); `8.5` also has `8.5.5` and `8.5.6`.
-**Next action**: **run 3 phase 4, `11.3` checkers on the phone**: Chess or
-Checkers at New game with the "Jumps are required" switch, the pieces,
-sending `waypoint` on a tap, naming seats (`w` is Black), replay, share
-card, head-to-head and watching. The full list, with the round-1 review's
-notes, is under 11.2 in `plan/11-games.md`:
-- after a waypoint, a tap on the origin square is a real place (a king's
-  jump can end where it began);
-- the record and head-to-head totals count chess and checkers together;
-- confirm in a real checkers program that PDN `1-0` means the dark side
-  won before the first `.pdn` is shared (open in decision 0057).
+`10.15.3`); `8.5` also has `8.5.5` and `8.5.6`; `11` has **`11.4`**, the
+real-phone check of checkers, which needs the owner on a real phone.
+**Next action**: **the coordinator deploys `11.3`.** Run 3's planned phases
+are complete; the queue is **O-58** (a computer opponent) and other O-57
+games (other games on the same field), only when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`dacab02e`, at `895c93b` (through `11.1`). **The coordinator deploys `11.2`
-next.** The `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is
-pinned in `wrangler.jsonc`. The operator has authorized deploys during the run
-once a phase is reviewed clean.
-**1435 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
+`0d66a20c`, at `23cee67` (through `11.2`). The `ARCHIVE` KV namespace id
+(`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
+operator has authorized deploys during the run once a phase is reviewed
+clean.
+**1474 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
 (`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
 and mind its caveat in `reference/gotchas.md` (a flag fall's ending awaits
 the accounts before its broadcast, so poll for it). A sweep over thousands
-of cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-15
-all 24 browser drivers passed on the 11.2 code. **`check-review` and
-`check-record` flake under load** (O-60): rerun before believing a failure
-at "Fool's mate, every piece carried".
+of cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-16
+all 25 browser drivers passed on the 11.3 code, including the new
+`check-checkers`. **`check-review` and `check-record` flake under load**
+(O-60): `check-record` failed 2 of 7 at both HEAD and the new code; rerun
+before believing a failure at "Fool's mate, every piece carried".
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-deeplink`, `check-field`, `check-fields`,
@@ -307,7 +300,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `dacab02e` (through `11.1`), `ARCHIVE` id pinned; `11.2`
+1. **Deployed** `0d66a20c` (through `11.2`), `ARCHIVE` id pinned; `11.3`
    is next. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
@@ -361,7 +354,8 @@ game-rule work.
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **Run 3 continues with checkers on the phone** (`11.3` above). After it:
+3. **Run 3 is complete.** `11.4`: checkers on a real phone (rings and dots
+   in sun, the crown at arm's length, the stop/keep choice). Then:
    - **O-59** (threefold repetition never ends a game) and **O-60** (the
      lost-tap driver flake).
    - **O-38**, the distance counter, once there are real-handset traces.

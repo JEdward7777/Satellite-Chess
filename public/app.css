@@ -1348,3 +1348,16 @@ button.danger {
 .watch-legend {
   font-size: 0.85rem;
 }
+
+/* The checkers "Jumps are required" switch on New game (decision 0057). */
+.switch-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.switch-row input {
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+}

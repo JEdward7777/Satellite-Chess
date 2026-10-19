@@ -49,7 +49,7 @@ import { walksOf } from '../shared/review.js';
 import type { Color, Square } from '../shared/squares.js';
 import { type Units, boardWords } from '../shared/units.js';
 import { DEFAULT_FIELD_NAME, SHARED_FIELD_NAME } from './fields.js';
-import { descriptorOf } from '../shared/games/catalog.js';
+import { descriptorOf, gameLabel, seatIsDark } from '../shared/games/catalog.js';
 import type { GameArt, PieceLook } from './games/types.js';
 import { distanceWords } from './record.js';
 import { drawBoard } from './render.js';
@@ -73,6 +73,29 @@ export const CARD_HEIGHT = 1350;
 /** What the file is called. No date, no field and no code: the name travels with it. */
 export const CARD_FILE_NAME = 'satellite-chess.png';
 
+/**
+ * The card's file name for a game: chess's is {@link CARD_FILE_NAME}, as it
+ * always was; another game names itself (decision 0058).
+ */
+export function cardFileName(gameType?: unknown): string {
+  const label = gameLabel(gameType);
+  return label === null ? CARD_FILE_NAME : `satellite-${slug(label)}.png`;
+}
+
+/** The words over the board: "SATELLITE CHESS", "SATELLITE CHECKERS". */
+export function cardTitleWords(gameType?: unknown): string {
+  return `Satellite ${gameLabel(gameType) ?? 'Chess'}`.toUpperCase();
+}
+
+/** "A game of Satellite Chess", "A game of Satellite Checkers": the share sheet's title. */
+export function cardGameWords(gameType?: unknown): string {
+  return `A game of Satellite ${gameLabel(gameType) ?? 'Chess'}`;
+}
+
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 /** One figure on the card: a value over its label. */
 export interface CardFigure {
   value: string;
@@ -81,6 +104,10 @@ export interface CardFigure {
 
 /** Everything the card shows, as data, so a test can read it. */
 export interface ShareCard {
+  /** "SATELLITE CHESS", or the game's own name (decision 0058). */
+  title: string;
+  /** "A game of Satellite Chess", for the share sheet and the message. */
+  game: string;
   /** "Won as Black — checkmate". */
   result: string;
   /** The field's name, only when a player wrote one and this one chose to show it. */
@@ -135,7 +162,7 @@ export function cardResultWords(report: GameReport, you: Color | null): string {
   }
   const mine = personalResult(report.outcome, you);
   const verdict = mine === 'win' ? 'Won' : mine === 'loss' ? 'Lost' : 'Drew';
-  return `${verdict} as ${colorWords(you)} — ${reasonWords(report.reason)}`;
+  return `${verdict} as ${colorWords(you, report.gameType)} — ${reasonWords(report.reason)}`;
 }
 
 /**
@@ -169,7 +196,10 @@ export function shareCard(
   const fens = replayFens(report);
   const last = fens.length > 1 ? (report.moves[fens.length - 2] ?? null) : null;
   const authored = authoredFieldName(report);
+  const carries = straightCarries(report, report.gameType);
   return {
+    title: cardTitleWords(report.gameType),
+    game: cardGameWords(report.gameType),
     result: cardResultWords(report, you),
     fieldName: options.showFieldName === true ? authored : null,
     figures: [
@@ -186,25 +216,39 @@ export function shareCard(
     ],
     fen: fens[fens.length - 1]!,
     lastMove: last === null ? null : { from: last.from as Square, to: last.to as Square },
-    carries: straightCarries(report),
+    carries,
     orientation: you,
-    footnote: 'Each line is a carry, from where the piece was picked up (ring) to where it went down (disc).',
+    footnote: carries.some((carry) => carry.via !== undefined)
+      ? 'Each line is a carry, from where the piece was picked up (ring), through each hop, to where it went down (disc).'
+      : 'Each line is a carry, from where the piece was picked up (ring) to where it went down (disc).',
   };
 }
 
 /**
- * Each move's carry as the PGN holds it: the lift fix and the place fix, in
- * squares, and nothing between. A move missing either fix has no line.
- * The game's tracks are never read here (decision 0053).
+ * Each move's carry as the record file holds it: the lift fix and the place
+ * fix, in squares, and for a walked checkers jump the fix at each hop between
+ * them (the PDN holds those too, decision 0057), and nothing else. A move
+ * missing either end has no line. The game's tracks are never read here
+ * (decisions 0053, 0058). `dark` says which carries are inked as the dark
+ * pieces, which is the seat's paint in its game.
  */
-export function straightCarries(report: Pick<GameReport, 'moves'>): StraightCarry[] {
+export function straightCarries(report: Pick<GameReport, 'moves'>, gameType?: unknown): StraightCarry[] {
   const carries: StraightCarry[] = [];
   for (const move of report.moves) {
     if (move.lift === null || move.place === null) continue;
     const lift = { file: move.lift.file, rank: move.lift.rank };
     const place = { file: move.place.file, rank: move.place.rank };
     if (![lift.file, lift.rank, place.file, place.rank].every(Number.isFinite)) continue;
-    carries.push({ color: move.color, lift, place });
+    const via = (move.via ?? [])
+      .filter((stop) => stop !== null && Number.isFinite(stop.file) && Number.isFinite(stop.rank))
+      .map((stop) => ({ file: stop!.file, rank: stop!.rank }));
+    carries.push({
+      color: move.color,
+      lift,
+      place,
+      ...(via.length === 0 ? {} : { via }),
+      ...(seatIsDark(gameType, move.color) === (move.color === 'b') ? {} : { dark: seatIsDark(gameType, move.color) }),
+    });
   }
   return carries;
 }
@@ -231,8 +275,8 @@ export function cardAltWords(card: ShareCard): string {
 export function cardMessageWords(card: ShareCard): string {
   const walked = card.figures[0]!;
   return walked.value === 'not measured'
-    ? `${card.result}. A game of Satellite Chess.`
-    : `${card.result}, and walked ${walked.value}. A game of Satellite Chess.`;
+    ? `${card.result}. ${card.game}.`
+    : `${card.result}, and walked ${walked.value}. ${card.game}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +384,7 @@ export function drawShareCard(
   ctx.textAlign = 'left';
   ctx.fillStyle = INK.accent;
   ctx.font = `700 30px ${FONT}`;
-  fillFitted(ctx, 'SATELLITE CHESS', MARGIN, 84, CARD_WIDTH - 2 * MARGIN, 30, '700', 1.5);
+  fillFitted(ctx, card.title, MARGIN, 84, CARD_WIDTH - 2 * MARGIN, 30, '700', 1.5);
   ctx.fillStyle = INK.fg;
   fillFitted(ctx, card.result, MARGIN, 148, CARD_WIDTH - 2 * MARGIN, 56, '700');
   if (card.fieldName !== null) {

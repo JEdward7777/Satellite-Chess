@@ -587,4 +587,15 @@ is; this says what will bite you when you touch it.*
   writes "White" for `w` in a checkers game is wrong. And **a waypoint
   changes no square**: the board moves only at the place, so a test that
   reads `fen` after a `waypoint` sees the jumped piece still there.
+- **A seat is not a color word** (decision 0058). In checkers the `w` seat
+  is Black, the dark pieces. Anything a player reads that names a side asks
+  `seatName(gameType, color)`, and any ink that follows a side's pieces asks
+  `seatIsDark`; a new `color === 'w' ? 'White' : 'Black'` is the bug. Chess's
+  words are kept byte for byte: new wording is said only where `gameLabel`
+  is not null. And `descriptorFor` is null for a type this build does not
+  know: say "update the app", never fall back to chess.
+- **There is a driver for checkers: `scripts/check-checkers.mjs`.** Its
+  25-move game was found by a search over `worker/games/checkers.ts`; if the
+  rules change, find a new one rather than seeding positions (the replay
+  must match the moves).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

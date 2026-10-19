@@ -40,7 +40,7 @@
  */
 
 import { SMALL_SQUARE_M } from './field.js';
-import type { GameType } from './games/types.js';
+import { GAME_TYPES, type GameType } from './games/types.js';
 import type { ResultOutcome, ResultReason } from './protocol.js';
 import type { Color } from './squares.js';
 
@@ -171,6 +171,49 @@ export interface RecordLine {
   squareM: number;
 }
 
+/**
+ * One game's results within a total (decision 0058): chess's wins are not
+ * checkers' wins. Distance is not split — walking is walking, and meters are
+ * the record's currency whatever was played (decision 0019) — but a "3 won"
+ * that mixes two games says less than it seems to.
+ */
+export interface GameTally {
+  /** The stored type, as it was stored: absent is chess. */
+  gameType: string;
+  games: number;
+  wins: number;
+  draws: number;
+  losses: number;
+}
+
+/**
+ * The counted games' results, one tally per game played, in the order the
+ * creation screen offers games and then any other by name. **Undefined when
+ * every counted game was chess** (or there were none), so an account that has
+ * only played chess reads exactly as it did before there was a second game.
+ */
+export function tallyByGame(
+  games: readonly Pick<RecordGame, 'gameType' | 'outcome' | 'color'>[],
+): GameTally[] | undefined {
+  const tallies = new Map<string, GameTally>();
+  for (const game of games) {
+    const type: string = game.gameType ?? 'chess';
+    const tally = tallies.get(type) ?? { gameType: type, games: 0, wins: 0, draws: 0, losses: 0 };
+    tally.games += 1;
+    const result = personalResult(game.outcome, game.color);
+    if (result === 'win') tally.wins += 1;
+    else if (result === 'loss') tally.losses += 1;
+    else tally.draws += 1;
+    tallies.set(type, tally);
+  }
+  if (tallies.size === 0 || (tallies.size === 1 && tallies.has('chess'))) return undefined;
+  const order = (type: string) => {
+    const at = (GAME_TYPES as readonly string[]).indexOf(type);
+    return at === -1 ? GAME_TYPES.length : at;
+  };
+  return [...tallies.values()].sort((a, b) => order(a.gameType) - order(b.gameType) || a.gameType.localeCompare(b.gameType));
+}
+
 /** Everything the record screen shows. */
 export interface RecordSummary {
   /** Totals over `counted` games only. */
@@ -200,6 +243,11 @@ export interface RecordSummary {
   recent: RecordLine[];
   /** The floor that decided `practice`, so the screen can name it. */
   smallSquareM: number;
+  /**
+   * The totals' results split by game ({@link tallyByGame}); absent while
+   * every counted game was chess.
+   */
+  byGame?: GameTally[];
 }
 
 export const TOP_FIELDS = 5;
@@ -230,6 +278,7 @@ export function summarizeRecord(games: readonly RecordGame[]): RecordSummary {
   let unplayedGames = 0;
   let unmeasuredGames = 0;
   const fields = new Map<string, RecordField>();
+  const counted: RecordGame[] = [];
 
   for (const game of games) {
     const standing = standingOf(game);
@@ -237,6 +286,7 @@ export function summarizeRecord(games: readonly RecordGame[]): RecordSummary {
     if (standing === 'unplayed') unplayedGames += 1;
     if (standing === 'unmeasured') unmeasuredGames += 1;
     if (standing !== 'counted') continue;
+    counted.push(game);
 
     const travelM = safeMeters(game.travelM);
     totals.games += 1;
@@ -289,7 +339,13 @@ export function summarizeRecord(games: readonly RecordGame[]): RecordSummary {
       .slice(0, TOP_FIELDS),
     recent,
     smallSquareM: SMALL_SQUARE_M,
+    ...byGameOf(counted),
   };
+}
+
+function byGameOf(counted: readonly RecordGame[]): { byGame?: GameTally[] } {
+  const byGame = tallyByGame(counted);
+  return byGame === undefined ? {} : { byGame };
 }
 
 /** A stored distance, or zero for one that is not a distance at all. */

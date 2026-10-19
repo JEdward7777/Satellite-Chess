@@ -14,7 +14,8 @@
  */
 
 import type { HeadToHead } from '../shared/head-to-head.js';
-import type { RecordLine, RecordSummary } from '../shared/record.js';
+import type { GameTally, RecordLine, RecordSummary } from '../shared/record.js';
+import { descriptorFor, gameLabel } from '../shared/games/catalog.js';
 import { type Units, lengthWords, walkedWords } from '../shared/units.js';
 import { reasonWords } from './views/games.js';
 
@@ -86,6 +87,28 @@ export function resultsWords(totals: Pick<RecordSummary['totals'], 'wins' | 'dra
 }
 
 /**
+ * The results game by game (decision 0058): "Chess 3 won · 1 drawn · 2 lost;
+ * Checkers 1 won · 0 drawn · 0 lost". Each game's own, since a win at chess
+ * and a win at checkers are not one kind of thing; the distance stays one
+ * total, because walking is walking.
+ */
+export function resultsByGameWords(byGame: readonly GameTally[]): string {
+  return byGame.map((tally) => `${gameName(tally.gameType)} ${resultsWords(tally)}`).join('; ');
+}
+
+/** What the record was walked playing: "chess", "chess and checkers". */
+export function playedWords(byGame: readonly GameTally[] | undefined): string {
+  if (byGame === undefined || byGame.length === 0) return 'chess';
+  const names = byGame.map((tally) => gameName(tally.gameType).toLowerCase());
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** A stored game type's name; one this build does not know is "Other games". */
+export function gameName(gameType: string | undefined): string {
+  return descriptorFor(gameType)?.name ?? 'Other games';
+}
+
+/**
  * The line under the headline, which says what the headline was made of — and
  * which games were left out of it, because a total that silently omits games
  * reads as a total that lost them.
@@ -141,9 +164,11 @@ export function lineWords(line: RecordLine, units: Units = 'metric'): { title: s
         : line.standing === 'unmeasured'
           ? 'distance was not measured for this game'
           : 'nobody moved, not counted';
+  // A line that is not chess says which game it was (decision 0058).
+  const label = gameLabel(line.gameType);
   return {
     title: line.fieldName ?? 'Unnamed field',
-    detail: `${verdict} — ${reasonWords(line.reason)} · ${counted}`,
+    detail: `${label === null ? '' : `${label} · `}${verdict} — ${reasonWords(line.reason)} · ${counted}`,
   };
 }
 
@@ -183,3 +208,16 @@ export const DISTANCE_HONESTY = [
   'Only walking during play counts: not the walk to your back rank, a paused ' +
     'game, or the walk home.',
 ] as const;
+
+/**
+ * {@link DISTANCE_HONESTY} for what was played (decision 0058): chess's
+ * sentences word for word when `played` is "chess", and the game's own name
+ * in the one sentence that names a game otherwise.
+ */
+export function distanceHonesty(played: string = 'chess'): readonly string[] {
+  if (played === 'chess') return DISTANCE_HONESTY;
+  const verb = played.includes(' and ') ? 'make' : 'makes';
+  return DISTANCE_HONESTY.map((sentence) =>
+    sentence.replace('which chess makes you do at every move.', `which ${played} ${verb} you do at every move.`),
+  );
+}

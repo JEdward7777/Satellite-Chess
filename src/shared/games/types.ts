@@ -176,6 +176,19 @@ export interface PlaceChoice {
 }
 
 /**
+ * What a seat is called and painted in one game (decision 0058). A `Color` is
+ * a seat — `w` moves first — and only the game knows what a player calls it:
+ * in chess `w` is White, in checkers `w` is Black, the dark pieces
+ * (decision 0057).
+ */
+export interface SeatLook {
+  /** As a player reads it: "White", "Black". */
+  name: string;
+  /** Whether this seat's pieces are the dark ones. Inks walks and dots to match. */
+  dark: boolean;
+}
+
+/**
  * What both the Worker and the phone know about a game: metadata and the
  * engine-free position codec. Nothing here judges legality.
  */
@@ -183,6 +196,10 @@ export interface GameDescriptor {
   type: GameType;
   /** As a player reads it: "Chess". */
   name: string;
+  /** Each seat's name and paint (decision 0058). */
+  seats: Readonly<Record<Color, SeatLook>>;
+  /** A piece letter as a player reads it ("knight", "king"), for the watcher's words. */
+  pieceNames: Readonly<Record<string, string>>;
   lattice: Lattice;
   /**
    * The squares a player stands on for the start and resume handshake
@@ -255,4 +272,11 @@ export interface GameRules extends GameDescriptor {
   writeRecord(report: GameReport): string;
   /** What that file is called when it is downloaded. */
   recordFileName(report: Pick<GameReport, 'fieldName' | 'startedAt'>): string;
+  /**
+   * Why a piece of the side to move that `stops` gave nowhere to go cannot
+   * move, in a player's words, when the game has more to say than "no legal
+   * moves" (decision 0058): checkers' "a jump is required elsewhere". Absent,
+   * or null, keeps the plain refusal, which is chess's always.
+   */
+  whyStuck?(state: string, from: Square, options: GameOptions): string | null;
 }

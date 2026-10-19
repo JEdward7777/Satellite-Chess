@@ -53,6 +53,13 @@ export interface BoardView {
    * same: a board with no art draws no pieces.
    */
   art?: GameArt | null;
+  /**
+   * Which squares a piece may ever stand on (the game's lattice, decision
+   * 0056): checkers plays the dark squares only. Only those take the
+   * in-reach tint, since reaching a square nothing can stand on is no news.
+   * Every square when omitted, as for chess.
+   */
+  playable?: (file: number, rank: number) => boolean;
   /** Where the player is, or null before the first fix. */
   pos: LatLng | null;
   accuracyM: number;
@@ -74,6 +81,14 @@ export interface BoardView {
   carry?: {
     from: Square;
     destinations: Square[];
+    /**
+     * Landings the carry may hop on from (decision 0056): a walked checkers
+     * jump. Drawn as rings, where a destination is a filled dot; a square
+     * that is both gets both. Absent for chess.
+     */
+    waypoints?: Square[];
+    /** The hops walked so far, in order, drawn as a line from the origin. */
+    via?: Square[];
     mine: boolean;
     /** What is in hand, drawn beside the carrier's dot (O-44). */
     piece?: Piece | null;
@@ -350,6 +365,8 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   // rotated field the arrow overlaps the corner square, so it would cover h8.
   if (view.north !== false) drawNorth(ctx, view, width, height);
   drawPieces(ctx, view, projection);
+  // Over the pieces, so the line shows which pieces a jump has gone over.
+  drawHops(ctx, view, projection);
   // Over the pieces, both. The art fills most of its cell (decision 0045), so a
   // coordinate or a capture's destination dot drawn underneath would be hidden
   // by the very piece it is about.
@@ -441,7 +458,8 @@ function drawSquares(
 
       // In reach: the squares you could actually lift from or place on right
       // now. This is the rule made visible, so it has to be unmissable.
-      if (live && here && distanceFromBoardPointToSquareM(geo, here, { file, rank }) <= view.reachM) {
+      const playable = view.playable?.(file, rank) ?? true;
+      if (live && playable && here && distanceFromBoardPointToSquareM(geo, here, { file, rank }) <= view.reachM) {
         ctx.fillStyle = IN_REACH_TINT;
         ctx.fill();
       }
@@ -643,6 +661,46 @@ function drawLiftedFrom(
   ctx.setLineDash([]);
 }
 
+/** The hops walked so far: orange, as the replay draws a carry. */
+const HOP_LINE = 'rgba(255, 140, 26, 0.95)';
+const HOP_HALO = 'rgba(13, 17, 23, 0.8)';
+
+/**
+ * A walked jump's hops so far (decision 0057), on both phones: a line from
+ * the origin through the centre of each square stood on, with a ring on each.
+ * The pieces jumped are still on the board — nothing is taken until the
+ * place — so the line is what says which ones the move has gone over.
+ */
+function drawHops(ctx: CanvasRenderingContext2D, view: BoardView, projection: Projection): void {
+  const via = view.carry?.via ?? [];
+  if (via.length === 0 || !view.carry) return;
+  const size = cellPx(view.geo, projection);
+  const points = [view.carry.from, ...via].map((sq) => squareCentrePx(view.geo, projection, fromSquare(sq)));
+  const width = Math.min(MAX_CELL_STROKE_PX, Math.max(2, size * 0.06));
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const [style, w] of [
+    [HOP_HALO, width + 2],
+    [HOP_LINE, width],
+  ] as const) {
+    ctx.beginPath();
+    ctx.moveTo(points[0]!.x, points[0]!.y);
+    for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = style;
+    ctx.lineWidth = w;
+    ctx.stroke();
+  }
+  for (const p of points.slice(1)) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(4, size * 0.12), 0, Math.PI * 2);
+    ctx.strokeStyle = HOP_LINE;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Drawn after the pieces, so a capture's dot sits on the piece it would take. */
 function drawDestinations(
   ctx: CanvasRenderingContext2D,
@@ -655,8 +713,28 @@ function drawDestinations(
   // drawn on your board would be both confusing and a small act of espionage.
   const squares = carry?.mine ? [...carry.destinations] : [];
   if (view.target) squares.push(view.target);
-  if (squares.length === 0) return;
+  // A landing the jump goes on from: a ring rather than a dot, so "hop on"
+  // and "put it down" read apart at a glance. A square that is both gets both.
+  const hops = carry?.mine ? (carry.waypoints ?? []) : [];
+  if (squares.length === 0 && hops.length === 0) return;
   const size = cellPx(view.geo, projection);
+
+  for (const square of hops) {
+    const fr = fromSquare(square);
+    const centre = squareCentrePx(view.geo, projection, fr);
+    const reachable =
+      here !== null && distanceFromBoardPointToSquareM(view.geo, here, fr) <= view.reachM;
+    const radius = size * (reachable ? 0.3 : 0.24);
+    const ring = Math.min(MAX_CELL_STROKE_PX, Math.max(2, size * (reachable ? 0.07 : 0.05)));
+    ctx.beginPath();
+    ctx.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(13, 17, 23, 0.8)';
+    ctx.lineWidth = ring + 2;
+    ctx.stroke();
+    ctx.strokeStyle = reachable ? DESTINATION_NEAR : DESTINATION_FAR;
+    ctx.lineWidth = ring;
+    ctx.stroke();
+  }
 
   for (const square of squares) {
     const fr = fromSquare(square);

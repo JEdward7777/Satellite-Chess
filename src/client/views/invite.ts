@@ -36,6 +36,8 @@ export interface InviteDeps {
   field: NamedField;
   /** The creator's colour, so the screen can say which end to walk to. */
   colour: Color;
+  /** Which game the invitation is to (decision 0058); absent is chess. */
+  gameType?: string;
   /** Overridden in tests and by the deep-link driver. */
   origin?: string;
   onOpenBoard(): void;
@@ -52,13 +54,19 @@ export interface InviteDeps {
  */
 const EC_LEVEL = 'M';
 
-export function inviteFor(joinCode: string, field: NamedField, origin: string): Invite {
-  return { url: joinUrl(origin, joinCode), code: joinCode, fieldName: field.name };
+export function inviteFor(joinCode: string, field: NamedField, origin: string, gameType?: string): Invite {
+  return {
+    url: joinUrl(origin, joinCode),
+    code: joinCode,
+    fieldName: field.name,
+    // Absent for chess, so a chess invitation is what it always was.
+    ...(gameType === undefined || gameType === 'chess' ? {} : { gameType }),
+  };
 }
 
 export function mountInvite(root: HTMLElement, deps: InviteDeps): () => void {
   const origin = deps.origin ?? location.origin;
-  const invite = inviteFor(deps.joinCode, deps.field, origin);
+  const invite = inviteFor(deps.joinCode, deps.field, origin, deps.gameType);
   const caps = detectShareCapabilities();
 
   // Encoded once. It never changes while this screen is up, and re-encoding on

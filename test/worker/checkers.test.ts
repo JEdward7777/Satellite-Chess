@@ -317,6 +317,22 @@ describe('checkers in the object (decision 0057)', () => {
     b.ws.close();
   });
 
+  it('says why a lift is refused when jumps are required and another piece can jump (stage 11.3)', async () => {
+    const game = await seated({ jumpsRequired: true });
+    // The w seat to move: g1 could step, but a1 can jump b2.
+    const { w, b } = await started(game, position('w', ['g1', 'a1'], ['b2', 'h8']));
+    w.send({ t: 'lift', from: 'g1', pos: at('g1') });
+    await w.handled();
+    expect(w.errors()).toEqual([
+      expect.objectContaining({
+        code: 'no_legal_moves',
+        message: expect.stringMatching(/^Jumps are required, and another of your pieces can jump/),
+      }),
+    ]);
+    w.ws.close();
+    b.ws.close();
+  });
+
   it('ends the move of a man crowned mid-jump', async () => {
     const game = await seated({ jumpsRequired: true });
     const { w, b } = await started(game, position('w', ['b6', 'a1'], ['a7', 'c7', 'e7', 'h8']));

@@ -276,4 +276,18 @@ export const CHECKERS_RULES: GameRules = {
 
   writeRecord: (report) => buildPdn(report),
   recordFileName: (report) => pdnFileName(report),
+
+  /**
+   * With jumps required, a piece with a plain move is refused when another
+   * can jump: say so, or the refusal reads as "this piece is stuck" while it
+   * plainly is not (stage 11.3).
+   */
+  whyStuck(state: string, from: Square, options: GameOptions): string | null {
+    if (!jumpsRequired(options)) return null;
+    const position = parseCheckers(state);
+    const man = position.board.get(from);
+    if (man === undefined || man.color !== position.turn) return null;
+    if (!sideCanJump(position.board, man.color)) return null;
+    return `Jumps are required, and another of your pieces can jump, so the piece on ${from} cannot move. Pick up a piece that can jump.`;
+  },
 };

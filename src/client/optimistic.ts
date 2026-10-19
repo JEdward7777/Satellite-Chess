@@ -50,6 +50,7 @@ import type {
   LiftMsg,
   PlaceMsg,
   PosFix,
+  WaypointMsg,
 } from '../shared/protocol.js';
 import { checkReachTo } from '../shared/reach.js';
 import type { Color, Square } from '../shared/squares.js';
@@ -67,12 +68,16 @@ import type { GameConnection, NetState } from './net.js';
  */
 export const PREDICTION_TTL_MS = 5_000;
 
-/** The subset of client messages worth predicting: the three acts of a carry. */
-export type PredictableMsg = LiftMsg | DropMsg | PlaceMsg;
+/**
+ * The subset of client messages worth predicting: the acts of a carry — a
+ * lift, each waypoint (a hop of a walked checkers jump, decision 0056), and
+ * the place or drop that ends it.
+ */
+export type PredictableMsg = LiftMsg | WaypointMsg | DropMsg | PlaceMsg;
 type DropMsg = Extract<ClientMsg, { t: 'drop' }>;
 
 export function isPredictable(msg: ClientMsg): msg is PredictableMsg {
-  return msg.t === 'lift' || msg.t === 'place' || msg.t === 'drop';
+  return msg.t === 'lift' || msg.t === 'waypoint' || msg.t === 'place' || msg.t === 'drop';
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +124,8 @@ export function predict(
       if (game.carry !== null) return null;
       if (game.clock.active !== game.you) return null;
 
-      const piece = descriptorFor(game.gameType).pieceAt(game.fen, msg.from);
+      // A game this build does not know is never predicted (decision 0058).
+      const piece = descriptorFor(game.gameType)?.pieceAt(game.fen, msg.from) ?? null;
       if (piece === null) return null;
       const mine = piece.color === game.you;
       if (!mine) return null;
@@ -141,6 +147,27 @@ export function predict(
       };
     }
 
+    case 'waypoint': {
+      const carry = game.carry;
+      if (carry === null || carry.color !== game.you) return null;
+      // Only a hop the server itself offered from where the piece now is.
+      if (!(carry.waypoints ?? []).includes(msg.to)) return null;
+      if (!canReach(game, msg.pos, msg.to)) return null;
+      // The hop is walked; where it may go next is the server's to say. Both
+      // lists empty is the same "still working it out" marker as a fresh
+      // lift's: after a hop the server always offers somewhere (at least the
+      // square stood on, or a further landing), never nothing.
+      return {
+        ...game,
+        carry: {
+          ...carry,
+          via: [...(carry.via ?? []), msg.to],
+          destinations: [],
+          waypoints: [],
+        },
+      };
+    }
+
     case 'drop': {
       if (game.carry === null || game.carry.color !== game.you) return null;
       return { ...game, carry: null };
@@ -155,10 +182,12 @@ export function predict(
       // one is never predicted.
       if (!carry.destinations.includes(msg.to)) return null;
       if (!canReach(game, msg.pos, msg.to)) return null;
+      const codec = descriptorFor(game.gameType);
+      if (codec === null) return null;
 
       return {
         ...game,
-        fen: descriptorFor(game.gameType).applyKnown(
+        fen: codec.applyKnown(
           game.fen,
           { from: carry.from, via: carry.via ?? [] },
           msg.to,
@@ -218,6 +247,12 @@ export function isSettled(game: GameSnapshot, msg: PredictableMsg): boolean {
   switch (msg.t) {
     case 'lift':
       return game.carry !== null && game.carry.from === msg.from;
+    case 'waypoint': {
+      // The server's carry has walked this hop: its last stop is the one sent.
+      // Or the carry has gone (dropped, suspended), which settles it too.
+      const via = game.carry?.via ?? [];
+      return game.carry === null || via[via.length - 1] === msg.to;
+    }
     case 'drop':
       return game.carry === null;
     case 'place':

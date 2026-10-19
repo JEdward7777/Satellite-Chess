@@ -30,10 +30,12 @@
 
 import { SMALL_SQUARE_M } from './field.js';
 import {
+  type GameTally,
   type PersonalResult,
   type RecordGame,
   type RecordStanding,
   personalResult,
+  tallyByGame,
 } from './record.js';
 import type { GameType } from './games/types.js';
 import type { ResultReason } from './protocol.js';
@@ -112,6 +114,11 @@ export interface OpponentTally {
    * A name a player wrote, and already in the reader's own record.
    */
   firstFieldName: string | null;
+  /**
+   * The results split by game (decision 0058), as the record's are; absent
+   * while every counted game between you was chess.
+   */
+  byGame?: GameTally[];
 }
 
 /** One game against one opponent, as their detail lists it. */
@@ -157,6 +164,7 @@ export function summarizeHeadToHead(
   names: ReadonlyMap<string, string> = new Map(),
 ): HeadToHead {
   const tallies = new Map<string, OpponentTally>();
+  const counted = new Map<string, RecordGame[]>();
   let earlierGames = 0;
   for (const game of inPairOrder(games)) {
     if (!isPairId(game.pairId)) {
@@ -166,7 +174,9 @@ export function summarizeHeadToHead(
     const tally = tallies.get(game.pairId) ?? emptyTally(game, names);
     addGame(tally, game);
     tallies.set(game.pairId, tally);
+    if (pairStandingOf(game) === 'counted') counted.set(game.pairId, [...(counted.get(game.pairId) ?? []), game]);
   }
+  for (const [id, tally] of tallies) splitByGame(tally, counted.get(id) ?? []);
   return {
     opponents: [...tallies.values()].sort(
       (a, b) => b.togetherM - a.togetherM || b.lastAt - a.lastAt || a.id.localeCompare(b.id),
@@ -186,6 +196,7 @@ export function opponentDetail(
   if (theirs.length === 0) return null;
   const tally = emptyTally(theirs[0], names);
   for (const game of theirs) addGame(tally, game);
+  splitByGame(tally, theirs.filter((game) => pairStandingOf(game) === 'counted'));
   return {
     opponent: tally,
     games: theirs
@@ -254,6 +265,12 @@ function addGame(tally: OpponentTally, game: RecordGame): void {
   if (result === 'win') tally.wins += 1;
   else if (result === 'loss') tally.losses += 1;
   else tally.draws += 1;
+}
+
+/** The tally's results by game, when more than one game was played (decision 0058). */
+function splitByGame(tally: OpponentTally, counted: readonly RecordGame[]): void {
+  const byGame = tallyByGame(counted);
+  if (byGame !== undefined) tally.byGame = byGame;
 }
 
 function safeMeters(value: number | null | undefined): number {

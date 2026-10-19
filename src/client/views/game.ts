@@ -60,7 +60,9 @@ import {
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import { pieceLook } from '../piece-look.js';
-import { descriptorFor, descriptorOf } from '../../shared/games/catalog.js';
+import { UPDATE_APP_WORDS, descriptorFor, descriptorOf, gameLabel, seatName } from '../../shared/games/catalog.js';
+import { jumpsRequired } from '../../shared/games/checkers.js';
+import { reasonWords } from './games.js';
 import { DEFAULT_GAME_TYPE } from '../../shared/games/types.js';
 import { artFor } from '../games/registry.js';
 import {
@@ -115,8 +117,20 @@ export interface CarryGuidance {
   /** Whose piece is in hand, so the readout can draw it in the right color. */
   color: Color;
   mine: boolean;
+  /** Squares that end the move: a place. */
   destinations: Square[];
-  /** Those that could be placed on from where the player stands right now. */
+  /**
+   * Landings the carry may hop on from (decision 0056): a walked checkers
+   * jump. A square may be here and in {@link destinations} both, where the
+   * player may stop or go on. Empty or absent for chess.
+   */
+  waypoints?: Square[];
+  /** The hops walked so far, in order. Empty or absent for chess. */
+  via?: Square[];
+  /**
+   * Stops — places and hops — that could be made from where the player
+   * stands right now.
+   */
   inReach: Square[];
   /**
    * Lifted locally, not yet confirmed, so the destinations are not known yet.
@@ -167,13 +181,14 @@ export function carryGuidance(
   // could become, because that is how chess.js enumerates the moves. Four dots
   // land on the same square harmlessly, but "4 in reach" for one square does not.
   const destinations = [...new Set(carry.destinations ?? [])];
+  const waypoints = [...new Set(carry.waypoints ?? [])];
   const inReach: Square[] = [];
   let nearest: CarryGuidance['nearest'] = null;
 
   // Without a fix there is no "here", so nothing is in reach and there is no
   // nearest — which is what the screen should say rather than guessing.
   if (here) {
-    for (const square of destinations) {
+    for (const square of new Set([...destinations, ...waypoints])) {
       const distanceM = distanceFromBoardPointToSquareM(geo, here, fromSquare(square));
       if (distanceM <= reachM) inReach.push(square);
       if (!nearest || distanceM < nearest.distanceM) {
@@ -189,9 +204,13 @@ export function carryGuidance(
     color: carry.color,
     mine,
     destinations,
+    waypoints,
+    via: [...(carry.via ?? [])],
     inReach,
     nearest,
-    pending: mine && destinations.length === 0,
+    // The server never offers nowhere: it refuses a lift with no move, and
+    // after a hop always offers at least the square stood on or a landing.
+    pending: mine && destinations.length === 0 && waypoints.length === 0,
   };
 }
 
@@ -248,11 +267,16 @@ export function errorWords(error: Pick<ErrorMsg, 'message' | 'refusal'>, units: 
  */
 export function carryReadout(guidance: CarryGuidance | null, units: Units = 'metric'): string {
   if (!guidance) return '—';
-  const what = guidance.from;
+  // A walked jump's hops so far, "c3 → e5 → g7" (decision 0057).
+  const what = [guidance.from, ...(guidance.via ?? [])].join(' → ');
   if (!guidance.mine) return `${what} · theirs`;
   if (guidance.pending) return `${what} · in hand`;
   if (guidance.inReach.length > 0) return `${what} · ${guidance.inReach.length} in reach`;
   if (!guidance.nearest) return `${what} · no fix`;
+  // After a hop, "→ e5" would read as one more hop walked; say it is a walk.
+  if ((guidance.via ?? []).length > 0) {
+    return `${what} · walk ${metres(guidance.nearest.walkM, units)} to ${guidance.nearest.square}`;
+  }
   return `${what} → ${guidance.nearest.square} · ${metres(guidance.nearest.walkM, units)}`;
 }
 
@@ -297,12 +321,88 @@ export function carryPrompt(guidance: CarryGuidance, units: Units = 'metric'): s
   // Said while the lift is still in flight. It names what happened rather than
   // what to do, because for the moment it takes to confirm there is nothing to
   // do — and "start walking" is true whatever the destinations turn out to be.
-  if (guidance.pending) return `Picked up ${guidance.from}. Start walking.`;
-  if (!guidance.nearest) return `Carrying from ${guidance.from}. Waiting for a fix…`;
-  if (guidance.inReach.length > 0) {
-    return `Carrying. Tap a bright dot to place — ${guidance.inReach.length} in reach.`;
+  const via = guidance.via ?? [];
+  if (guidance.pending) {
+    return via.length === 0 ? `Picked up ${guidance.from}. Start walking.` : `Jumped to ${via[via.length - 1]}. Hold on…`;
   }
-  return `Carrying. Walk ${metres(guidance.nearest.walkM, units)} to ${guidance.nearest.square}, or to any other marked square.`;
+  // A chess carry, and a checkers one with no hop on offer or walked, say
+  // exactly what they always have.
+  if ((guidance.waypoints ?? []).length === 0 && via.length === 0) {
+    if (!guidance.nearest) return `Carrying from ${guidance.from}. Waiting for a fix…`;
+    if (guidance.inReach.length > 0) {
+      return `Carrying. Tap a bright dot to place — ${guidance.inReach.length} in reach.`;
+    }
+    return `Carrying. Walk ${metres(guidance.nearest.walkM, units)} to ${guidance.nearest.square}, or to any other marked square.`;
+  }
+  return jumpPrompt(guidance, units);
+}
+
+/**
+ * A walked jump (decision 0057), in one line: a ring is a landing to jump on
+ * from, a dot puts the piece down, and where the player may stop, the square
+ * they stand on is a dot too.
+ */
+function jumpPrompt(guidance: CarryGuidance, units: Units): string {
+  const via = guidance.via ?? [];
+  const waypoints = guidance.waypoints ?? [];
+  const last = via[via.length - 1];
+  const lead = last === undefined ? 'Jumping.' : `Jumped to ${last}.`;
+  const stop = last !== undefined && guidance.destinations.includes(last) ? ` Tap ${last} to stop there.` : '';
+  if (!guidance.nearest) return `${lead} Waiting for a fix…`;
+  if (guidance.inReach.length > 0) {
+    const rings = guidance.inReach.some((sq) => waypoints.includes(sq));
+    const dots = guidance.inReach.some((sq) => guidance.destinations.includes(sq));
+    const what =
+      rings && dots ? 'Tap a ring to jump on, or a dot to put it down' : rings ? 'Tap a ring to jump on' : 'Tap a dot to put it down';
+    return `${lead} ${what} — ${guidance.inReach.length} in reach.${stop}`;
+  }
+  return `${lead} Walk ${metres(guidance.nearest.walkM, units)} to ${guidance.nearest.square}, or to any other marked square.${stop}`;
+}
+
+/**
+ * What a tap on a square means while my own piece is in hand (decisions
+ * 0001, 0057), decided here so it can be tested:
+ *
+ * - `drop`: the origin, before any hop — put it back; after one, too,
+ *   unless the rules offer it as a stop (a man can never come back).
+ * - `ask`: a landing that is both a hop and a place — "stop here" or "keep
+ *   jumping" is the player's choice, and the screen asks.
+ * - `waypoint`: a landing the jump goes on from.
+ * - `place` for anything else, **the origin after a hop included when it is
+ *   offered**: a king's jump can end on its own square, and with jumps
+ *   required that can be the only place offered. A square that is no stop at all is sent as a place
+ *   too, and the server refuses it with its own words, as it always has.
+ */
+export type CarryTap = 'drop' | 'ask' | 'waypoint' | 'place';
+
+export function carryTap(guidance: Pick<CarryGuidance, 'from' | 'via' | 'destinations' | 'waypoints'>, square: Square): CarryTap {
+  const hop = (guidance.waypoints ?? []).includes(square);
+  const place = guidance.destinations.includes(square);
+  // The origin puts the piece back, unless a hop has made it a stop: a
+  // king's loop can end where it began, and then it is a real place.
+  if (square === guidance.from && ((guidance.via ?? []).length === 0 || (!hop && !place))) return 'drop';
+  if (hop && place) return 'ask';
+  if (hop) return 'waypoint';
+  return 'place';
+}
+
+/**
+ * The game's end on the board, in one line. Chess says it as it always has
+ * ("1-0 — checkmate."); another game names the winner, since "1-0" is
+ * chess's way of saying White, and checkers' first mover is Black
+ * (decision 0058).
+ */
+export function resultPrompt(gameType: unknown, result: NonNullable<GameSnapshot['result']>): string {
+  if (gameLabel(gameType) === null) return `${result.outcome} — ${result.reason.replace(/_/g, ' ')}.`;
+  const who =
+    result.outcome === '1/2-1/2' ? 'Drawn' : `${seatName(gameType, result.outcome === '1-0' ? 'w' : 'b')} won`;
+  return `${who} — ${reasonWords(result.reason)}.`;
+}
+
+/** "Jumps required" or "Jumps optional", for a checkers game; null for any other. */
+export function jumpsWords(game: Pick<GameSnapshot, 'gameType' | 'options'> | null): string | null {
+  if (game?.gameType !== 'checkers') return null;
+  return jumpsRequired(game.options) ? 'required' : 'optional';
 }
 
 export interface GameViewDeps {
@@ -406,6 +506,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <dt data-turn-label>Turn</dt><dd data-turn>—</dd>
           <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden><span class="piece-icon" data-carry-icon></span><span data-carry-text>—</span></dd>
           <dt>Pieces</dt><dd><button class="look-toggle" data-look-toggle aria-label="Switch piece look">—</button></dd>
+          <dt data-jumps-label hidden>Jumps</dt><dd data-jumps hidden>—</dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
         <p data-handshake class="dim" hidden></p>
@@ -453,6 +554,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-watch-close class="secondary">Close</button>
         </div>
       </div>
+      <div class="promotion" data-hop-choice hidden>
+        <p data-hop-title>Stop here?</p>
+        <div class="promotion-choices">
+          <button data-hop-stop>Stop here</button>
+          <button data-hop-on>Keep jumping</button>
+        </div>
+        <button data-hop-cancel class="secondary">Cancel</button>
+      </div>
       <div class="promotion" data-promotion hidden>
         <p data-promotion-title>Promote to</p>
         <div class="promotion-choices" data-promotion-choices></div>
@@ -494,6 +603,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let lastErrorSeen: string | null = null;
   /** A place that is waiting on the promotion picker being answered. */
   let pendingPromotion: { from: Square; to: Square } | null = null;
+  /**
+   * A landing that is both a hop and a place, waiting on "stop here" or
+   * "keep jumping" (decision 0057). `hops` is how many hops the carry had,
+   * so a snapshot that has moved past it closes the question.
+   */
+  let pendingHop: { from: Square; to: Square; hops: number } | null = null;
   /** Which game's choices the picker holds, so they are built once a game. */
   let shownChoicesFor: string | null = null;
   /** False once torn down, for the art arriving after the screen has gone. */
@@ -663,9 +778,21 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // one round trip and the next act is a walk away, so dropping the tap costs
     // nothing; guessing could cost a queen.
     if (carry.pending) return;
-    if (square === carry.from) {
+    const act = carryTap(carry, square);
+    if (act === 'drop') {
       // Tapping the square you lifted from puts it back — free, bar the clock.
+      // After a hop too, unless the rules offer the origin as a stop (a
+      // king's jump can end where it began), when it is a place instead.
       deps.connection.send({ t: 'drop' });
+      return;
+    }
+    if (act === 'ask') {
+      pendingHop = { from: carry.from, to: square, hops: (carry.via ?? []).length };
+      paint();
+      return;
+    }
+    if (act === 'waypoint') {
+      deps.connection.send({ t: 'waypoint', to: square, pos: fix, ...travelNow() });
       return;
     }
     // A pawn landing on the last rank has to be asked about. Only for a square
@@ -674,7 +801,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (
       game.carry &&
       carry.destinations.includes(square) &&
-      descriptorFor(game.gameType).asksChoice({ type: game.carry.piece, color: game.carry.color }, square)
+      descriptorFor(game.gameType)?.asksChoice({ type: game.carry.piece, color: game.carry.color }, square)
     ) {
       pendingPromotion = { from: carry.from, to: square };
       paint();
@@ -749,9 +876,22 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   // from the snapshot by then), so one listener on their row answers them all.
   root.querySelector<HTMLElement>('[data-promotion-choices]')?.addEventListener('click', (event) => {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-promote]');
-    const offered = descriptorFor(net.game?.gameType).choices.find((c) => c.type === button?.dataset.promote);
+    const offered = descriptorFor(net.game?.gameType)?.choices.find((c) => c.type === button?.dataset.promote);
     if (offered !== undefined) choosePromotion(offered.type as PlaceMsg['promotion']);
   });
+  // "Stop here" or "Keep jumping" (decision 0057). The fix is taken at the
+  // answer, as the promotion's is: the server judges reach at that instant.
+  const answerHop = (act: 'place' | 'waypoint' | null) => {
+    const pending = pendingHop;
+    const fix = fixNow();
+    pendingHop = null;
+    if (pending && fix && act === 'place') deps.connection.send({ t: 'place', to: pending.to, pos: fix, ...travelNow() });
+    if (pending && fix && act === 'waypoint') deps.connection.send({ t: 'waypoint', to: pending.to, pos: fix, ...travelNow() });
+    paint();
+  };
+  root.querySelector<HTMLButtonElement>('[data-hop-stop]')?.addEventListener('click', () => answerHop('place'));
+  root.querySelector<HTMLButtonElement>('[data-hop-on]')?.addEventListener('click', () => answerHop('waypoint'));
+  root.querySelector<HTMLButtonElement>('[data-hop-cancel]')?.addEventListener('click', () => answerHop(null));
   root.querySelector<HTMLButtonElement>('[data-promote-cancel]')?.addEventListener('click', () => {
     // Cancelling abandons the *place*, not the carry — the piece is still in
     // hand and can go somewhere else, or back where it came from.
@@ -865,7 +1005,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.querySelector<HTMLButtonElement>('[data-watch-send]')?.addEventListener('click', () => {
     const url = watchLinkUrl();
     if (url === null) return;
-    void shareLink(watchShareData(url)).then((outcome) => {
+    void shareLink(watchShareData(url, net.game?.gameType)).then((outcome) => {
       if (outcome.ok) sayWatch(outcome.tier === 'clipboard' ? 'Copied to the clipboard.' : 'Sent.');
       else if (outcome.reason !== 'cancelled') sayWatch('Could not share it. Copy the link instead.');
     });
@@ -904,9 +1044,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     if (game.status === 'aborted') {
       return 'Game aborted — no result. You can remove it from Your games.';
     }
-    if (game.result) {
-      return `${game.result.outcome} — ${game.result.reason.replace(/_/g, ' ')}.`;
-    }
+    if (descriptorFor(game.gameType) === null) return UPDATE_APP_WORDS;
+    if (game.result) return resultPrompt(game.gameType, game.result);
     if (game.status === 'staging') return handshakeLines().mine;
     if (game.status === 'suspended') return suspendedPrompt(game.suspension);
 
@@ -1162,16 +1301,23 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     // The game on the board (decision 0056): absent is chess. Its art is
     // fetched on demand, and the board repaints when it lands.
-    const game = descriptorFor(net.game?.gameType);
-    const art = artFor(game.type, () => {
-      if (live) paint();
-    });
+    // A type this build does not know draws no pieces (decision 0058): the
+    // prompt says to update instead. Chess's empty choices stand in for it.
+    const known = descriptorFor(net.game?.gameType);
+    const game = known ?? descriptorOf(DEFAULT_GAME_TYPE);
+    const art =
+      known === null
+        ? null
+        : artFor(known.type, () => {
+            if (live) paint();
+          });
     drawnView = {
       geo,
       zoom: view,
       orientation: myColor(),
-      pieces: game.piecesOf(net.game?.fen ?? ''),
+      pieces: known === null ? {} : known.piecesOf(net.game?.fen ?? ''),
       art,
+      playable: game.lattice.playable,
       pos: fix?.pos ?? null,
       accuracyM,
       reachM,
@@ -1279,6 +1425,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       reviewButton.hidden = net.game?.result == null || deps.onReview === undefined;
     }
 
+    const hopChoice = root.querySelector<HTMLElement>('[data-hop-choice]');
+    if (hopChoice) {
+      hopChoice.hidden = pendingHop === null;
+      if (pendingHop) set('[data-hop-title]', `On ${pendingHop.to}: stop here, or keep jumping?`);
+    }
+    // The setting a checkers game was created with, where both can read it.
+    const jumps = jumpsWords(net.game ?? null);
+    set('[data-jumps]', jumps ?? '');
+    for (const el of root.querySelectorAll<HTMLElement>('[data-jumps], [data-jumps-label]')) el.hidden = jumps === null;
+
     const picker = root.querySelector<HTMLElement>('[data-promotion]');
     if (picker) {
       picker.hidden = pendingPromotion === null;
@@ -1374,6 +1530,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // that is no longer in hand. The server would refuse it, but the screen
     // would have lied first.
     const carry = state.game?.carry;
+    if (
+      pendingHop &&
+      (!carry || carry.color !== myColor() || carry.from !== pendingHop.from || (carry.via ?? []).length !== pendingHop.hops)
+    ) {
+      pendingHop = null;
+    }
     if (
       pendingPromotion &&
       (!carry || carry.color !== myColor() || carry.from !== pendingPromotion.from)

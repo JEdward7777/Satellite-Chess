@@ -27,6 +27,7 @@
  * of asking; only a genuine failure falls through to the next tier.
  */
 
+import { gameLabel } from '../shared/games/catalog.js';
 import { formatJoinCode } from '../shared/joincode.js';
 
 /**
@@ -51,6 +52,8 @@ export interface Invite {
   code: string;
   /** The field's name, when there is one worth naming. */
   fieldName?: string;
+  /** Which game (decision 0056). Absent is chess, whose words are as they were. */
+  gameType?: string;
 }
 
 export type ShareTier = 'share-file' | 'share-sheet' | 'mailto' | 'clipboard' | 'download' | 'manual';
@@ -105,9 +108,12 @@ const SUBJECT = 'A game of Satellite Chess';
  */
 export function inviteShareData(invite: Invite): SharePayload {
   const where = invite.fieldName ? ` at ${invite.fieldName}` : '';
+  // Another game names itself (decision 0058); chess's words are unchanged.
+  const label = gameLabel(invite.gameType);
+  const game = label === null ? 'chess' : label.toLowerCase();
   return {
-    title: SUBJECT,
-    text: `Come and play chess on a real field${where}. Join code ${formatJoinCode(invite.code)}.`,
+    title: label === null ? SUBJECT : `A game of ${game} on Satellite Chess`,
+    text: `Come and play ${game} on a real field${where}. Join code ${formatJoinCode(invite.code)}.`,
     url: invite.url,
   };
 }
@@ -243,6 +249,11 @@ export interface PgnShare {
   title: string;
   /** One line for a share target that shows a message beside the attachment. */
   message: string;
+  /**
+   * The file's media type: the game's record format's (decision 0056). Absent
+   * is a PGN's. A PDN is `text/plain` (decision 0057).
+   */
+  mime?: string;
 }
 
 /**
@@ -315,7 +326,7 @@ function sharePgnAsText(
  */
 function pgnFile(pgn: PgnShare): File | null {
   try {
-    return new File([pgn.text], pgn.fileName, { type: 'application/x-chess-pgn' });
+    return new File([pgn.text], pgn.fileName, { type: pgn.mime ?? 'application/x-chess-pgn' });
   } catch {
     return null;
   }

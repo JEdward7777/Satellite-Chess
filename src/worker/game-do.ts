@@ -1392,12 +1392,15 @@ export class GameDO extends DurableObject<Env> {
 
     // Nothing is gained by letting someone carry a piece that cannot go anywhere,
     // and it would strand them mid-field having spent clock time.
-    const next = rules.stops(game.fen, { from, via: [] }, this.optionsOf(game, rules));
+    const options = this.optionsOf(game, rules);
+    const next = rules.stops(game.fen, { from, via: [] }, options);
     if (next.places.length === 0 && next.waypoints.length === 0) {
       this.send(ws, {
         t: 'error',
         code: 'no_legal_moves',
-        message: `The piece on ${from} has no legal moves.`,
+        // The game's own reason where it has one (checkers: a jump is
+        // required elsewhere); chess's sentence otherwise, as it always was.
+        message: rules.whyStuck?.(game.fen, from, options) ?? `The piece on ${from} has no legal moves.`,
         move: { from },
       });
       return;

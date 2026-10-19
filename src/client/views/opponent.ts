@@ -28,7 +28,7 @@ import {
   pairResultsWords,
   sinceWords,
 } from '../head-to-head.js';
-import { DISTANCE_HONESTY, dateWords } from '../record.js';
+import { dateWords, distanceHonesty, playedWords } from '../record.js';
 import { type UnitsStore, displayUnits } from '../units.js';
 
 export interface OpponentViewDeps {
@@ -168,7 +168,7 @@ export function opponentHtml(detail: OpponentDetail, now: number = Date.now(), u
         .join('')}
     </ul>
     <div class="record-honesty dim">
-      ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
+      ${distanceHonesty(playedWords(detail.opponent.byGame)).map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
     </div>`;
 }
 

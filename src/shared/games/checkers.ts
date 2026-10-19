@@ -194,6 +194,10 @@ function pieceOf(man: CheckersMan): PieceOn {
 export const CHECKERS: GameDescriptor = {
   type: 'checkers',
   name: 'Checkers',
+  // The seat that moves first plays the dark pieces (decision 0057), and
+  // American players call them Black; the others White, as PDN does.
+  seats: { w: { name: 'Black', dark: true }, b: { name: 'White', dark: false } },
+  pieceNames: { m: 'man', k: 'king' },
   // The field's own 8 × 8, played on the dark squares (a1 is dark).
   lattice: { files: 8, ranks: 8, playable: (file, rank) => (file + rank) % 2 === 0 },
   // The back rank (decision 0005), as in chess: where a player stands, not

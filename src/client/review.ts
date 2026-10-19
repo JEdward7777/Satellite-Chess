@@ -17,6 +17,7 @@
  */
 
 import type { GameArt } from './games/types.js';
+import { descriptorFor, gameLabel, seatName } from '../shared/games/catalog.js';
 import { personalResult } from '../shared/record.js';
 import { type GameReport, type PlayerWalk, type ReportMove, walksOf } from '../shared/review.js';
 import type { Color } from '../shared/squares.js';
@@ -106,9 +107,14 @@ export function headlineWords(walk: PlayerWalk | null, units: Units = 'metric'):
  * there is not — "Distance was not measured playing chess" is not a sentence
  * anybody would send.
  */
-export function shareMessageWords(walk: PlayerWalk | null, units: Units = 'metric'): string {
-  if (walk === null || walk.travelM === null) return 'A game of Satellite Chess. Here it is.';
-  return `${headlineWords(walk, units)} playing chess. Here is the game.`;
+export function shareMessageWords(walk: PlayerWalk | null, units: Units = 'metric', gameType?: unknown): string {
+  // Chess's words are what they always were; another game names itself
+  // (decision 0058), so a checkers file is never sent as "playing chess".
+  const label = gameLabel(gameType);
+  if (walk === null || walk.travelM === null) {
+    return label === null ? 'A game of Satellite Chess. Here it is.' : `A game of ${label.toLowerCase()} on Satellite Chess. Here it is.`;
+  }
+  return `${headlineWords(walk, units)} playing ${(label ?? 'chess').toLowerCase()}. Here is the game.`;
 }
 
 /** The line under it: what the distance was made of. */
@@ -129,9 +135,12 @@ export function movesWords(moves: number): string {
   return `${moves} move${moves === 1 ? '' : 's'}`;
 }
 
-/** "White", "Black" — the one thing an opponent is ever called here. */
-export function colorWords(color: Color): string {
-  return color === 'w' ? 'White' : 'Black';
+/**
+ * "White", "Black" — the one thing an opponent is ever called here — as the
+ * game names its seats (decision 0058): checkers' first mover is Black.
+ */
+export function colorWords(color: Color, gameType?: unknown): string {
+  return seatName(gameType, color);
 }
 
 /**
@@ -145,9 +154,10 @@ export function walkWords(
   walk: PlayerWalk,
   you: Color | null,
   units: Units = 'metric',
+  gameType?: unknown,
 ): { who: string; distance: string; detail: string } {
   const mine = you !== null && walk.color === you;
-  const who = `${mine ? 'You' : 'Them'} · ${colorWords(walk.color)}`;
+  const who = `${mine ? 'You' : 'Them'} · ${colorWords(walk.color, gameType)}`;
   const parts = [movesWords(walk.moves)];
   if (walk.longestCarryM > 0) parts.push(`longest carry ${distanceWords(walk.longestCarryM, units)}`);
   // No total of the carries here. It would repeat the floor under the distance
@@ -169,7 +179,7 @@ export function walkRows(
   you: Color | null,
   units: Units = 'metric',
 ): { who: string; distance: string; detail: string }[] {
-  return walksOf(report, you).map((walk) => walkWords(walk, you, units));
+  return walksOf(report, you).map((walk) => walkWords(walk, you, units, report.gameType));
 }
 
 /**
@@ -188,7 +198,9 @@ export function resultWords(report: GameReport, you: Color | null): string {
   const how = reasonWords(report.reason);
   if (you === null) {
     const winner =
-      report.outcome === '1/2-1/2' ? 'Drawn' : `${colorWords(report.outcome === '1-0' ? 'w' : 'b')} won`;
+      report.outcome === '1/2-1/2'
+        ? 'Drawn'
+        : `${colorWords(report.outcome === '1-0' ? 'w' : 'b', report.gameType)} won`;
     return `${winner} — ${how}`;
   }
   const mine = personalResult(report.outcome, you);
@@ -270,3 +282,18 @@ export const PGN_EXPLANATION =
   'also carries how far each piece was carried and where on the board each ' +
   'player stood, in squares. It holds no coordinates, no map and no names, so ' +
   'it says nothing about where you were.';
+
+/**
+ * The same, for the game being reviewed: a PDN for checkers (decision 0057).
+ * Chess's sentence is {@link PGN_EXPLANATION}, word for word.
+ */
+export function recordExplanation(gameType?: unknown): string {
+  const game = descriptorFor(gameType);
+  if (game === null || game.type === 'chess') return PGN_EXPLANATION;
+  return (
+    `A ${game.record.name} is the standard ${game.name.toLowerCase()} file — ${game.name.toLowerCase()} programs open it. ` +
+    'This one also carries how far each piece was carried, each hop of a jump, and where ' +
+    'on the board each player stood, in squares. It holds no coordinates, no map and no ' +
+    'names, so it says nothing about where you were.'
+  );
+}

@@ -55,6 +55,7 @@ const dev = watch || serve;
 /** Each game's art, by the name its file is served under. */
 const GAMES = {
   chess: 'src/client/games/chess/index.ts',
+  checkers: 'src/client/games/checkers/index.ts',
 };
 
 /** The hash of each game file as last written, for the versioned import. */
@@ -132,7 +133,13 @@ const appOptions = {
         });
         b.onEnd((result) => {
           if (result.errors.length > 0 || !result.metafile) return;
-          guard('app.js', result.metafile, ['node_modules/chess.js', 'src/client/games/chess/']);
+          guard('app.js', result.metafile, [
+            'node_modules/chess.js',
+            ...Object.keys(GAMES).map((game) => `src/client/games/${game}/`),
+            // The record writers belong to the art (decision 0056).
+            'src/shared/pgn.ts',
+            'src/shared/pdn.ts',
+          ]);
         });
       },
     },

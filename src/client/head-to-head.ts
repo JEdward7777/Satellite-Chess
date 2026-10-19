@@ -14,7 +14,8 @@
 
 import type { HeadToHead, OpponentDetail, OpponentLine, OpponentTally } from '../shared/head-to-head.js';
 import { type Units, lengthWords, walkedPairWords } from '../shared/units.js';
-import { dateWords, gamesWords, resultsWords } from './record.js';
+import { dateWords, gamesWords, resultsByGameWords, resultsWords } from './record.js';
+import { gameLabel } from '../shared/games/catalog.js';
 import { reasonWords } from './views/games.js';
 
 /** Which opponent to open: from the list, or from a game's review. */
@@ -100,7 +101,9 @@ export function pairDistanceWords(
  */
 export function pairResultsWords(tally: OpponentTally): string {
   if (tally.games === 0) return 'No counted games yet.';
-  return `${resultsWords(tally)}, across ${gamesWords(tally.games)}.`;
+  // Split by game once more than chess was played (decision 0058).
+  const results = tally.byGame === undefined ? resultsWords(tally) : resultsByGameWords(tally.byGame);
+  return `${results}, across ${gamesWords(tally.games)}.`;
 }
 
 /** What was left out of the tally, the way the record says it. */
@@ -147,7 +150,11 @@ export function opponentLineWords(line: OpponentLine, units: Units = 'metric'): 
         : line.standing === 'unmeasured'
           ? 'distance was not measured for this game'
           : 'nobody moved, not counted';
-  return { title: line.fieldName ?? 'Unnamed field', detail: `${verdict} — ${reasonWords(line.reason)} · ${counted}` };
+  const label = gameLabel(line.gameType);
+  return {
+    title: line.fieldName ?? 'Unnamed field',
+    detail: `${label === null ? '' : `${label} · `}${verdict} — ${reasonWords(line.reason)} · ${counted}`,
+  };
 }
 
 /**
@@ -163,5 +170,6 @@ export const HEAD_TO_HEAD_EXPLANATION = [
 
 /** For a list line: "312 m between you · 2 won · 0 drawn · 1 lost". */
 export function opponentSummaryWords(tally: OpponentTally, units: Units = 'metric'): string {
-  return `${pairDistanceWords(tally, units).together} between you · ${resultsWords(tally)}`;
+  const results = tally.byGame === undefined ? resultsWords(tally) : resultsByGameWords(tally.byGame);
+  return `${pairDistanceWords(tally, units).together} between you · ${results}`;
 }

@@ -26,7 +26,7 @@ import type { FieldGeometry } from '../shared/field.js';
 import { boardPointOfIndex } from '../shared/field.js';
 import type { Color } from '../shared/squares.js';
 import type { ZoomView } from './board-zoom.js';
-import { descriptorOf } from '../shared/games/catalog.js';
+import { descriptorOf, seatIsDark } from '../shared/games/catalog.js';
 import type { GameArt, PieceLook } from './games/types.js';
 import { type Projection, boardBoundsPx, drawBoard } from './render.js';
 import type { ReplayFrame, Spot } from './replay.js';
@@ -65,10 +65,18 @@ export interface ReplayView {
  * with a halo of the other, so either reads over a light or a dark square;
  * the carry is the one bright line, because it is the move.
  */
-const WALK_INK: Record<Color, { line: string; halo: string }> = {
-  w: { line: '#ffffff', halo: '#0d1117' },
-  b: { line: '#151515', halo: '#ffffff' },
+const WALK_INK: Record<'light' | 'dark', { line: string; halo: string }> = {
+  light: { line: '#ffffff', halo: '#0d1117' },
+  dark: { line: '#151515', halo: '#ffffff' },
 };
+
+/**
+ * A seat's walk ink: its pieces' paint, which is the game's to say (decision
+ * 0058). Chess's `w` is light; checkers' `w` is the dark pieces.
+ */
+function inkOf(color: Color, gameType: unknown): { line: string; halo: string } {
+  return WALK_INK[seatIsDark(gameType, color) ? 'dark' : 'light'];
+}
 const CARRY_INK = '#ff8c1a';
 const CARRY_HALO = '#0d1117';
 /** How much of the earlier walks shows under this ply's. */
@@ -83,12 +91,14 @@ export function spotToScreen(projection: Projection, spot: Spot): { x: number; y
 /** Draw one ply. Returns the projection, as `drawBoard` does. */
 export function drawReplay(canvas: HTMLCanvasElement, view: ReplayView): Projection | null {
   const { frame } = view;
+  const game = view.art?.type;
   const lastMove = frame.move === null ? null : { from: frame.move.from, to: frame.move.to };
   const projection = drawBoard(canvas, {
     geo: REPLAY_GEOMETRY,
     orientation: view.orientation,
     pieces: view.art === null ? {} : descriptorOf(view.art.type).piecesOf(frame.fen),
     art: view.art,
+    playable: view.art === null ? undefined : descriptorOf(view.art.type).lattice.playable,
     pos: null,
     accuracyM: 0,
     reachM: 0,
@@ -117,8 +127,9 @@ export function drawReplay(canvas: HTMLCanvasElement, view: ReplayView): Project
   // Earlier walks first and faint, so this ply's lie over them.
   ctx.globalAlpha = EARLIER_ALPHA;
   for (const color of ['w', 'b'] as const) {
+    const ink = inkOf(color, game);
     for (const line of frame.earlier[color]) {
-      stroke(ctx, line.map(toScreen), WALK_INK[color].line, WALK_INK[color].halo, width(0.03, 1.5), []);
+      stroke(ctx, line.map(toScreen), ink.line, ink.halo, width(0.03, 1.5), []);
     }
   }
   ctx.globalAlpha = 1;
@@ -127,11 +138,11 @@ export function drawReplay(canvas: HTMLCanvasElement, view: ReplayView): Project
     const mover = frame.move.color;
     const other: Color = mover === 'w' ? 'b' : 'w';
     const dot = width(0.05, 2);
-    stroke(ctx, frame.waiting.map(toScreen), WALK_INK[other].line, WALK_INK[other].halo, width(0.04, 2), [1, dot * 2]);
+    stroke(ctx, frame.waiting.map(toScreen), inkOf(other, game).line, inkOf(other, game).halo, width(0.04, 2), [1, dot * 2]);
     // The walk to the piece ends where it was lifted, which is where the carry
     // starts, so the two lines meet.
     const approach = frame.carry !== null && frame.carry.length > 0 ? [...frame.approach, frame.carry[0]!] : frame.approach;
-    stroke(ctx, approach.map(toScreen), WALK_INK[mover].line, WALK_INK[mover].halo, width(0.05, 2), [dot * 3, dot * 2]);
+    stroke(ctx, approach.map(toScreen), inkOf(mover, game).line, inkOf(mover, game).halo, width(0.05, 2), [dot * 3, dot * 2]);
 
     if (frame.carry !== null) {
       const path = frame.carry.map(toScreen);
@@ -222,6 +233,13 @@ export interface StraightCarry {
   color: Color;
   lift: Spot;
   place: Spot;
+  /** Where a walked jump stopped between them (decision 0057). Absent for none. */
+  via?: Spot[];
+  /**
+   * Whether it is inked as the dark pieces. Absent is chess's paint: `b` is
+   * dark. Checkers' `w` seat plays the dark pieces (decision 0058).
+   */
+  dark?: boolean;
 }
 
 /** How many of the last carries the card keeps bold: the last two moves of each player. */
@@ -288,14 +306,15 @@ export function drawCarries(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   carries.forEach((carry, index) => {
-    const ink = WALK_INK[carry.color];
+    const ink = WALK_INK[(carry.dark ?? carry.color === 'b') ? 'dark' : 'light'];
     const look = carryEmphasis(index, carries.length);
     const width = Math.max(1.5, line * look.width);
     const radius = Math.max(3, r * (look.recent ? 1 : 0.7));
     const from = spotToScreen(projection, carry.lift);
     const to = spotToScreen(projection, carry.place);
+    const hops = (carry.via ?? []).map((spot) => spotToScreen(projection, spot));
     ctx.globalAlpha = look.alpha;
-    stroke(ctx, [from, to], ink.line, ink.halo, width, [], width * 0.6);
+    stroke(ctx, [from, ...hops, to], ink.line, ink.halo, width, [], width * 0.6);
     marker(ctx, from, radius, false, ink.line, ink.halo, Math.max(1.5, width * 0.55));
     marker(ctx, to, radius, true, ink.line, ink.halo, Math.max(1.5, width * 0.55));
   });

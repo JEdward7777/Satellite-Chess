@@ -16,7 +16,7 @@
  */
 
 import { boardPointOfIndex } from '../shared/field.js';
-import { descriptorOf } from '../shared/games/catalog.js';
+import { descriptorOf, seatIsDark } from '../shared/games/catalog.js';
 import type { Color } from '../shared/squares.js';
 import type { WatchSpot } from '../shared/watch.js';
 import type { ZoomView } from './board-zoom.js';
@@ -32,6 +32,12 @@ import {
 import { REPLAY_GEOMETRY } from './replay-draw.js';
 
 export interface WatchBoardView {
+  /**
+   * The game, as the view sent it (absent is chess). The dots' paint follows
+   * it rather than the art, so the Black seat's dot is dark before the
+   * checkers pieces have even loaded (decision 0058).
+   */
+  gameType?: unknown;
   fen: string;
   /** The game's pieces (decision 0056); null draws the board without them. */
   art: GameArt | null;
@@ -39,16 +45,22 @@ export interface WatchBoardView {
   look: PieceLook;
   zoom: ZoomView | null;
   lastMove: { from: string; to: string } | null;
-  carry: { color: Color; from: string; piece: string } | null;
+  /** `via`: a walked jump's hops so far (decision 0057), drawn as on the players' boards. */
+  carry: { color: Color; from: string; piece: string; via?: string[] } | null;
   /** Each player's dot, or null where there is none to draw. */
   dots: Record<Color, { at: WatchSpot; connected: boolean } | null>;
 }
 
 /** The two dots: each side's own color, with a rim of the other so it reads on either square. */
-const DOT_INK: Record<Color, { fill: string; edge: string }> = {
-  w: { fill: '#ffffff', edge: '#0d1117' },
-  b: { fill: '#151515', edge: '#ffffff' },
+const DOT_INKS = {
+  light: { fill: '#ffffff', edge: '#0d1117' },
+  dark: { fill: '#151515', edge: '#ffffff' },
 };
+
+/** A seat's dot ink: its pieces' paint in this game (decision 0058). */
+function dotInk(color: Color, gameType: unknown): { fill: string; edge: string } {
+  return DOT_INKS[seatIsDark(gameType, color) ? 'dark' : 'light'];
+}
 const DOT_RADIUS_PX = 7;
 /**
  * The ring round both dots: the players' screens' red for "a person", so a
@@ -85,6 +97,7 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
     orientation: view.orientation,
     pieces: view.art === null ? {} : descriptorOf(view.art.type).piecesOf(view.fen),
     art: view.art,
+    playable: view.art === null ? undefined : descriptorOf(view.art.type).lattice.playable,
     pos: null,
     accuracyM: 0,
     reachM: 0,
@@ -95,7 +108,14 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
     north: false,
     // The lifted piece faint on its square, under the dashed outline; nothing
     // in hand here, because the hand is drawn below beside the right dot.
-    carry: view.carry && { from: view.carry.from, destinations: [], mine: false, piece: null, hand: null },
+    carry: view.carry && {
+      from: view.carry.from,
+      destinations: [],
+      via: view.carry.via ?? [],
+      mine: false,
+      piece: null,
+      hand: null,
+    },
   });
   if (projection === null) return null;
   const ctx = canvas.getContext('2d');
@@ -115,9 +135,9 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
       ctx.fill();
       ctx.beginPath();
       ctx.arc(at.x, at.y, DOT_RADIUS_PX, 0, Math.PI * 2);
-      ctx.fillStyle = DOT_INK[color].fill;
+      ctx.fillStyle = dotInk(color, view.gameType).fill;
       ctx.fill();
-      ctx.strokeStyle = DOT_INK[color].edge;
+      ctx.strokeStyle = dotInk(color, view.gameType).edge;
       ctx.lineWidth = 1.5;
       ctx.stroke();
     } else {
@@ -144,10 +164,10 @@ export function drawWatch(canvas: HTMLCanvasElement, view: WatchBoardView): Proj
     ctx.arc(plate.x, plate.y, plate.plateRadius, 0, Math.PI * 2);
     ctx.fillStyle = IN_HAND_PLATE;
     ctx.fill();
-    ctx.strokeStyle = DOT_INK[piece.color].edge;
+    ctx.strokeStyle = dotInk(piece.color, view.gameType).edge;
     ctx.lineWidth = 5;
     ctx.stroke();
-    ctx.strokeStyle = DOT_INK[piece.color].fill;
+    ctx.strokeStyle = dotInk(piece.color, view.gameType).fill;
     ctx.lineWidth = 3;
     ctx.stroke();
     view.art?.drawPiece(ctx, piece, view.look, plate.x, plate.y, plate.size);

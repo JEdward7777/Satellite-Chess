@@ -25,6 +25,7 @@
  */
 
 import { isOver } from '../../shared/endings.js';
+import { gameLabel, seatName } from '../../shared/games/catalog.js';
 import { type ListedGame, forgetIsRefused, lastTouched } from '../../shared/game-index.js';
 import { formatJoinCode } from '../../shared/joincode.js';
 import { CLAIM_AFTER_MS, type ResultReason } from '../../shared/protocol.js';
@@ -88,13 +89,18 @@ export interface GameLine {
 export function describeGame(game: ListedGame, now: number = Date.now()): GameLine {
   return {
     title: game.fieldName ?? `Game ${formatJoinCode(game.joinCode)}`,
-    detail: [colourWord(game.color), stateWords(game, now)].join(' · '),
+    // A game that is not chess says which it is first (decision 0058); chess
+    // reads as it always has.
+    detail: [gameLabel(game.gameType), colourWord(game.color, game.gameType), stateWords(game, now)]
+      .filter((part) => part !== null)
+      .join(' · '),
     code: formatJoinCode(game.joinCode),
   };
 }
 
-function colourWord(color: Color): string {
-  return color === 'w' ? 'White' : 'Black';
+/** The seat as its game names it: checkers' `w` is Black (decision 0058). */
+function colourWord(color: Color, gameType: unknown): string {
+  return seatName(gameType, color);
 }
 
 function stateWords(game: ListedGame, now: number): string {

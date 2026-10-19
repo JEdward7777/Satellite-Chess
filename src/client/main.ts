@@ -543,7 +543,7 @@ async function boot(): Promise<void> {
     // this is a *game's* field, and it must not change shape because someone
     // re-calibrates the saved one. A joiner is handed the server's copy of the
     // same thing, so both phones hold a snapshot and neither holds a live field.
-    showInvite(body.joinCode, snapshotField(field), body.color ?? colour);
+    showInvite(body.joinCode, snapshotField(field), body.color ?? colour, draft.game);
   }
 
   /**
@@ -556,13 +556,19 @@ async function boot(): Promise<void> {
    * overlay that has to keep the board alive underneath it, for a screen nobody
    * looks at for more than a few seconds.
    */
-  function showInvite(joinCode: string, field: FieldSnapshot, colour: Color): void {
+  function showInvite(
+    joinCode: string,
+    field: FieldSnapshot,
+    colour: Color,
+    gameType: GameType = DEFAULT_GAME_TYPE,
+  ): void {
     swap(() =>
       mountInvite(root, {
         joinCode,
         field,
         colour,
-        onOpenBoard: () => enterGame(joinCode, field, colour),
+        gameType,
+        onOpenBoard: () => enterGame(joinCode, field, colour, gameType),
         onLeave: () => void showHome(),
       }),
     );
@@ -605,7 +611,7 @@ async function boot(): Promise<void> {
       banner.className = 'secondary invite-again';
       banner.dataset.joinCode = joinCode;
       banner.textContent = `Invite · ${formatJoinCode(joinCode)}`;
-      banner.addEventListener('click', () => showInvite(joinCode, field, colour));
+      banner.addEventListener('click', () => showInvite(joinCode, field, colour, gameType));
       root.querySelector('.board-status')?.prepend(banner);
       return () => {
         detachDrag?.();

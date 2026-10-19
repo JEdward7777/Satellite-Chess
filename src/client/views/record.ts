@@ -21,12 +21,14 @@ import { earlierWords, opponentLabel, opponentSummaryWords, sinceWords } from '.
 import { type Units, boardWords } from '../../shared/units.js';
 import { type UnitsStore, displayUnits } from '../units.js';
 import {
-  DISTANCE_HONESTY,
+  distanceHonesty,
   type RecordTransport,
   coverageWords,
   dateWords,
   distanceWords,
   lineWords,
+  playedWords,
+  resultsByGameWords,
   resultsWords,
 } from '../record.js';
 
@@ -149,7 +151,7 @@ export function recordHtml(
         No finished games yet. Your record starts with your first one, and it
         leads with how far you walk.
       </p>
-      ${honestyHtml()}`;
+      ${honestyHtml(record)}`;
   }
 
   const biggest =
@@ -160,17 +162,19 @@ export function recordHtml(
         }`;
 
   return `<p class="record-headline" data-record-distance>${distanceWords(totals.travelM, units)}</p>
-    <p class="record-sub">walked playing chess</p>
+    <p class="record-sub">walked playing ${escapeHtml(playedWords(record.byGame))}</p>
     <p class="dim" data-record-coverage>${escapeHtml(coverageWords(record, units))}</p>
     <dl class="record-stats">
-      <div><dt>Results</dt><dd data-record-results>${resultsWords(totals)}</dd></div>
+      <div><dt>Results</dt><dd data-record-results>${escapeHtml(
+        record.byGame === undefined ? resultsWords(totals) : resultsByGameWords(record.byGame),
+      )}</dd></div>
       <div><dt>Longest carry</dt><dd data-record-carry>${distanceWords(totals.longestCarryM, units)}</dd></div>
       <div><dt>Biggest board</dt><dd data-record-biggest>${biggest}</dd></div>
       <div><dt>Fields played on</dt><dd data-record-fields>${totals.fields}</dd></div>
     </dl>
     ${fieldsHtml(record, units)}
     ${recentHtml(record, now, units)}
-    ${honestyHtml()}`;
+    ${honestyHtml(record)}`;
 }
 
 function fieldsHtml(record: RecordSummary, units: Units): string {
@@ -206,9 +210,9 @@ function recentHtml(record: RecordSummary, now: number, units: Units): string {
     </ul>`;
 }
 
-function honestyHtml(): string {
+function honestyHtml(record: RecordSummary): string {
   return `<div class="record-honesty dim" data-record-honesty>
-    ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
+    ${distanceHonesty(playedWords(record.byGame)).map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
   </div>`;
 }
 

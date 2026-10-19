@@ -25,6 +25,7 @@ import { displayUnits } from '../units.js';
 import { drawWatch } from '../watch-draw.js';
 import { type WatchConnection, type WatchNetState, connectToWatch } from '../watch-net.js';
 import {
+  colorWords,
   lastMoveWords,
   moveListText,
   walkedLine,
@@ -49,11 +50,11 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
       <p class="watch-head"><strong>Satellite Chess</strong> · watching live</p>
       <div class="clocks watch-clocks" data-clocks hidden>
         <div class="clock" data-clock-side="w">
-          <span class="clock-label">White <span class="dim" data-where="w"></span></span>
+          <span class="clock-label"><span data-seat="w">White</span> <span class="dim" data-where="w"></span></span>
           <span class="clock-time" data-clock="w">—</span>
         </div>
         <div class="clock" data-clock-side="b">
-          <span class="clock-label">Black <span class="dim" data-where="b"></span></span>
+          <span class="clock-label"><span data-seat="b">Black</span> <span class="dim" data-where="b"></span></span>
           <span class="clock-time" data-clock="b">—</span>
         </div>
       </div>
@@ -122,12 +123,18 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
     const { frame } = zoomFrameFor(REPLAY_GEOMETRY, orientation, width, height);
     // Absent is chess (decision 0056), which is also what is drawn before the
     // first view arrives: the starting position.
+    // A type this build does not know draws no pieces; the headline says to
+    // update the app (decision 0058).
     const game = descriptorFor(view?.gameType);
     drawWatch(canvas, {
-      fen: view?.fen ?? game.initialState(view?.options ?? {}),
-      art: artFor(game.type, () => {
-        if (live) paint();
-      }),
+      gameType: view?.gameType,
+      fen: view?.fen ?? game?.initialState(view?.options ?? {}) ?? '',
+      art:
+        game === null
+          ? null
+          : artFor(game.type, () => {
+              if (live) paint();
+            }),
       orientation,
       look: looks.get(),
       zoom: zoom.settle(frame, null),
@@ -168,7 +175,11 @@ export function mountWatch(root: HTMLElement, deps: WatchDeps): () => void {
       set('[data-watch-last]', last ?? '', last === null);
       set('[data-watch-moves]', moveListText(view.moves), view.moves.length === 0);
       set('[data-watch-walked]', walkedLine(view, u));
-      for (const color of ['w', 'b'] as const) set(`[data-where="${color}"]`, `· ${whereWords(view, color)}`);
+      for (const color of ['w', 'b'] as const) {
+        set(`[data-where="${color}"]`, `· ${whereWords(view, color)}`);
+        // Checkers' first mover is Black (decision 0058).
+        set(`[data-seat="${color}"]`, colorWords(color, view.gameType));
+      }
     }
     paintClocks();
   }

@@ -20,6 +20,7 @@ import { WATCH_CLOSE, type WatchSnapshot } from '../shared/watch.js';
 import { estimateServerNow } from './clock.js';
 import type { SharePayload } from './share.js';
 import { reasonWords } from './views/games.js';
+import { UPDATE_APP_WORDS, descriptorFor, gameLabel, seatName } from '../shared/games/catalog.js';
 
 // ---------------------------------------------------------------------------
 // The players' side
@@ -131,7 +132,16 @@ export function watchUrl(origin: string, link: string): string {
   return `${origin}${link}`;
 }
 
-export function watchShareData(url: string): SharePayload {
+export function watchShareData(url: string, gameType?: unknown): SharePayload {
+  // Chess's words as they were; another game names itself (decision 0058).
+  const label = gameLabel(gameType);
+  if (label !== null) {
+    return {
+      title: `Watch our game of ${label.toLowerCase()} on Satellite Chess`,
+      text: `We are playing ${label.toLowerCase()} on a real field. Watch it live here:`,
+      url,
+    };
+  }
   return {
     title: 'Watch our game of Satellite Chess',
     text: 'We are playing chess on a real field. Watch it live here:',
@@ -143,49 +153,49 @@ export function watchShareData(url: string): SharePayload {
 // The watcher's side
 // ---------------------------------------------------------------------------
 
-export function colorWords(color: Color): string {
-  return color === 'w' ? 'White' : 'Black';
+/** A seat as the game names it (decision 0058): checkers' `w` is Black. */
+export function colorWords(color: Color, gameType?: unknown): string {
+  return seatName(gameType, color);
 }
 
-const PIECE_NAMES: Record<string, string> = {
-  k: 'king',
-  q: 'queen',
-  r: 'rook',
-  b: 'bishop',
-  n: 'knight',
-  p: 'pawn',
-};
-
-/** "a queen", "a knight" — what is in somebody's hand. */
-export function pieceWords(piece: string): string {
-  return `a ${PIECE_NAMES[piece.toLowerCase()] ?? 'piece'}`;
+/** "a queen", "a knight", "a man" — what is in somebody's hand, in the game's own names. */
+export function pieceWords(piece: string, gameType?: unknown): string {
+  const name = descriptorFor(gameType)?.pieceNames[piece.toLowerCase()];
+  return `a ${name ?? 'piece'}`;
 }
 
 /** The headline under the board: whose move, who is carrying, or how it ended. */
 export function watchHeadline(view: WatchSnapshot): string {
   if (view.status === 'aborted') return 'The players aborted the game. No result.';
+  if (descriptorFor(view.gameType) === null) return UPDATE_APP_WORDS;
+  const name = (color: Color) => colorWords(color, view.gameType);
   if (view.result) {
     const { outcome, reason } = view.result;
-    const who = outcome === '1-0' ? 'White won' : outcome === '0-1' ? 'Black won' : 'Drawn';
+    const who = outcome === '1-0' ? `${name('w')} won` : outcome === '0-1' ? `${name('b')} won` : 'Drawn';
     return `Game over: ${who} — ${reasonWords(reason)}.`;
   }
   if (view.status === 'staging') return 'Waiting for both players to walk to their own back rank.';
   if (view.status === 'suspended') {
     const by = view.suspension?.by ?? null;
-    const away = by === null ? 'The game is paused.' : `${colorWords(by)} stopped the game.`;
+    const away = by === null ? 'The game is paused.' : `${name(by)} stopped the game.`;
     return `${away} It resumes when both players are back on their own back rank.`;
   }
   if (view.carry) {
-    return `${colorWords(view.carry.color)} is carrying ${pieceWords(view.carry.piece)} from ${view.carry.from}.`;
+    const hops = view.carry.via ?? [];
+    const piece = pieceWords(view.carry.piece, view.gameType);
+    // A walked jump, hop by hop (decision 0057).
+    return hops.length === 0
+      ? `${name(view.carry.color)} is carrying ${piece} from ${view.carry.from}.`
+      : `${name(view.carry.color)} is jumping ${piece}: ${[view.carry.from, ...hops].join(' → ')}.`;
   }
-  return `${colorWords(view.clock.active)} to move.`;
+  return `${name(view.clock.active)} to move.`;
 }
 
 /** "Last move: Qh4# — carried 41 m", in the watcher's units. */
 export function lastMoveWords(view: WatchSnapshot, units: Units): string | null {
   const last = view.lastMove;
   if (last === null) return null;
-  return `Last move: ${last.san} by ${colorWords(last.color)} — carried ${lengthWords(last.carriedM, units)}.`;
+  return `Last move: ${last.san} by ${colorWords(last.color, view.gameType)} — carried ${lengthWords(last.carriedM, units)}.`;
 }
 
 /** Where each player is, said rather than drawn: for a dot off the board, or no dot at all. */
@@ -199,8 +209,8 @@ export function whereWords(view: WatchSnapshot, color: Color): string {
 /** "White walked 840 m · Black walked 1.2 km · a 40 m board". */
 export function walkedLine(view: WatchSnapshot, units: Units): string {
   const parts = [
-    `White walked ${walkedWords(view.players.w.travelM, units)}`,
-    `Black walked ${walkedWords(view.players.b.travelM, units)}`,
+    `${colorWords('w', view.gameType)} walked ${walkedWords(view.players.w.travelM, units)}`,
+    `${colorWords('b', view.gameType)} walked ${walkedWords(view.players.b.travelM, units)}`,
   ];
   if (view.boardM > 0) parts.push(`on a ${boardWords(view.boardM, units)} board`);
   return parts.join(' · ');

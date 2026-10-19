@@ -25,8 +25,8 @@ import type { GameReport, ReportMove, ReportPosition } from '../shared/review.js
 import { type Color, type Square, toSquare } from '../shared/squares.js';
 import { isCarryingTag, plyOfTag } from '../shared/track.js';
 import type { Units } from '../shared/units.js';
-import { descriptorFor } from '../shared/games/catalog.js';
-import { colorWords, moveWords } from './review.js';
+import { descriptorFor, seatName } from '../shared/games/catalog.js';
+import { moveWords } from './review.js';
 
 /** A place on the board, in squares from a1's centre. */
 export interface Spot {
@@ -66,17 +66,30 @@ export interface ReplayFrame {
  */
 export function replayFens(report: GameReport): string[] {
   const game = descriptorFor(report.gameType);
+  // A game this build does not know has no positions to show (decision 0058):
+  // the review says to update the app rather than replaying it as chess.
+  if (game === null) return [];
   const start = game.initialState(report.options ?? {});
   const fens = [start];
   let fen = start;
   for (const move of report.moves) {
-    // The report keeps no waypoints yet: a chess move has none (decision 0056).
-    const next = game.applyKnown(fen, { from: move.from, via: [] }, move.to, game.choiceOf(move.uci));
+    const next = game.applyKnown(fen, { from: move.from, via: hopsVia(move) }, move.to, game.choiceOf(move.uci));
     if (next === fen) break;
     fen = next;
     fens.push(fen);
   }
   return fens;
+}
+
+/**
+ * The squares a move stopped on between its lift and its place (decision
+ * 0057): the middle of `uci` when it names more than two squares, as a walked
+ * checkers jump's does (`c3e5g7` stopped on e5). A chess `uci` is two squares
+ * and a promotion letter at most, so it has none.
+ */
+export function hopsVia(move: Pick<ReportMove, 'uci'>): Square[] {
+  const squares = move.uci.match(/[a-h][1-8]/g) ?? [];
+  return squares.length > 2 ? (squares.slice(1, -1) as Square[]) : [];
 }
 
 /** A scrubber value, made a ply that exists. */
@@ -143,7 +156,7 @@ export function replayFrame(report: GameReport, fens: readonly string[], ply: nu
   return {
     ply: at,
     plies,
-    fen: fens[at] ?? descriptorFor(report.gameType).initialState(report.options ?? {}),
+    fen: fens[at] ?? descriptorFor(report.gameType)?.initialState(report.options ?? {}) ?? '',
     move,
     carry: move === null ? null : carryPath(move, approach, carried),
     approach,
@@ -165,6 +178,12 @@ function carryPath(move: ReportMove, approach: readonly Spot[], carried: readonl
   const lift = move.lift ?? approach[approach.length - 1] ?? null;
   if (lift !== null) path.push({ file: lift.file, rank: lift.rank });
   for (const spot of carried) path.push(spot);
+  // Where a walked jump stopped on the way (decision 0057). The relays in
+  // hand already follow the walk when they were kept; without them, the hops
+  // are the only points between the lift and the place.
+  if (carried.length === 0) {
+    for (const stop of move.via ?? []) if (stop !== null) path.push({ file: stop.file, rank: stop.rank });
+  }
   if (move.place !== null) {
     // The track holds the place's fix rounded to a hundredth of a square, so
     // the same fix is "the same" to within that grain, and the exact one wins.
@@ -241,14 +260,36 @@ export function replayHeadWords(frame: ReplayFrame): string {
 export function carryWords(
   move: ReportMove | null,
   units: Units = 'metric',
+  gameType?: unknown,
 ): { who: string; lift: string; carried: string; place: string } | null {
   if (move === null) return null;
   return {
-    who: `${colorWords(move.color)} moved ${move.from} to ${move.to}`,
+    who: hopsWords(move, gameType),
     lift: `Picked up ${standingWords(move.lift)}`,
     carried: capitalize(moveWords(move, units).detail),
     place: `Put down ${standingWords(move.place)}`,
   };
+}
+
+/**
+ * "Black moved c3 to e5", or for a walked jump "Black jumped c3 to e5 to g7"
+ * (decision 0057), the seat named as this game names it (decision 0058).
+ */
+export function hopsWords(move: Pick<ReportMove, 'color' | 'from' | 'to' | 'uci'>, gameType?: unknown): string {
+  const who = seatName(gameType, move.color);
+  const via = hopsVia(move);
+  // Only a game whose carries hop (checkers) jumps: a chess bishop c1–e3 moved.
+  const hops = descriptorFor(gameType)?.waypoints === true;
+  if (!hops || (via.length === 0 && !isJump(move.from, move.to))) return `${who} moved ${move.from} to ${move.to}`;
+  if (via.length === 0) return `${who} jumped ${move.from} to ${move.to}`;
+  return `${who} jumped ${[move.from, ...via, move.to].join(' to ')}`;
+}
+
+/** A checkers capture: two squares along a diagonal. */
+function isJump(from: string, to: string): boolean {
+  const df = Math.abs(from.charCodeAt(0) - to.charCodeAt(0));
+  const dr = Math.abs(from.charCodeAt(1) - to.charCodeAt(1));
+  return df === 2 && dr === 2;
 }
 
 /** The note under the board: what the lines are, or why there are none. */

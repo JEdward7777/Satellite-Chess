@@ -2,7 +2,7 @@
  * Fetch a game's art when it is first needed, and hand it out synchronously
  * after that (decision 0056).
  *
- * Each game's art is its own file (`/games/chess.js`), loaded with a dynamic
+ * Each game's art is its own file (`/games/chess.js`, `/games/checkers.js`), loaded with a dynamic
  * `import()`. `scripts/build-client.mjs` builds it apart from `app.js` and
  * rewrites the import below to that file's URL, with a hash of its content in
  * the query so a new deploy is never answered with an old file. In a test the
@@ -19,11 +19,11 @@
 import type { GameType } from '../../shared/games/types.js';
 import type { GameArt } from './types.js';
 
-// Partial while a game the server plays has no art on the phone yet:
-// checkers' rules came first (stage 11.2), its pieces with stage 11.3. Until
-// then a board of it draws no pieces, and nothing offers to create one.
-const LOADERS: Partial<Record<GameType, () => Promise<GameArt>>> = {
+// Every game this build knows has its art (stage 11.3): a `Record`, so a
+// game added to `GameType` without pieces is a compile error, not a blank board.
+const LOADERS: Record<GameType, () => Promise<GameArt>> = {
   chess: () => import('./chess/index.js').then((module) => module.CHESS_ART),
+  checkers: () => import('./checkers/index.js').then((module) => module.CHECKERS_ART),
 };
 
 /**

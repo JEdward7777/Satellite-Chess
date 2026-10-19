@@ -1,7 +1,9 @@
 /**
- * The create screen: which field, how long, which colour, and who gets a hand.
+ * The create screen: which game, which field, how long, which colour, and who
+ * gets a hand.
  *
- * Four choices, and each one is here because the game cannot sensibly guess it.
+ * Each choice is here because the game cannot sensibly guess it. The game is
+ * chess or checkers (decision 0056), with checkers' one switch beside it.
  * The field is a physical place two people have agreed on; the time control has
  * to pay for walking (decision 0012); colour matters more than usual because it
  * also decides *which end of the field you stand at*; and the handicap is reach,
@@ -29,6 +31,9 @@ import {
   reachFromSquares,
 } from '../../shared/reach.js';
 import type { Color } from '../../shared/squares.js';
+import { descriptorOf, seatName } from '../../shared/games/catalog.js';
+import { JUMPS_REQUIRED } from '../../shared/games/checkers.js';
+import { DEFAULT_GAME_TYPE, GAME_TYPES, type GameType } from '../../shared/games/types.js';
 
 // ---------------------------------------------------------------------------
 // Model
@@ -47,6 +52,14 @@ export type ColourChoice = Color | 'random';
 export type HandicapTo = 'none' | 'me' | 'opponent';
 
 export interface CreateDraft {
+  /** Which game (decision 0056). Chess unless the creator picks another. */
+  game: GameType;
+  /**
+   * Checkers' one setting (decision 0057): a jump must be taken, and a
+   * multi-jump finished. Off by default, as the owner decided. Ignored for
+   * chess, which has no settings.
+   */
+  jumpsRequired: boolean;
   /** `FieldSpec.id`. */
   fieldId: string;
   /** Index into {@link TIME_CONTROLS}. */
@@ -74,6 +87,8 @@ export const DEFAULT_TIME_CONTROL_INDEX = TIME_CONTROLS.indexOf(DEFAULT_TIME_CON
 
 export function emptyDraft(fields: FieldSpec[]): CreateDraft {
   return {
+    game: DEFAULT_GAME_TYPE,
+    jumpsRequired: false,
     // The list is newest-first, so this is the field just calibrated — which is
     // overwhelmingly the one being played on.
     fieldId: fields[0]?.id ?? '',
@@ -137,6 +152,10 @@ export function createGameBody(
   const time = draftTimeControl(draft);
   const bonuses = reachBonuses(draft, myColour);
   return {
+    // Absent is chess (decision 0056), so a chess body is what it always was.
+    ...(draft.game === DEFAULT_GAME_TYPE
+      ? {}
+      : { gameType: draft.game, options: { [JUMPS_REQUIRED]: draft.jumpsRequired } }),
     field,
     color: myColour,
     initialMs: time.initialMs,
@@ -167,11 +186,14 @@ export interface CreateDeps {
   coin?(): number;
 }
 
-const COLOUR_LABELS: Record<ColourChoice, string> = {
-  w: 'White',
-  b: 'Black',
-  random: 'Random',
-};
+/**
+ * The colour buttons, as the chosen game names its seats (decision 0058):
+ * chess's first mover is White, checkers' is Black. The first button is
+ * always the seat that moves first.
+ */
+export function colourLabel(choice: ColourChoice, game: GameType): string {
+  return choice === 'random' ? 'Random' : seatName(game, choice);
+}
 
 /** Short enough to sit on one line each: a wrapped label makes the row ragged. */
 const HANDICAP_LABELS: Record<HandicapTo, string> = {
@@ -209,6 +231,14 @@ export function mountCreate(root: HTMLElement, deps: CreateDeps): () => void {
       });
     };
     onSelect('[data-field]', (value) => update({ fieldId: value }));
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-game]')) {
+      button.addEventListener('click', () => {
+        update({ game: button.dataset.game as GameType });
+      });
+    }
+    root.querySelector<HTMLInputElement>('[data-jumps-required]')?.addEventListener('change', (event) => {
+      update({ jumpsRequired: (event.target as HTMLInputElement).checked });
+    });
     onSelect('[data-time]', (value) => update({ timeControl: Number(value) }));
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-colour]')) {
       button.addEventListener('click', () => {
@@ -258,6 +288,24 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
     <h1>New game</h1>
     ${refusal ? `<p class="notice" data-notice>${escapeHtml(refusal)}</p>` : ''}
 
+    <h2>Game</h2>
+    <div class="choices" data-games>
+      ${GAME_TYPES.map(
+        (type) =>
+          `<button data-game="${type}" class="choice ${draft.game === type ? 'is-on' : ''}" aria-pressed="${
+            draft.game === type
+          }">${escapeHtml(descriptorOf(type).name)}</button>`,
+      ).join('')}
+    </div>
+    ${
+      draft.game === 'checkers'
+        ? `<p><label class="switch-row"><input type="checkbox" data-jumps-required ${
+            draft.jumpsRequired ? 'checked' : ''
+          }> Jumps are required</label></p>
+           <p class="dim" data-jumps-note>${escapeHtml(jumpsNote(draft.jumpsRequired))}</p>`
+        : ''
+    }
+
     <h2>Field</h2>
     <p>
       <select data-field ${fields.length === 0 ? 'disabled' : ''}>
@@ -296,7 +344,7 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
           (choice) =>
             `<button data-colour="${choice}" class="choice ${
               draft.colour === choice ? 'is-on' : ''
-            }" aria-pressed="${draft.colour === choice}">${COLOUR_LABELS[choice]}</button>`,
+            }" aria-pressed="${draft.colour === choice}">${escapeHtml(colourLabel(choice, draft.game))}</button>`,
         )
         .join('')}
     </div>
@@ -352,6 +400,13 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
 function fieldSummary(field: FieldSpec, units: Units): string {
   const geo = deriveGeometry(field);
   return describeSquares(geo, units);
+}
+
+/** What the checkers switch means, said beside it (decision 0057). */
+export function jumpsNote(required: boolean): string {
+  return required
+    ? 'When a jump is there, it must be taken, and a double jump finished.'
+    : 'A jump is never forced, and a double jump can stop after any hop. Off is the default.';
 }
 
 function colourNote(choice: ColourChoice): string {

@@ -53,7 +53,7 @@ const CRITICAL = [SHELL, '/app.js', '/app.css'];
  * none. A game added to `scripts/build-client.mjs` that should play offline
  * from the first launch is added here as well.
  */
-const GAME_ART = ['/games/chess.js'];
+const GAME_ART = ['/games/chess.js', '/games/checkers.js'];
 
 /** Nice to have offline; a 404 on one of these must not cost us the whole shell. */
 const OPTIONAL = [

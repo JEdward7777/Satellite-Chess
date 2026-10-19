@@ -40,14 +40,13 @@
  * player ticks, off every time. Nothing is sent to make it or to share it.
  */
 
-import { descriptorFor } from '../../shared/games/catalog.js';
+import { UPDATE_APP_WORDS, descriptorFor, gameLabel } from '../../shared/games/catalog.js';
 import type { GameReport } from '../../shared/review.js';
 import { loadArt } from '../games/registry.js';
 import type { GameArt } from '../games/types.js';
 import type { Color } from '../../shared/squares.js';
 import {
-  DISTANCE_HONESTY,
-  PGN_EXPLANATION,
+  recordExplanation,
   type ReviewTransport,
   headlineDetailWords,
   headlineWords,
@@ -61,7 +60,8 @@ import {
 import { type ShareOutcome, copyText, shareImage, sharePgn } from '../share.js';
 import {
   CARD_EXPLANATION,
-  CARD_FILE_NAME,
+  cardFileName,
+  cardGameWords,
   authoredFieldName,
   cardAltWords,
   cardMessageWords,
@@ -74,6 +74,7 @@ import { walksOf } from '../../shared/review.js';
 import type { Units } from '../../shared/units.js';
 import { displayUnits } from '../units.js';
 import { pieceLook } from '../piece-look.js';
+import { distanceHonesty } from '../record.js';
 import { canvasSizePx, zoomFrameFor } from '../render.js';
 import {
   type ReplayFrame,
@@ -130,7 +131,13 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
         // 0056), and the file must be built before Share can be tapped. It is
         // fetched once, from the service worker's cache when there is no signal.
         const report = result.report;
-        void loadArt(descriptorFor(report.gameType).type).then(
+        const game = descriptorFor(report.gameType);
+        if (game === null) {
+          // A game newer than this build (decision 0058): never shown as chess.
+          body.innerHTML = `<p class="dim" data-review-unavailable="update">${escapeHtml(UPDATE_APP_WORDS)}</p>`;
+          return;
+        }
+        void loadArt(game.type).then(
           (art) => {
             if (live) draw(report, result.you, art);
           },
@@ -199,8 +206,11 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
       void (deps.share ?? sharePgn)({
         fileName: pgn.fileName,
         text: pgn.text,
-        title: `${whereWords(report, units) || 'Satellite Chess'} — a game of Satellite Chess`,
-        message: shareMessageWords(walksOf(report, you)[0] ?? null, units),
+        title: shareTitleWords(report, units),
+        message: shareMessageWords(walksOf(report, you)[0] ?? null, units, report.gameType),
+        // A PDN is plain text (decision 0057); a PGN keeps the type chess
+        // programs open.
+        mime: descriptorFor(report.gameType)?.record.mime,
       }).then((outcome) => {
         if (live) sayOutcome(outcome, 'Sent.');
       });
@@ -226,6 +236,16 @@ export function mountReview(root: HTMLElement, deps: ReviewViewDeps): () => void
     unmountCard?.();
     unmountCard = null;
   };
+}
+
+/**
+ * The share sheet's title for the file: "Riverside Park — a game of Satellite
+ * Chess", or of checkers on it (decision 0058).
+ */
+export function shareTitleWords(report: GameReport, units: Units = 'metric'): string {
+  const label = gameLabel(report.gameType);
+  const what = label === null ? 'a game of Satellite Chess' : `a game of ${label.toLowerCase()} on Satellite Chess`;
+  return `${whereWords(report, units) || 'Satellite Chess'} — ${what}`;
 }
 
 /**
@@ -302,7 +322,7 @@ function mountCard(
   const onShare = (): void => {
     if (png === null) return;
     // No `await` on this path: the PNG was made when the card was drawn.
-    void send({ png, fileName: CARD_FILE_NAME, title: 'A game of Satellite Chess', message }).then((outcome) => {
+    void send({ png, fileName: cardFileName(report.gameType), title: cardGameWords(report.gameType), message }).then((outcome) => {
       if (!isLive()) return;
       if (outcome.ok) say(outcome.tier === 'download' ? 'Downloaded.' : 'Sent.');
       else if (outcome.reason === 'cancelled') say('');
@@ -370,7 +390,7 @@ function mountReplay(
     const head = section.querySelector<HTMLElement>('[data-replay-head]');
     if (head) head.textContent = replayHeadWords(frame);
     const carry = section.querySelector<HTMLElement>('[data-replay-carry]');
-    if (carry) carry.innerHTML = replayCarryHtml(frame, units);
+    if (carry) carry.innerHTML = replayCarryHtml(frame, units, report.gameType);
     if (scrub && scrub.value !== String(frame.ply)) scrub.value = String(frame.ply);
     if (prev) prev.disabled = frame.ply <= 0;
     if (next) next.disabled = frame.ply >= frame.plies;
@@ -417,8 +437,8 @@ function mountReplay(
 }
 
 /** The lines under the board: who moved what, where it was picked up, how far, where it went down. */
-export function replayCarryHtml(frame: ReplayFrame, units: Units = 'metric'): string {
-  const words = carryWords(frame.move, units);
+export function replayCarryHtml(frame: ReplayFrame, units: Units = 'metric', gameType?: unknown): string {
+  const words = carryWords(frame.move, units, gameType);
   if (words === null) return `<p class="dim">The position before anyone moved.</p>`;
   return `<p><strong>${escapeHtml(words.who)}</strong></p>
     <p data-replay-lift><span class="replay-key replay-key-lift" aria-hidden="true"></span>${escapeHtml(words.lift)}</p>
@@ -474,9 +494,9 @@ export function reviewHtml(
     }
     <div class="review-pgn" data-review-pgn>
       <h3>The game as a file</h3>
-      <p class="dim">${escapeHtml(PGN_EXPLANATION)}</p>
+      <p class="dim">${escapeHtml(recordExplanation(report.gameType))}</p>
       <p>
-        <button data-review-share>Share PGN</button>
+        <button data-review-share>Share ${escapeHtml(descriptorFor(report.gameType)?.record.name ?? 'PGN')}</button>
         <button class="secondary" data-review-copy>Copy</button>
         <button class="secondary" data-review-show>Show the file</button>
       </p>
@@ -489,7 +509,7 @@ export function reviewHtml(
       </p>
     </div>
     <div class="record-honesty dim" data-review-honesty>
-      ${DISTANCE_HONESTY.map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
+      ${distanceHonesty((gameLabel(report.gameType) ?? 'chess').toLowerCase()).map((sentence) => `<p>${escapeHtml(sentence)}</p>`).join('')}
     </div>`;
 }
 
@@ -546,7 +566,7 @@ function replayHtml(report: GameReport, units: Units): string {
                aria-label="Step through the game">
         <button type="button" class="secondary" data-replay-next aria-label="Forward one step" disabled>Next ›</button>
       </div>
-      <div class="replay-carry" data-replay-carry>${replayCarryHtml(last, units)}</div>
+      <div class="replay-carry" data-replay-carry>${replayCarryHtml(last, units, report.gameType)}</div>
       <p class="dim" data-replay-note>${escapeHtml(walkNoteWords(report))}</p>
     </section>`;
 }

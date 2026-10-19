@@ -233,6 +233,8 @@ function asPromotion(choice: string | undefined): PromotionPiece | undefined {
 export const CHESS: GameDescriptor = {
   type: 'chess',
   name: 'Chess',
+  seats: { w: { name: 'White', dark: false }, b: { name: 'Black', dark: true } },
+  pieceNames: { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' },
   lattice: { files: 8, ranks: 8, playable: () => true },
   // The back rank (decision 0005), as it always was.
   startZone: (color: Color) => startZoneSquares(color),
