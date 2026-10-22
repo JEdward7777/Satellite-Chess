@@ -83,7 +83,7 @@ The conditions under which this should be reopened.
 | [0045](0045-pieces-are-the-standard-two-sided-set.md) | Pieces are the standard two-sided set (cburnett, BSD), on mid-tone squares; team discs behind a switch | accepted (supersedes 0011) |
 | [0046](0046-the-board-zooms-in-screen-space-and-a-drag-is-never-a-tap.md) | The board zooms in screen space (pinch, pan, follow, "Whole board"), and a drag is never a tap | accepted |
 | [0047](0047-the-sprint-cap-delays-and-the-relay-limit-counts-relays.md) | The sprint cap delays rather than discards, and the relay limit counts relays | accepted (amends 0040 rule 6) |
-| [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted |
+| [0048](0048-the-carried-piece-travels-beside-a-live-dot.md) | The carried piece travels beside a live dot (mine, or the opponent's while connected), faint on its origin otherwise | accepted (the point about taps superseded by 0059) |
 | [0049](0049-display-units-are-an-account-setting.md) | Display units (metric or US) are an account setting; everything underneath stays metric | accepted (supersedes rule 2 of 0036) |
 | [0050](0050-a-game-can-be-resigned-drawn-or-aborted-from-the-board.md) | A game can be resigned, drawn or aborted from the board; an aborted game has no result | accepted |
 | [0051](0051-a-field-is-tried-alone-against-its-leeway.md) | A field is tried alone, on the phone, and judged by its claimed accuracy against the leeway (square inset plus reach) | accepted |
@@ -93,3 +93,5 @@ The conditions under which this should be reopened.
 | [0055](0055-a-game-can-be-watched-live-on-a-link-both-players-agreed-to.md) | A game can be watched live, on a link both players agreed to, in board space only; six watchers, no delay | accepted |
 | [0056](0056-each-game-sits-behind-one-interface-and-loads-its-own-pieces.md) | Each game sits behind one interface (descriptor, server rules, phone art); a carry is a lift, waypoints, a place; the phone fetches only that game's pieces; absent is chess | accepted |
 | [0057](0057-checkers-is-american-the-first-mover-is-the-w-seat-and-each-hop-is-walked.md) | Checkers is American; the `w` seat plays the dark pieces and moves first; each hop of a jump is a waypoint and nothing is taken until the place; jumps required is a setting; no moves loses; draws by agreement only; PDN | accepted |
+| [0058](0058-the-phone-names-and-paints-seats-per-game-and-walks-each-hop-with-a-tap.md) | The phone names and paints seats per game, walks each hop with a tap, and never draws an unknown game as chess | accepted |
+| [0059](0059-a-tap-on-the-piece-in-hand-plate-goes-to-the-square-underneath.md) | A tap on the piece-in-hand plate goes to the square underneath, mine and the opponent's alike | accepted (supersedes the point about taps in 0048) |

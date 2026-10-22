@@ -81,3 +81,9 @@ required" a creation setting that is off by default, and PDN.
     stop early, a refused lift, a 25-move game with a crowning and no moves
     left, the review and card), `check-golden` against `23cee67` identical.
 - `11.4` todo: Real-phone check of checkers (stage 11.3, which is done): are rings and dots told apart in sun, is the crown read at arm's length in both looks, is "Stop here / Keep jumping" ever hit by accident
+  - Partial evidence, 2026-10-22: the owner played an unfinished checkers
+    game outdoors. "It was working good however someone became king and
+    also we had some hops", so crowning and jumps worked on real phones.
+    The one complaint was the piece-in-hand plate swallowing taps (O-61,
+    fixed in `10.10.4`). The questions above were not answered, so this
+    stays todo.

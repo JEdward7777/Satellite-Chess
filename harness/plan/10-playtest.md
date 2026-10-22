@@ -141,6 +141,12 @@ file. Expect most of it to be written after the first real game.
   - `10.10.3` todo: On real phones outdoors: can both players read the piece
     in hand at arm's length in sun, does the plate hide a square the carrier
     needs, and does it read as a carry rather than a third dot?
+  - `10.10.4` done: A tap on either piece-in-hand plate goes through to the
+    square underneath (decision 0059, reversing 0048's ignored tap). The
+    owner, after a real checkers game (O-61): the bubble "can't be clicked through
+    so it makes something you have to avoid when trying to click where to
+    set it down". The hint about the piece in hand is gone; "Put it back"
+    is the way to put it back. `scripts/check-carry.mjs` places through it.
 
 - `10.11` active: Resign, Offer draw and Abort on the board (O-50, decision 0050)
   - The owner's game on an unplayable field could not be ended or removed.

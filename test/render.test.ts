@@ -6,7 +6,6 @@ import { type ZoomView, zoomProjection } from '../src/client/board-zoom.js';
 import {
   type CoordinateLabel,
   coordinateLabels,
-  hitsPlate,
   inHandPlate,
   inHandPlacement,
   northOnScreen,
@@ -281,7 +280,7 @@ describe('inHandPlacement (O-44)', () => {
   });
 });
 
-describe('inHandPlate and hitsPlate (O-44)', () => {
+describe('inHandPlate (O-44)', () => {
   /** A carrier standing on d4's centre, with a pawn in hand. */
   const d4 = fromLocal(A1, { e: 3 * SQUARE_M, n: 3 * SQUARE_M });
   const view = (over: { mine?: boolean; hand?: typeof d4 | null; zoom?: ZoomView | null } = {}) => ({
@@ -302,7 +301,7 @@ describe('inHandPlate and hitsPlate (O-44)', () => {
   });
 
   for (const zoom of [null, { k: 3, tx: -400, ty: -300 }] as (ZoomView | null)[]) {
-    it(`is hit on the plate and missed off it, through the ${zoom ? 'zoomed' : 'whole-board'} projection`, () => {
+    it(`is up and to the right of the dot, clear of it, through the ${zoom ? 'zoomed' : 'whole-board'} projection`, () => {
       const base = projectionFor(EAST, 'w', SIZE, SIZE);
       const projection = zoom ? zoomProjection(base, zoom) : base;
       const plate = inHandPlate(view({ zoom }), projection, SIZE, SIZE);
@@ -311,28 +310,22 @@ describe('inHandPlate and hitsPlate (O-44)', () => {
       // Where drawInHand puts it: up and to the right of the dot.
       expect(plate!.x).toBeGreaterThan(dot.x);
       expect(plate!.y).toBeLessThan(dot.y);
-      expect(hitsPlate(plate, plate!.x, plate!.y)).toBe(true);
-      expect(hitsPlate(plate, plate!.x + plate!.plateRadius, plate!.y)).toBe(true);
-      // The dot itself, and the carrier's own square, are still tappable.
-      expect(hitsPlate(plate, dot.x, dot.y)).toBe(false);
-      expect(hitsPlate(plate, plate!.x + plate!.plateRadius + 3, plate!.y)).toBe(false);
+      // The dot itself is not under it.
+      expect(Math.hypot(dot.x - plate!.x, dot.y - plate!.y)).toBeGreaterThan(plate!.plateRadius);
     });
   }
 
   it('is the opponent’s plate too', () => {
     const projection = projectionFor(EAST, 'w', SIZE, SIZE);
-    const plate = inHandPlate(view({ mine: false }), projection, SIZE, SIZE);
-    expect(hitsPlate(plate, plate!.x, plate!.y)).toBe(true);
+    expect(inHandPlate(view({ mine: false }), projection, SIZE, SIZE)).not.toBeNull();
   });
 
-  it('is nothing to hit when no plate is drawn', () => {
+  it('is nothing when no piece is beside a dot', () => {
     const projection = projectionFor(EAST, 'w', SIZE, SIZE);
-    const plate = inHandPlate(view({ hand: null }), projection, SIZE, SIZE);
-    expect(plate).toBeNull();
-    expect(hitsPlate(plate, 0, 0)).toBe(false);
+    expect(inHandPlate(view({ hand: null }), projection, SIZE, SIZE)).toBeNull();
   });
 
-  it('is nothing to hit for a carrier zoomed off the canvas', () => {
+  it('is nothing for a carrier zoomed off the canvas', () => {
     const base = projectionFor(EAST, 'w', SIZE, SIZE);
     // 6x about a1: d4 is far off the top right.
     const projection = zoomProjection(base, { k: 6, tx: 0, ty: -5 * SIZE });

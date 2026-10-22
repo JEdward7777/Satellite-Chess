@@ -178,8 +178,9 @@ async function walkTo(page, file, rank) {
     FILES[file] + String(rank + 1),
     { timeout: 10_000 },
   );
-  // One more fix, so the dot is on the square and not a step short (see
-  // decision 0048's note on a driver tapping its own plate).
+  // One more fix, so the dot is on the square and not a step short. (It once
+  // kept taps off the piece-in-hand plate, which ignored them until decision
+  // 0059; taps go through the plate now.)
   await page.waitForTimeout(1_100);
 }
 

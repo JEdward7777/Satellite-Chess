@@ -6,8 +6,8 @@
  * browser can say is that both phones actually draw it: my own carry on my own
  * dot, the opponent's on their relayed dot, gone again after a drop and a
  * place, from both seats and in both piece looks, **not** on a hollow dot
- * once the carrier has dropped off the air, and that a tap on the plate places
- * nothing.
+ * once the carrier has dropped off the air, and that a tap on the plate goes
+ * through to the square underneath (decision 0059).
  *
  * The check reads pixels: the plate a piece in hand sits on is `#f4efdc`, ringed
  * in the carrier's color (`#0d1117` for mine, `#ff4d6d` for theirs), and it
@@ -132,10 +132,28 @@ async function walkTo(page, file, rank) {
   );
 }
 
+/**
+ * A point inside both the plate and the carrier's own square, for a carrier
+ * standing on that square's centre: on the line from the dot to the plate's
+ * centre, a fifth of the plate's radius in from its near rim. Returns the
+ * plate and the square's centre with it, so the caller can check both.
+ */
+function underPlate(file, rank, orientation, w, h) {
+  const square = squareToPixel(file, rank, orientation, w, h);
+  const plate = plateOver(file, rank, orientation, w, h);
+  const apart = Math.hypot(plate.x - square.x, plate.y - square.y);
+  const along = (apart - plate.plateRadius * 0.8) / apart;
+  const at = { x: square.x + (plate.x - square.x) * along, y: square.y + (plate.y - square.y) * along };
+  return { at, plate, square };
+}
+
 /** A non-primary `pointerdown`/`pointerup` pair: a tap the simulator ignores. */
 async function tapSquare(page, file, rank, orientation) {
   const box = await page.locator('[data-board]').boundingBox();
-  const p = squareToPixel(file, rank, orientation, box.width, box.height);
+  await tapAt(page, squareToPixel(file, rank, orientation, box.width, box.height));
+}
+
+async function tapAt(page, p) {
   await page.evaluate(
     ({ x, y }) => {
       const canvas = document.querySelector('[data-board]');
@@ -269,41 +287,7 @@ try {
   await white.page.screenshot({ path: `${OUT}/1-white-own-carry.png` });
   await black.page.screenshot({ path: `${OUT}/2-black-sees-white-carry.png` });
 
-  step(3, 'White taps the pawn on its plate: nothing is placed, and the phone says why');
-  // The plate's centre is over e3 — a legal destination — so a tap that fell
-  // through to the square underneath would play e2–e3.
-  {
-    const box = await white.page.locator('[data-board]').boundingBox();
-    const at = plateOver(4, 2, 'w', box.width, box.height);
-    await white.page.evaluate(
-      ({ x, y }) => {
-        const canvas = document.querySelector('[data-board]');
-        const rect = canvas.getBoundingClientRect();
-        for (const type of ['pointerdown', 'pointerup']) {
-          canvas.dispatchEvent(
-            new PointerEvent(type, {
-              clientX: rect.left + x,
-              clientY: rect.top + y,
-              bubbles: true,
-              pointerId: 1,
-              isPrimary: false,
-            }),
-          );
-        }
-      },
-      { x: at.x, y: at.y },
-    );
-    await white.page.waitForTimeout(800);
-    check('white: still carrying e2', (await carryText(white.page))?.startsWith('e2') ?? false);
-    const notice = await white.page.evaluate(() => {
-      const el = document.querySelector('[data-notice]');
-      return !el || el.hidden ? null : el.textContent;
-    });
-    check('white: told it is the piece in hand', notice?.includes('piece in your hand') ?? false, notice);
-    await white.page.screenshot({ path: `${OUT}/2b-white-tapped-plate.png` });
-  }
-
-  step(4, 'The same carry, on pieces as discs');
+  step(3, 'The same carry, on pieces as discs');
   for (const phone of [white, black]) await phone.page.click('[data-look="disc"]');
   await white.page.waitForTimeout(400);
   check('white, discs: still on the plate', shown(await plateAt(white.page, 4, 2, 'w', MINE)));
@@ -312,29 +296,34 @@ try {
   await black.page.screenshot({ path: `${OUT}/4-black-sees-white-carry-discs.png` });
   for (const phone of [white, black]) await phone.page.click('[data-look="standard"]');
 
-  step(5, 'White walks back and puts the pawn back: the plate goes on both phones');
+  step(4, 'White walks back and puts the pawn back: the plate goes on both phones');
   await walkTo(white.page, 4, 1);
   await tapSquare(white.page, 4, 1, 'w');
   await white.page.waitForFunction(() => document.querySelector('[data-carry]')?.hidden !== false, {
     timeout: 5_000,
   });
   check('white: nothing in hand', (await carryText(white.page)) === null);
-  const after = await white.page.evaluate(() => {
-    const el = document.querySelector('[data-notice]');
-    return !el || el.hidden ? null : el.textContent;
-  });
-  check('white: the plate hint went with the carry', !(after ?? '').includes('piece in your hand'), after);
   check('white: no plate', (await waitForPlate(white.page, 4, 1, 'w', MINE, false)).plate === false);
   check('black: no plate', (await waitForPlate(black.page, 4, 1, 'b', THEIRS, false)).plate === false);
 
-  step(6, 'White plays e2–e4; then Black lifts d7 and walks to d6');
+  step(5, 'White plays e2–e4 with a tap on its own plate; then Black lifts d7 and walks to d6');
   await tapSquare(white.page, 4, 1, 'w');
   await white.page.waitForFunction(() => document.querySelector('[data-carry]')?.textContent?.startsWith('e2'), {
     timeout: 5_000,
   });
   await walkTo(white.page, 4, 3);
   await white.page.waitForTimeout(600);
-  await tapSquare(white.page, 4, 3, 'w');
+  check('white: my pawn is on a plate over my dot on e4', shown(await waitForPlate(white.page, 4, 3, 'w', MINE, true)));
+  // The plate covers part of e4, the square underfoot. A tap there goes
+  // through to e4 and places (decision 0059); before it, it did nothing.
+  {
+    const box = await white.page.locator('[data-board]').boundingBox();
+    const { at, plate, square } = underPlate(4, 3, 'w', box.width, box.height);
+    const half = (SQUARE_M * square.scale) / 2;
+    check('the tap is inside the plate', Math.hypot(at.x - plate.x, at.y - plate.y) < plate.plateRadius, at);
+    check('the tap is inside e4', Math.abs(at.x - square.x) < half && Math.abs(at.y - square.y) < half, at);
+    await tapAt(white.page, at);
+  }
   await black.page.waitForFunction(
     () => document.querySelector('[data-prompt]')?.textContent?.includes('Your move'),
     { timeout: 10_000 },
@@ -352,7 +341,7 @@ try {
   await black.page.screenshot({ path: `${OUT}/5-black-own-carry.png` });
   await white.page.screenshot({ path: `${OUT}/6-white-sees-black-carry.png` });
 
-  step(7, 'Black drops off the air mid-carry: white keeps the pawn on d7, faint, and off the hollow dot');
+  step(6, 'Black drops off the air mid-carry: white keeps the pawn on d7, faint, and off the hollow dot');
   await black.context.close();
   const gone = await waitForPlate(white.page, 3, 5, 'w', THEIRS, false);
   check('white: no plate on the hollow dot', gone.plate === false, gone);

@@ -3,7 +3,12 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Run 3 of the pipeline is complete**
+**Tree state**: clean. **`10.10.4` is committed but not deployed**
+(`2026-10-22-01`): a tap on either piece-in-hand plate now goes through to
+the square underneath (decision 0059, O-61, reversing 0048's ignored tap),
+after the owner's first real checkers game outdoors, unfinished, where
+crowning and hops worked and the plate was the one complaint. **Run 3 of
+the pipeline is complete**
 (`harness/pipeline/ratchet.md`): `10.15` (Play above the lists on home),
 `11.1` (chess behind a multi-game interface, decision 0056), `11.2`
 (checkers rules on the server, decision 0057) and **`11.3`, checkers on the
@@ -21,10 +26,12 @@ wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
 `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`; `11` has **`11.4`**, the
 real-phone check of checkers, which needs the owner on a real phone.
-**Next action**: Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
+**Next action**: deploy `10.10.4` on the operator's say-so (live is still
+`e5f5e086`, without it). Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
 games (other games on the same field), only when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`e5f5e086`, at `85d61ef` (through `11.3`: checkers is playable). The `ARCHIVE` KV namespace id
+`e5f5e086`, at `85d61ef` (through `11.3`: checkers is playable; **not**
+`10.10.4`). The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during the run once a phase is reviewed
 clean.
@@ -299,7 +306,9 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `e5f5e086` (through `11.3`), `ARCHIVE` id pinned. Finished games
+1. **Deployed** `e5f5e086` (through `11.3`), `ARCHIVE` id pinned. **`10.10.4`
+   (taps through the plate) is committed and waits for a deploy**, on the
+   operator's say-so. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
@@ -314,8 +323,9 @@ game-rule work.
      read as a tap, does follow feel right, do the buttons get in the way?
    - `10.10.3`: does the carried piece read well outdoors? Can both players
      read the piece beside the dot at arm's length in sun, does the plate
-     hide a square the carrier needs, and does it read as a carry rather than
-     a third dot?
+     hide a square the carrier needs (taps go through it since `10.10.4`;
+     this is about seeing the square), and does it read as a carry rather
+     than a third dot? Has a tap meant for the plate ever placed a piece?
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - `2.3.8.5`: does the units default come up US on the owner's phone,
@@ -353,7 +363,9 @@ game-rule work.
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
 3. **Run 3 is complete.** `11.4`: checkers on a real phone (rings and dots
-   in sun, the crown at arm's length, the stop/keep choice). Then:
+   in sun, the crown at arm's length, the stop/keep choice). The owner's
+   2026-10-22 game showed crowning and hops working; those three questions
+   are still unanswered. Then:
    - **O-59** (threefold repetition never ends a game) and **O-60** (the
      lost-tap driver flake).
    - **O-38**, the distance counter, once there are real-handset traces.

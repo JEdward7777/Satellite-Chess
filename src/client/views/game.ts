@@ -71,8 +71,6 @@ import {
   type Projection,
   canvasSizePx,
   drawBoard,
-  hitsPlate,
-  inHandPlate,
   squareUnderFoot,
   zoomFrameFor,
 } from '../render.js';
@@ -441,8 +439,6 @@ export interface GameViewDeps {
 
 /** How long a rejection stays on screen before it stops being useful. */
 const ERROR_LINGER_MS = 6_000;
-/** A hint is shorter than a refusal: it answers a tap the player just made. */
-const LOCAL_NOTICE_MS = 3_000;
 /** News about an offer (declined, lapsed, sent) is read, so it stays a while. */
 const OFFER_NOTICE_MS = 6_000;
 /**
@@ -452,9 +448,6 @@ const OFFER_NOTICE_MS = 6_000;
  * answer it; short enough that nobody who means it notices.
  */
 export const ENDING_ARM_MS = 1_000;
-/** Said when my own piece-in-hand plate is tapped (O-44), which does nothing. */
-export const PLATE_TAP_HINT =
-  'That is the piece in your hand. Tap a square to place it, or tap Put it back.';
 
 /**
  * How often the clock readout is redrawn.
@@ -577,14 +570,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   let gps: GpsState = deps.gps.state;
   let net: NetState = deps.connection.state;
   let projection: Projection | null = null;
-  /** What `projection` was drawn from, so a tap can be read against the same picture. */
-  let drawnView: BoardView | null = null;
   /**
-   * A word from this phone rather than the server, shown like a refusal. A
-   * `plate` hint is about a piece in hand and goes with it; an `offer` note
-   * (sent, declined, lapsed) stays its own while.
+   * A word from this phone rather than the server, shown like a refusal: news
+   * about an offer (sent, declined, lapsed).
    */
-  let localNotice: { text: string; at: number; kind: 'plate' | 'offer' } | null = null;
+  let localNotice: { text: string; at: number } | null = null;
   /** "End game…" is open, and on which step (decision 0050). */
   let endingsOpen = false;
   /** The ending being confirmed, and when the question appeared. */
@@ -711,22 +701,6 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     return carryGuidance(geometry(), hereNow(), reachNow(), carry, myColor());
   };
 
-  /**
-   * Was this tap on the piece-in-hand plate, as last drawn? Says why nothing
-   * happened when the piece is mine, because a player tapping their own piece
-   * in its bubble meant something by it — usually "put it back".
-   */
-  function tapOnPlate(x: number, y: number): boolean {
-    if (!projection || !drawnView) return false;
-    const { width, height } = canvasSizePx(canvas);
-    if (!hitsPlate(inHandPlate(drawnView, projection, width, height), x, y)) return false;
-    if (drawnView.carry?.mine) {
-      localNotice = { text: PLATE_TAP_HINT, at: Date.now(), kind: 'plate' };
-      paint();
-    }
-    return true;
-  }
-
   function squareAtPointer(x: number, y: number): Square | null {
     if (!projection) return null;
     const geo = geometry();
@@ -844,10 +818,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     canvas,
     controls: root.querySelector<HTMLElement>('[data-zoom-controls]'),
     onTap: (at) => {
-      // The plate beside a carrier's dot only paints (O-44): the square under
-      // it is not what anybody tapping it meant, and for my own piece that
-      // square may be a legal destination. So a tap on it is no move at all.
-      if (tapOnPlate(at.x, at.y)) return;
+      // The plate beside a carrier's dot only paints, and a tap goes through
+      // it to the square underneath like any other (decision 0059): it sits
+      // over the squares round the carrier, which is where they put it down.
       const square = squareAtPointer(at.x, at.y);
       if (square) onTap(square);
     },
@@ -916,7 +889,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       deps.connection.send(action.msg);
       endingsOpen = false;
       confirming = null;
-      localNotice = { text: offerSentNotice(action.kind), at: Date.now(), kind: 'offer' };
+      localNotice = { text: offerSentNotice(action.kind), at: Date.now() };
     }
     paint();
   }
@@ -1311,7 +1284,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         : artFor(known.type, () => {
             if (live) paint();
           });
-    drawnView = {
+    const drawnView: BoardView = {
       geo,
       zoom: view,
       orientation: myColor(),
@@ -1480,15 +1453,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         errorShownAt = Date.now();
       }
       const fresh = error !== null && Date.now() - errorShownAt < ERROR_LINGER_MS;
-      // The hint is about a piece in hand; once it is put back or placed, it
-      // is about nothing.
-      if (!net.game?.carry && localNotice?.kind === 'plate') localNotice = null;
-      // The newer of the two says it: a tap on the plate after a refusal is
-      // answered, and a refusal after it replaces the hint.
+      // The newer of the two says it: an offer's news after a refusal is
+      // shown, and a refusal after it replaces the news.
       const local =
         localNotice !== null &&
-        Date.now() - localNotice.at <
-          (localNotice.kind === 'offer' ? OFFER_NOTICE_MS : LOCAL_NOTICE_MS) &&
+        Date.now() - localNotice.at < OFFER_NOTICE_MS &&
         (!fresh || localNotice.at >= errorShownAt)
           ? localNotice.text
           : null;
@@ -1513,7 +1482,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // An offer of mine that has gone without ending the game was declined, or
     // lapsed with a move; the server sends only the snapshot, so say which.
     const ended = offerEndedNotice(previousGame, state.game);
-    if (ended) localNotice = { text: ended, at: Date.now(), kind: 'offer' };
+    if (ended) localNotice = { text: ended, at: Date.now() };
     if (state.game) previousGame = state.game;
     // Archived while this board was up: the review is where the game lives now.
     // Once, and after this subscriber returns, since it replaces this screen.

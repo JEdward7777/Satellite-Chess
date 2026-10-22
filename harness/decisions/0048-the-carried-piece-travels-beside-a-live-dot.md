@@ -1,7 +1,12 @@
 # 0048 — The carried piece travels beside a live dot, and nowhere else
 
 - **Date:** 2026-09-26
-- **Status:** accepted
+- **Status:** accepted; the point about taps superseded by
+  [0059](0059-a-tap-on-the-piece-in-hand-plate-goes-to-the-square-underneath.md)
+- **Superseded by:** [0059](0059-a-tap-on-the-piece-in-hand-plate-goes-to-the-square-underneath.md)
+  — point about taps only. "A tap on the plate is no tap at all" is reversed:
+  a tap on either plate goes to the square underneath. Where the plate is
+  drawn, its size, and everything else here stand.
 - **Stage:** 10.10
 
 ## Decision

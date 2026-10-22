@@ -4,6 +4,27 @@ Moved here once promoted to a stage, fixed, or dismissed. Keep the outcome — a
 dismissed observation is as valuable as a fixed one, because it stops the next
 session re-raising it.
 
+### O-61 — The piece-in-hand plate swallows taps on the squares round the carrier
+**Resolved:** 2026-10-22, stage 10.10.4 (decision 0059)
+**Outcome:** A tap on either piece-in-hand plate now goes through to the
+square underneath, as if the plate were not drawn. Decision 0048 had made a
+tap on the plate do nothing (my own said "That is the piece in your hand…"),
+for fear of a player tapping "their piece" to put it back and placing it on
+a legal square under the plate; but the plate sits over the squares round
+the carrier, which is where a piece is put down, and in checkers each hop is
+another tap there. The drivers had already been waiting an extra GPS fix so
+their taps would clear it. The hint, `hitsPlate` and `tapOnPlate` are gone;
+"Put it back" is the way to put it back. `scripts/check-carry.mjs` now
+places e2–e4 with a tap inside both the plate and e4. The plate is drawn
+where and as large as before: whether it *hides* a square is still open
+until the real-phone look (`10.10.3`).
+**Original report:** the owner, 2026-10-22, after a real (unfinished)
+checkers game outdoors: "It was working good however someone became king and
+also we had some hops. One thing I noticed is that the bubble that shows
+what piece you are holding can't be clicked through so it makes something
+you have to avoid when trying to click where to set it down." Then: "Can you
+make the piece click transparent?"
+
 ### O-51 — `check-games` fails its home-height check with seven games
 **Resolved:** 2026-10-13, stage 10.15 (with O-16)
 **Outcome:** The check was measuring the simulator, not home. It read

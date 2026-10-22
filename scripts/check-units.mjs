@@ -194,10 +194,10 @@ async function walk(page, file, rank) {
     { timeout: 40_000 },
   );
   // The simulator emits once a second, so the dot can still be a step short
-  // of the centre when the square readout flips — and the piece in hand is
-  // drawn up and to the right of the dot, where a tap on the square being
-  // walked towards lands on the plate and is ignored (decision 0048). One
-  // more fix puts the dot on the centre.
+  // of the centre when the square readout flips. One more fix puts the dot on
+  // the centre. (Before decision 0059 a tap on the piece-in-hand plate was
+  // ignored, and this wait kept taps off it; taps go through it now, and the
+  // wait stays because a dot on the centre is the state every step assumes.)
   await page.waitForTimeout(1_200);
 }
 

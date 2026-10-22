@@ -474,11 +474,12 @@ is; this says what will bite you when you touch it.*
   in the sentence underneath (decision 0019), which is a rule about the screen
   that no unit test can hold.
 - **There is a driver for the piece in hand: `scripts/check-carry.mjs`**
-  (O-44, decision 0048). It reads pixels for the plate beside each carrier's
-  dot from both seats and in both looks, and checks that a tap on the plate
-  places nothing. **The plate only paints**: any tap handling that maps a
-  point to a square must first ask `hitsPlate(inHandPlate(...))`, or a tap on
-  "my piece" falls through to a legal square underneath and moves it.
+  (O-44, decisions 0048 and 0059). It reads pixels for the plate beside each
+  carrier's dot from both seats and in both looks, and places e2–e4 with a tap
+  inside both the plate and e4. **The plate only paints, and a tap on it is a
+  tap on the square underneath** (0059 reversed 0048's ignored tap after a
+  real game). Do not put a hit test back on it; if it hides a square the
+  carrier needs, move or shrink it (`10.10.3`).
 - **Distances on screen are in the account's units** (decision 0049, O-21).
   `src/shared/units.ts` is the only formatter; a `toFixed(1)} m` written
   anywhere else is a US player reading meters. A server refusal that names a

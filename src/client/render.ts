@@ -846,14 +846,12 @@ export interface InHandPlate {
 
 /**
  * The plate a piece in hand is drawn on, as this view would draw it, or null
- * when nothing is drawn beside a dot.
+ * when nothing is drawn beside a dot. `projection` is the zoomed one.
  *
- * One function for the drawing and for the tap path in `views/game.ts`, which
- * must ignore a tap on the plate: the plate only paints, so a tap there would
- * otherwise land on whatever square is underneath it — and for a player
- * tapping "their piece" to put it back, that is a legal square and a move
- * nobody meant (see {@link hitsPlate}). `projection` is the zoomed one, the
- * same that maps every tap to a square.
+ * The plate only paints: a tap on it goes to the square underneath, like any
+ * other tap (decision 0059, which reversed 0048's "a tap on the plate is no
+ * tap at all" after a real game, where it sat over the very squares the
+ * carrier wanted to put the piece down on).
  */
 export function inHandPlate(
   view: BoardView,
@@ -869,13 +867,6 @@ export function inHandPlate(
   if (at.x < -at.plateRadius || at.x > width + at.plateRadius) return null;
   if (at.y < -at.plateRadius || at.y > height + at.plateRadius) return null;
   return at;
-}
-
-/** Does a tap at canvas point (`x`, `y`) land on the plate, ring included? */
-export function hitsPlate(plate: InHandPlate | null, x: number, y: number): boolean {
-  if (plate === null) return false;
-  // The ring is 3 px wide, centred on the rim.
-  return Math.hypot(x - plate.x, y - plate.y) <= plate.plateRadius + 1.5;
 }
 
 /**
