@@ -3,7 +3,7 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **`10.10.4` is committed but not deployed**
+**Tree state**: clean. **`10.10.4` is deployed**
 (`2026-10-22-01`): a tap on either piece-in-hand plate now goes through to
 the square underneath (decision 0059, O-61, reversing 0048's ignored tap),
 after the owner's first real checkers game outdoors, unfinished, where
@@ -26,12 +26,11 @@ wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
 `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`; `11` has **`11.4`**, the
 real-phone check of checkers, which needs the owner on a real phone.
-**Next action**: deploy `10.10.4` on the operator's say-so (live is still
-`e5f5e086`, without it). Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
+**Next action**: Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
 games (other games on the same field), only when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`e5f5e086`, at `85d61ef` (through `11.3`: checkers is playable; **not**
-`10.10.4`). The `ARCHIVE` KV namespace id
+`0defd5fe`, at `8c50136` (through `10.10.4`: taps go through the plate).
+Deployed 2026-10-29 on the owner's say-so. The `ARCHIVE` KV namespace id
 (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
 operator has authorized deploys during the run once a phase is reviewed
 clean.
@@ -306,9 +305,7 @@ game-rule work.
 
 ## What to do next, concretely
 
-1. **Deployed** `e5f5e086` (through `11.3`), `ARCHIVE` id pinned. **`10.10.4`
-   (taps through the plate) is committed and waits for a deploy**, on the
-   operator's say-so. Finished games
+1. **Deployed** `0defd5fe` (through `10.10.4`), `ARCHIVE` id pinned. Finished games
    from before 8.4, including the owner's two real games, are archived only
    once someone re-opens them.
 2. **The next outdoor game**, one checklist:
