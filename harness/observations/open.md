@@ -540,6 +540,12 @@ reach is already measured in fractional squares (decision 0031), so the geometry
 side is less work than it sounds.
 **Not doing yet because:** the owner explicitly wants it parked for future review
 rather than confusing the current work. Phases 7–10 come first.
+**Scoped, 2026-10-31: phase 12, decision 0060.** The owner settled every
+question above: the larger board is shrunk to the smaller field's mean square
+size, centered; only board space crosses between players; a disclosure is
+accepted on every remote game; no terrain allowance; a bad field is
+recalibrated during a pause, and the rescale is not re-approved. Built with
+the ratchet as run 4.
 
 ### O-35 — One account holding both seats writes one record row, not two
 **Spotted:** 2026-09-19, stage 2.3.5 review

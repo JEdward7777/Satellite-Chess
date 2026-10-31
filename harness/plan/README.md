@@ -20,6 +20,7 @@ rather than reading them all.
 | 9 | Hardening: bad GPS, tree cover, small fields | [`09-hardening.md`](09-hardening.md) |
 | 10 | Playtest: an actual game with an actual human | [`10-playtest.md`](10-playtest.md) |
 | 11 | Other games: one interface, checkers next | [`11-games.md`](11-games.md) |
+| 12 | Remote play: two fields, one game | [`12-remote.md`](12-remote.md) |
 
 Phases 0–7 give a game two people can really play. Everything after that is
 review, polish and finding out what the field does to it.

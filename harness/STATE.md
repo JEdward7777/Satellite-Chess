@@ -27,8 +27,10 @@ in all 63 parts.
 real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`,
 `10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`); `8.5` also has
 `8.5.5` and `8.5.6`.
-**Next action**: Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
-games (other games on the same field), only when the owner asks.
+**Next action**: **run 4 of the ratchet, phase 12 (remote play on two fields, O-32,
+decision 0060)**, scoped with the owner on 2026-10-31 (`2026-10-31-02`): `12.1`
+server, `12.2` phone, `12.3` recalibrating in a pause, then the `12.4` real-phone
+check. After that the queue is **O-58** and other O-57 games, when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
 `0defd5fe`, at `8c50136` (through `10.10.4`: taps go through the plate).
 Deployed 2026-10-29 on the owner's say-so. The `ARCHIVE` KV namespace id
