@@ -7,7 +7,7 @@ behind one interface (decision 0056). Checkers first, as the owner decided
 on 2026-10-13: American rules, each hop of a multi-jump walked, "jumps are
 required" a creation setting that is off by default, and PDN.
 
-- `11` active: Other games on the same field
+- `11` done: Other games on the same field
 
 - `11.1` done: The multi-game architecture, with chess moved behind it and no behavior change (decision 0056)
   - Descriptor (both runtimes, with the position codec), server rules
@@ -80,10 +80,15 @@ required" a creation setting that is off by default, and PDN.
     `scripts/check-checkers.mjs` (both settings, keep jumping and put back,
     stop early, a refused lift, a 25-move game with a crowning and no moves
     left, the review and card), `check-golden` against `23cee67` identical.
-- `11.4` todo: Real-phone check of checkers (stage 11.3, which is done): are rings and dots told apart in sun, is the crown read at arm's length in both looks, is "Stop here / Keep jumping" ever hit by accident
+- `11.4` done: Real-phone check of checkers (stage 11.3, which is done): are rings and dots told apart in sun, is the crown read at arm's length in both looks, is "Stop here / Keep jumping" ever hit by accident
   - Partial evidence, 2026-10-22: the owner played an unfinished checkers
     game outdoors. "It was working good however someone became king and
     also we had some hops", so crowning and jumps worked on real phones.
     The one complaint was the piece-in-hand plate swallowing taps (O-61,
     fixed in `10.10.4`). The questions above were not answered, so this
     stays todo.
+  - Answered by the owner, 2026-10-31, about that same 2026-10-22 game:
+    rings and dots were told apart in sun, the crown read at arm's length,
+    and "Stop here / Keep jumping" was never hit by accident. Done on that.
+    (The owner also ticked "taps through the plate are fine", but that game
+    predates `10.10.4`, so it is not evidence for the fix.)

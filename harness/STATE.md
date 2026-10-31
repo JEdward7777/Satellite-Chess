@@ -3,7 +3,9 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **`10.10.4` is deployed**
+**Tree state**: clean. **`11.4` and `10.10.3` are done** (`2026-10-31-01`):
+the owner answered both real-phone checklists from the 2026-10-22 checkers
+game, so phase `11` and stage `10.10` are closed. **`10.10.4` is deployed**
 (`2026-10-22-01`): a tap on either piece-in-hand plate now goes through to
 the square underneath (decision 0059, O-61, reversing 0048's ignored tap),
 after the owner's first real checkers game outdoors, unfinished, where
@@ -21,11 +23,10 @@ and head-to-head keep one distance and split results by game; an unknown
 game type says "update the app". `check-golden` against `23cee67`: identical
 in all 63 parts.
 **Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
-`10.10`, `10.11`, `10.12`, `10.14`, `10.15` and `11`. All but `8.5` and `11`
-wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
-`10.6.4`, `10.7.4`, `10.8.4`, `10.10.3`, `10.11.5`, `10.12.3`, `10.14.6`,
-`10.15.3`); `8.5` also has `8.5.5` and `8.5.6`; `11` has **`11.4`**, the
-real-phone check of checkers, which needs the owner on a real phone.
+`10.11`, `10.12`, `10.14` and `10.15`. All but `8.5` wait only on a
+real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`,
+`10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`); `8.5` also has
+`8.5.5` and `8.5.6`.
 **Next action**: Run 3's planned phases are complete and live; the queue is **O-58** (a computer opponent) and other O-57
 games (other games on the same field), only when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
@@ -318,11 +319,9 @@ game-rule work.
      visible in sun?
    - `10.8.4`: pinch zoom while walking. Are taps ever dropped, is a pan ever
      read as a tap, does follow feel right, do the buttons get in the way?
-   - `10.10.3`: does the carried piece read well outdoors? Can both players
-     read the piece beside the dot at arm's length in sun, does the plate
-     hide a square the carrier needs (taps go through it since `10.10.4`;
-     this is about seeing the square), and does it read as a carry rather
-     than a third dot? Has a tap meant for the plate ever placed a piece?
+   - `10.10.4` (done, unconfirmed outdoors): do taps through the
+     piece-in-hand plate land where intended? Has a tap meant for the plate
+     ever placed a piece?
    - the record, review and archived-review screens;
    - sharing a `.pgn` (Android falls to the text rung);
    - `2.3.8.5`: does the units default come up US on the owner's phone,
@@ -359,10 +358,8 @@ game-rule work.
    - sign-in and sign-out;
    - the wake lock (`1.9.2`);
    - the handshake on real GPS (O-17), and zoomed labels (O-46).
-3. **Run 3 is complete.** `11.4`: checkers on a real phone (rings and dots
-   in sun, the crown at arm's length, the stop/keep choice). The owner's
-   2026-10-22 game showed crowning and hops working; those three questions
-   are still unanswered. Then:
+3. **Run 3 is complete**, `11.4` included (the owner answered it on
+   2026-10-31). Then:
    - **O-59** (threefold repetition never ends a game) and **O-60** (the
      lost-tap driver flake).
    - **O-38**, the distance counter, once there are real-handset traces.

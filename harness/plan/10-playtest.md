@@ -125,7 +125,7 @@ file. Expect most of it to be written after the first real game.
     windows, up to 30 m, and never across a pause or after the result (O-36,
     decision 0047).
 
-- `10.10` active: The carried piece travels with the dot (O-44, decision 0048)
+- `10.10` done: The carried piece travels with the dot (O-44, decision 0048)
   - The owner: "it would be nice if you could see the person walking their
     piece". Drawn from the snapshot's `carry` and the relayed dot; no message
     changed.
@@ -138,9 +138,14 @@ file. Expect most of it to be written after the first real game.
     it faint on its origin. A drop, a place, a capture and a suspend all end
     it, because they clear `carry`. `scripts/check-carry.mjs` drives both
     seats.
-  - `10.10.3` todo: On real phones outdoors: can both players read the piece
+  - `10.10.3` done: On real phones outdoors: can both players read the piece
     in hand at arm's length in sun, does the plate hide a square the carrier
     needs, and does it read as a carry rather than a third dot?
+    - The owner, 2026-10-31, about the 2026-10-22 checkers game: readable in
+      sun, and it read as a carry. On hiding squares: "The carried piece was
+      slightly weird, but as it moved it didn't cause a problem." That game
+      predates `10.10.4`, when the plate still swallowed taps (O-61); no game
+      since has tested taps through it.
   - `10.10.4` done: A tap on either piece-in-hand plate goes through to the
     square underneath (decision 0059, reversing 0048's ignored tap). The
     owner, after a real checkers game (O-61): the bubble "can't be clicked through
