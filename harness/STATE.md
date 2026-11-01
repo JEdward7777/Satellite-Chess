@@ -19,14 +19,15 @@ wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`);
 `8.5` also has `8.5.5` and `8.5.6`.
 **Next action**: **`12.2`, remote games on the phone**, with the ratchet
-(notes from 12.1 under it in `plan/12-remote.md`). Then `12.3` (recalibrate in
+(notes from 12.1 under it in `plan/12-remote.md`; resume checklist in
+`sessions/2026-11-01-02.md`). Then `12.3` (recalibrate in
 a pause), then the owner's `12.4`. After that the queue is **O-58** and other
 O-57 games, when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
 `0defd5fe`, at `8c50136` (through `10.10.4`), so 12.1 is not live. The
 `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in
-`wrangler.jsonc`. The operator has authorized deploys during the run once a
-phase is reviewed clean.
+`wrangler.jsonc`. Deploys were authorized for run 3; **for run 4, ask before
+deploying**.
 **1499 tests.** **The worker tests are load-sensitive on this machine**
 (2026-11-01): each worker test took 2–4 s, at the same speed on HEAD, so
 about 190 hit the default 5 s timeout. Run with `--testTimeout=60000`. Even

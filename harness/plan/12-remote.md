@@ -47,8 +47,13 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
       creator waiting alone is told "Your move". Already true on HEAD, and
       it affects same-field games too.
     - The Invite button in a remote game.
-    - The owner should consider a floor on the shared square, for a tiny
-      joiner field (0060's own revisit condition).
+    - **No new floor on the shared square (the owner, 2026-11-01):** "the
+      process of creating a board already has a min sized imposed"
+      (`checkCalibration`: refused under 2 m at the narrowest, warned under
+      `SMALL_SQUARE_M` = 4 m). One edge to handle without a new rule: the
+      shrink matches *mean* squares, so a long, thin larger field can come
+      out narrower than 2 m on its short step. Show the existing
+      small-square warning on the shared board in that case.
     - `remote` and `disclosureAccepted` must be the boolean `true`.
 - `12.3` todo: Recalibrate your own field during a pause in a remote game; the square size crosses over again with no re-approval
   - One inbound message, accepted only while suspended, only from that
