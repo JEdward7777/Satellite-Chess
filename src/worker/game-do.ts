@@ -29,14 +29,7 @@ import {
   remainingMs,
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
-import {
-  type FieldGeometry,
-  type FieldSnapshot,
-  boardDiagonalM,
-  boardSizeM,
-  geometryFromSnapshot,
-  toBoardIndex,
-} from '../shared/field.js';
+import { type FieldGeometry, type FieldSnapshot, geometryFromSnapshot, toBoardIndex } from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
 import { pathLengthM } from '../shared/geo.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
@@ -81,12 +74,20 @@ import {
   PROTOCOL_VERSION,
   CLAIM_AFTER_MS,
   type PlayerView,
+  type RelayedSpot,
   type EndReason,
   type PosFix,
   type ResultOutcome,
   type ResultReason,
   type ServerMsg,
 } from '../shared/protocol.js';
+import {
+  type RemoteView,
+  boardFigures,
+  sharedBoardFigures,
+  sharedSquareM,
+  shrinkBoard,
+} from '../shared/remote.js';
 import { type Color, type Square, isSquare, startZoneSquares } from '../shared/squares.js';
 import {
   WATCH_CLOSE,
@@ -192,7 +193,29 @@ export interface CreateGameOptions {
   gameType?: GameType;
   /** That game's creation settings; normalised by its rules before storing. */
   options?: GameOptions;
+  /**
+   * A remote game, two players on two fields (decision 0060): `field` is then
+   * the creator's own, and the joiner brings theirs. Omitted is the same
+   * field. Only with the creator's acceptance of the disclosure, which the
+   * router has asked for; the game keeps when.
+   */
+  remote?: { disclosureAcceptedAt: number };
 }
+
+/**
+ * What a player brings to a remote game's free seat (decision 0060): their
+ * own field, already snapshotted by the router, and whether they accepted the
+ * disclosure. Ignored by a same-field game, and by a seat already held.
+ */
+export interface JoinSeat {
+  field?: FieldSnapshot;
+  /** A field was sent and describes no board; refused only where a field is needed. */
+  fieldUnusable?: boolean;
+  disclosureAccepted?: boolean;
+}
+
+/** Why a remote game's free seat was refused (decision 0060). */
+export type JoinRefusal = 'not_found' | 'full' | 'bad_field' | 'field_required' | 'disclosure_required';
 
 // The index signature is what `sql.exec<T>()` requires: it returns
 // `Record<string, SqlStorageValue>`, which a plain interface does not satisfy.
@@ -203,6 +226,8 @@ interface GameRow {
   game_type: string | null;
   /** NULL is no settings. */
   options_json: string | null;
+  /** 1 for a remote game (schema 10, decision 0060); NULL is the same field. */
+  remote: number | null;
   fen: string;
   field_snapshot_json: string;
   white_player_id: string | null;
@@ -482,6 +507,16 @@ export class GameDO extends DurableObject<Env> {
       options.creatorColor,
     );
 
+    // A remote game (decision 0060): the column, and the creator's field as
+    // their seat's own. Written only for a remote game, so a same-field
+    // game's row and tables are what they always were.
+    if (options.remote !== undefined) {
+      this.sql.exec(`UPDATE game SET remote = 1 WHERE id = 1`);
+      const created = this.game();
+      if (created === null) throw new Error('the game row was not written');
+      this.setSeatField(created, options.creatorColor, options.field, options.remote.disclosureAcceptedAt, now);
+    }
+
     // An unclaimed code must not linger. If nobody joins, this object deletes
     // itself and stops existing, which frees the code and keeps the account tidy.
     await this.armCollection();
@@ -509,9 +544,10 @@ export class GameDO extends DurableObject<Env> {
   async join(
     playerId: string,
     account: string | null = null,
+    seat: JoinSeat = {},
   ): Promise<
-    | { ok: true; color: Color; field: FieldSnapshot; gameType?: GameType }
-    | { ok: false; reason: 'not_found' | 'full' }
+    | { ok: true; color: Color; field: FieldSnapshot; gameType?: GameType; remote?: true }
+    | { ok: false; reason: JoinRefusal }
   > {
     const game = this.game();
     if (game === null) return { ok: false, reason: 'not_found' };
@@ -539,12 +575,21 @@ export class GameDO extends DurableObject<Env> {
       // A game that finished before stage 8.4 has no `gc` timer at all; this
       // is where it gets one.
       await this.armCollection(now);
-      return { ok: true, color: existing, field: this.fieldOf(game), ...this.joinedType(game) };
+      return this.joined(game, existing);
     }
 
     const free: Color | null =
       game.white_player_id === null ? 'w' : game.black_player_id === null ? 'b' : null;
     if (free === null) return { ok: false, reason: 'full' };
+
+    // A remote game's seat comes with the player's own field and their
+    // acceptance of the disclosure, or not at all (decision 0060). Asked
+    // before anything is written, so a refusal leaves the game as it was.
+    if (this.isRemote(game)) {
+      if (seat.fieldUnusable === true) return { ok: false, reason: 'bad_field' };
+      if (seat.field === undefined) return { ok: false, reason: 'field_required' };
+      if (seat.disclosureAccepted !== true) return { ok: false, reason: 'disclosure_required' };
+    }
 
     const now = Date.now();
     this.sql.exec(
@@ -556,6 +601,9 @@ export class GameDO extends DurableObject<Env> {
       now,
     );
     this.sql.exec(`INSERT INTO presence (player_id, color) VALUES (?, ?)`, playerId, free);
+    // The joiner's field can shrink the creator's board: `setSeatField` judges
+    // the creator's back rank again before anybody is told anything.
+    if (this.isRemote(game) && seat.field !== undefined) this.setSeatField(game, free, seat.field, now, now);
 
     // Both seats filled: the game stops being a dangling code and starts waiting
     // for two people to walk to their own back ranks (decision 0005). The initial
@@ -570,7 +618,29 @@ export class GameDO extends DurableObject<Env> {
     // Both seats now have lines: the joiner's is new, and the creator's says
     // `staging` rather than `waiting`.
     await this.syncIndex(now);
-    return { ok: true, color: free, field: this.fieldOf(game), ...this.joinedType(game) };
+    return this.joined(game, free);
+  }
+
+  /**
+   * A seat's answer to a join: the colour, the field that seat plays on and
+   * the game's type. In a remote game the field is **the joiner's own**, never
+   * the creator's (decision 0060), and `remote` says so — which is also what
+   * tells a phone not to keep a copy of it (decision 0027 is for a field two
+   * people shared).
+   */
+  private joined(
+    game: GameRow,
+    color: Color,
+  ): { ok: true; color: Color; field: FieldSnapshot; gameType?: GameType; remote?: true } {
+    const field = this.fieldFor(game, color);
+    if (field === null) throw new Error(`seat ${color} has no field`);
+    return {
+      ok: true,
+      color,
+      field,
+      ...this.joinedType(game),
+      ...(this.isRemote(game) ? { remote: true as const } : {}),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -975,14 +1045,18 @@ export class GameDO extends DurableObject<Env> {
       who.playerId,
     );
 
+    // In a remote game the opponent is sent squares, never the fix (decision
+    // 0060): the projection is made here, on the sender's own board.
     this.broadcast(
-      { t: 'opp_pos', lat: msg.lat, lng: msg.lng, acc: msg.acc, at: now },
+      game !== null && this.isRemote(game)
+        ? { t: 'opp_spot', spot: this.spotOf(game, who.color, msg), acc: msg.acc, at: now }
+        : { t: 'opp_pos', lat: msg.lat, lng: msg.lng, acc: msg.acc, at: now },
       { except: who.playerId },
     );
     // Watchers get the same relay, never this message: squares, built here
     // from the fix, with nothing of the fix left in it (decision 0055).
     if (game !== null) {
-      this.broadcastWatchers(() => ({ t: 'watch_pos', color: who.color, at: this.spotOf(game, msg) }));
+      this.broadcastWatchers(() => ({ t: 'watch_pos', color: who.color, at: this.spotOf(game, who.color, msg) }));
     }
 
     // A relayed position updates `in_start_zone`, so it can complete the
@@ -1159,7 +1233,9 @@ export class GameDO extends DurableObject<Env> {
     if (game === null || game.status !== 'active' || count >= TRACK_MAX_FIXES) return none;
     let geo: FieldGeometry;
     try {
-      geo = geometryFromSnapshot(this.fieldOf(game));
+      // The walker's own board: in a remote game, squares on the field they
+      // are walking (decision 0060).
+      geo = this.boardFor(game, color);
     } catch {
       return none;
     }
@@ -1406,8 +1482,10 @@ export class GameDO extends DurableObject<Env> {
       return;
     }
 
+    // Judged on the mover's own board (decision 0060): the game's one board,
+    // or in a remote game theirs, shrunk to the shared square.
     const verdict = checkReachTo(
-      geometryFromSnapshot(this.fieldOf(game)),
+      this.boardFor(game, who.color),
       pos,
       pos.acc,
       from,
@@ -1518,7 +1596,7 @@ export class GameDO extends DurableObject<Env> {
     const via = waypointsOf(carry.via_json);
     const lastStop = via[via.length - 1];
     const verdict = checkCarry(
-      geometryFromSnapshot(this.fieldOf(game)),
+      this.boardFor(game, who.color),
       lastStop === undefined
         ? { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at }
         : { pos: { lat: lastStop.lat, lng: lastStop.lng }, accuracyM: lastStop.acc, at: lastStop.at },
@@ -1632,7 +1710,7 @@ export class GameDO extends DurableObject<Env> {
     const via = waypointsOf(carry.via_json);
     const lastStop = via[via.length - 1];
     const verdict = checkCarry(
-      geometryFromSnapshot(this.fieldOf(game)),
+      this.boardFor(game, who.color),
       lastStop === undefined
         ? { pos: { lat: carry.lift_lat, lng: carry.lift_lng }, accuracyM: carry.lift_acc, at: carry.lift_at }
         : { pos: { lat: lastStop.lat, lng: lastStop.lng }, accuracyM: lastStop.acc, at: lastStop.at },
@@ -2154,7 +2232,7 @@ export class GameDO extends DurableObject<Env> {
     pos: { lat: number; lng: number; acc: number },
   ): { ok: boolean; nearestM: number; reachM: number } {
     try {
-      const geo = geometryFromSnapshot(this.fieldOf(game));
+      const geo = this.boardFor(game, color);
       return inStartZone(
         geo,
         pos,
@@ -2237,7 +2315,8 @@ export class GameDO extends DurableObject<Env> {
       // From the snapshot rather than from the account's own field list: the
       // game is played on the field as it was when the game was made, and a
       // re-calibration since must not rewrite the name of an old afternoon.
-      fieldName: this.fieldName(game),
+      // Each seat's own, in a remote game: never the other player's field.
+      fieldName: this.fieldName(game, color),
       lastMoveAt: this.lastMoveAt(),
       suspendedAt: game.suspended_at,
       suspendedBy: game.suspended_by,
@@ -2253,9 +2332,9 @@ export class GameDO extends DurableObject<Env> {
     };
   }
 
-  private fieldName(game: GameRow): string | null {
+  private fieldName(game: GameRow, color: Color): string | null {
     try {
-      return this.fieldOf(game).name;
+      return this.fieldFor(game, color)?.name ?? null;
     } catch {
       // A malformed snapshot costs the line its label, not the line.
       return null;
@@ -2436,18 +2515,17 @@ export class GameDO extends DurableObject<Env> {
     let boardM = 0;
     let diagonalM = 0;
     try {
-      const snapshot = this.fieldOf(game);
+      // This seat's own field and board: in a remote game the line names the
+      // ground this player walked, and goes only to their own account.
+      const snapshot = this.fieldFor(game, color);
+      if (snapshot === null) throw new Error('no field');
       fieldName = snapshot.name;
       fieldKey =
         typeof snapshot.lineageKey === 'string' && /^[0-9a-f]{16}$/.test(snapshot.lineageKey)
           ? snapshot.lineageKey
           : originKeyFor(snapshot.fieldId);
-      const geo = geometryFromSnapshot(snapshot);
-      // The narrower step, as `checkCalibration` judges it: a board with 12 m
-      // files and 3 m ranks is as ambiguous as a 3 m board.
-      squareM = Math.min(geo.fileM, geo.rankM);
-      boardM = boardSizeM(geo);
-      diagonalM = boardDiagonalM(geo);
+      // The narrower step, as `checkCalibration` judges it (`boardFigures`).
+      ({ squareM, boardM, diagonalM } = boardFigures(this.boardFor(game, color)));
     } catch {
       // A malformed snapshot could not have been played on; the line still
       // records the result, and reads as a practice game.
@@ -3027,8 +3105,162 @@ export class GameDO extends DurableObject<Env> {
     };
   }
 
-  private fieldOf(game: GameRow): FieldSnapshot {
-    return JSON.parse(game.field_snapshot_json) as FieldSnapshot;
+  // -------------------------------------------------------------------------
+  // Fields and boards: the one seam between a same-field and a remote game
+  // (decision 0060, `shared/remote.ts`)
+  // -------------------------------------------------------------------------
+  //
+  // Every judgement of a position — a lift, a waypoint, a place, the back
+  // rank, the walk kept for the replay, the squares a fix becomes for the
+  // opponent or a watcher — asks `boardFor` for **that seat's** board, and
+  // every field shown to a player comes from `fieldFor`. Those two, and
+  // `boards` beneath them, are the only methods that read
+  // `field_snapshot_json` or `seat_field`. In a same-field game both seats get
+  // the one field and its own board, exactly as before; in a remote game each
+  // seat gets its own field and that field's board shrunk to the shared square
+  // (`shrinkBoard`, the step `playableBoard` takes for the phone and tests).
+  //
+  // What `isRemote` decides elsewhere is only **what is said, and to whom**:
+  // the join's refusals and its answer (`join`, `joined`), the relay's shape
+  // (`opp_spot` for `opp_pos`), the snapshot (`remoteView`, the opponent's
+  // `spot` in `playerView`), the field a `peek` shows, and the report's field
+  // name. None of those judges a position.
+
+  /** Whether this is a remote game: two players on two fields. */
+  private isRemote(game: GameRow): boolean {
+    return game.remote === 1;
+  }
+
+  /**
+   * The field a seat plays on: the game's one field, or in a remote game that
+   * seat's own, or null for a remote seat nobody has taken. Throws on a
+   * snapshot that does not parse, as reading the field always has.
+   */
+  private fieldFor(game: GameRow, color: Color): FieldSnapshot | null {
+    if (!this.isRemote(game)) return JSON.parse(game.field_snapshot_json) as FieldSnapshot;
+    return this.seatFields().get(color) ?? null;
+  }
+
+  /** A remote game's seat fields, by colour. */
+  private seatFields(): Map<Color, FieldSnapshot> {
+    return new Map(
+      [...this.sql.exec<{ color: Color; field_json: string }>(`SELECT color, field_json FROM seat_field`)].map(
+        (row) => [row.color, JSON.parse(row.field_json) as FieldSnapshot],
+      ),
+    );
+  }
+
+  /**
+   * Both seats' playable boards, and a remote game's shared square, derived
+   * together from the stored fields in one read (decision 0060). In a
+   * same-field game both seats have the field's own board and there is no
+   * shared square. In a remote game `squareM` is `s = min(meanSquareM)` over
+   * the seats' fields, each board is shrunk to it (`shrinkBoard`, the step
+   * `playableBoard` takes), and a seat nobody has taken has none.
+   *
+   * Derived on every call and never kept, because nothing survives
+   * hibernation: a seat whose field is replaced (stage 12.3) moves `s` with
+   * nothing else to update. A caller that needs both boards, or a board and
+   * `s`, asks once. Throws for a field that describes no board.
+   */
+  private boards(game: GameRow): { w: FieldGeometry | null; b: FieldGeometry | null; squareM?: number } {
+    if (!this.isRemote(game)) {
+      const geo = geometryFromSnapshot(JSON.parse(game.field_snapshot_json) as FieldSnapshot);
+      return { w: geo, b: geo };
+    }
+    const fields = this.seatFields();
+    const own = (color: Color): FieldGeometry | null => {
+      const field = fields.get(color);
+      return field === undefined ? null : geometryFromSnapshot(field);
+    };
+    const w = own('w');
+    const b = own('b');
+    const squareM = sharedSquareM([w, b].filter((geo): geo is FieldGeometry => geo !== null));
+    return {
+      w: w === null ? null : shrinkBoard(w, squareM),
+      b: b === null ? null : shrinkBoard(b, squareM),
+      squareM,
+    };
+  }
+
+  /**
+   * The board a seat plays on, which every judgement of that seat's position
+   * is made against: a lift, a waypoint, a place, the back rank, the walk kept
+   * for the replay, and the squares that seat's fix becomes for anybody else.
+   * Throws for a field that describes no board, or a remote seat with none.
+   */
+  private boardFor(game: GameRow, color: Color): FieldGeometry {
+    const board = this.boards(game)[color];
+    if (board === null) throw new Error(`seat ${color} has no field`);
+    return board;
+  }
+
+  /**
+   * The board's figures for anything that is told to both players or to
+   * nobody in particular — the report, the archive, a watcher's view. A
+   * same-field game's own board; a remote game's shared board, eight shared
+   * squares a side, which says nothing about either field.
+   */
+  private sharedFigures(boards: { w: FieldGeometry | null; squareM?: number }): {
+    squareM: number;
+    boardM: number;
+    diagonalM: number;
+  } {
+    if (boards.squareM !== undefined) return sharedBoardFigures(boards.squareM);
+    if (boards.w === null) throw new Error('no board');
+    return boardFigures(boards.w);
+  }
+
+  /**
+   * Store a remote seat's own field, replacing any it had — and then judge
+   * again where everybody stands, because a new field can move the shared
+   * square and so both boards. Every write of a seat's field comes through
+   * here (the creator's, the joiner's, and stage 12.3's recalibration), so
+   * none can leave a back-rank flag that was judged on a board that no longer
+   * exists.
+   */
+  private setSeatField(game: GameRow, color: Color, field: FieldSnapshot, disclosureAt: number, now: number): void {
+    this.sql.exec(
+      `INSERT INTO seat_field (color, field_json, disclosure_at, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (color) DO UPDATE SET field_json = excluded.field_json,
+                                          disclosure_at = excluded.disclosure_at,
+                                          updated_at = excluded.updated_at`,
+      color,
+      JSON.stringify(field),
+      disclosureAt,
+      now,
+    );
+    this.rejudgeStartZones(game);
+  }
+
+  /**
+   * Each player's back-rank flag, judged again against their board as it is
+   * now, because a new seat field can move the shared square and so reshape
+   * both boards (decision 0060). **This only ever lowers a flag.** A flag that
+   * is up stays up only if the player's last stored fix is still on their
+   * back rank on the new board; a flag that is down stays down. Raising one is
+   * left to what raises it in every game — a `pos` or a `ready` on the
+   * player's current socket — because a stored fix is evidence only for as
+   * long as the connection that gave it (decision 0037), and the handshake
+   * must be positional and fresh (decision 0005). Lowered rather than cleared,
+   * so a player already standing on the right square is not sent walking.
+   *
+   * Found in review, three times: a creator waiting on the unshrunk e1 kept
+   * their flag when a joiner with a smaller field sat down, and the joiner's
+   * first relay then started the clock with the creator 28 m off the shrunk
+   * e1; and a version that also raised flags from the stored fix raised the
+   * flag of a creator who had left e1 and come back from somewhere else
+   * without sending a fix, so the game started with them nowhere near it.
+   */
+  private rejudgeStartZones(game: GameRow): void {
+    for (const row of this.presence()) {
+      if (row.in_start_zone !== 1) continue;
+      const still =
+        row.last_lat !== null &&
+        row.last_lng !== null &&
+        this.startZoneCheck(game, row.color, { lat: row.last_lat, lng: row.last_lng, acc: row.last_acc ?? 0 }).ok;
+      if (!still) this.sql.exec(`UPDATE presence SET in_start_zone = 0 WHERE player_id = ?`, row.player_id);
+    }
   }
 
   /**
@@ -3118,7 +3350,7 @@ export class GameDO extends DurableObject<Env> {
     pos: { lat: number; lng: number; acc: number },
   ): boolean {
     try {
-      const geo = geometryFromSnapshot(this.fieldOf(game));
+      const geo = this.boardFor(game, color);
       return inStartZone(
         geo,
         pos,
@@ -3169,14 +3401,16 @@ export class GameDO extends DurableObject<Env> {
       status: game.status,
       ...this.gameTypeFields(game),
       fen: game.fen,
-      field: this.fieldOf(game),
+      field: this.ownField(game, you),
+      // Only in a remote game, so a same-field snapshot is what it was.
+      ...this.remoteView(game),
       reach: this.reachOf(game),
       clock,
       serverNow: now,
       you,
       players: {
-        w: this.playerView(game, 'w', rows.get('w')),
-        b: this.playerView(game, 'b', rows.get('b')),
+        w: this.playerView(game, 'w', rows.get('w'), you),
+        b: this.playerView(game, 'b', rows.get('b'), you),
       },
       lastMove: this.lastMove(),
       moveCount: moveCount?.n ?? 0,
@@ -3195,6 +3429,19 @@ export class GameDO extends DurableObject<Env> {
       createdAt: game.created_at,
       watch: this.watchState(game),
     };
+  }
+
+  /** The receiver's field: the game's, or in a remote game their own. */
+  private ownField(game: GameRow, you: Color): FieldSnapshot {
+    const field = this.fieldFor(game, you);
+    if (field === null) throw new Error(`seat ${you} has no field`);
+    return field;
+  }
+
+  /** `remote` for a remote game's snapshot (decision 0060), nothing otherwise. */
+  private remoteView(game: GameRow): { remote?: RemoteView } {
+    const s = this.isRemote(game) ? this.boards(game).squareM : undefined;
+    return s === undefined ? {} : { remote: { squareM: s } };
   }
 
   private lastMove(): GameSnapshot['lastMove'] {
@@ -3253,10 +3500,15 @@ export class GameDO extends DurableObject<Env> {
     };
   }
 
-  private playerView(game: GameRow, color: Color, row: PresenceRow | undefined): PlayerView | null {
+  private playerView(
+    game: GameRow,
+    color: Color,
+    row: PresenceRow | undefined,
+    you: Color,
+  ): PlayerView | null {
     const playerId = color === 'w' ? game.white_player_id : game.black_player_id;
     if (playerId === null) return null;
-    return {
+    const view: PlayerView = {
       color,
       connected: row?.connected === 1,
       reachBonusSquares: this.reachBonus(game, color),
@@ -3276,6 +3528,25 @@ export class GameDO extends DurableObject<Env> {
               at: row.last_pos_at,
             },
     };
+    // In a remote game the opponent's fix stays here (decision 0060): it is
+    // sent as squares on their board, which are squares on yours, and never
+    // as a latitude. The receiver's own view keeps their own fix.
+    if (!this.isRemote(game) || color === you) return view;
+    return { ...view, pos: null, spot: this.relayedSpot(game, color, view.pos) };
+  }
+
+  /**
+   * A remote seat's fix as the other player may have it (decision 0060):
+   * squares on that seat's own board, by the projection a watcher is given,
+   * with the accuracy and the time. Null when there is no fix.
+   */
+  private relayedSpot(
+    game: GameRow,
+    color: Color,
+    pos: { lat: number; lng: number; acc: number; at: number } | null,
+  ): RelayedSpot | null {
+    if (pos === null) return null;
+    return { spot: this.spotOf(game, color, pos), acc: pos.acc, at: pos.at };
   }
 
   private send(ws: WebSocket, msg: ServerMsg): void {
@@ -3453,9 +3724,14 @@ export class GameDO extends DurableObject<Env> {
   }
 
   /** A stored fix as a watcher may see it: squares, or null (`shared/watch.ts`). */
-  private spotOf(game: GameRow, pos: { lat: number; lng: number } | null): WatchSnapshot['players']['w']['at'] {
+  private spotOf(
+    game: GameRow,
+    color: Color,
+    pos: { lat: number; lng: number } | null,
+  ): WatchSnapshot['players']['w']['at'] {
     try {
-      return watchSpot(geometryFromSnapshot(this.fieldOf(game)), pos);
+      // On that player's own board, so in a remote game a1 is a1 wherever it is.
+      return watchSpot(this.boardFor(game, color), pos);
     } catch {
       return null;
     }
@@ -3473,7 +3749,8 @@ export class GameDO extends DurableObject<Env> {
     try {
       // To a hundredth, as the squares are: a size, never a figure precise
       // enough to say anything about the place.
-      boardM = Math.round(boardSizeM(geometryFromSnapshot(this.fieldOf(game))) * 100) / 100;
+      // In a remote game, the shared board's: neither field's (decision 0060).
+      boardM = Math.round(this.sharedFigures(this.boards(game)).boardM * 100) / 100;
     } catch {
       // A snapshot nobody could play on; the board is drawn all the same.
     }
@@ -3486,7 +3763,7 @@ export class GameDO extends DurableObject<Env> {
         at:
           row?.last_lat == null || row.last_lng == null
             ? null
-            : this.spotOf(game, { lat: row.last_lat, lng: row.last_lng }),
+            : this.spotOf(game, color, { lat: row.last_lat, lng: row.last_lng }),
         travelM: row?.travel_m ?? 0,
       };
     };
@@ -3552,19 +3829,28 @@ export class GameDO extends DurableObject<Env> {
     joinCode?: string;
     seatsFree?: number;
     field?: FieldSnapshot;
+    remote?: true;
   }> {
     const game = this.game();
     if (game === null) return { exists: false };
     const seatsFree =
       (game.white_player_id === null ? 1 : 0) + (game.black_player_id === null ? 1 : 0);
     const invitation = game.status === 'waiting' && seatsFree > 0;
-    const seated = this.accountSeat(game, account) !== null;
+    const remote = this.isRemote(game);
+    // Whose field the asker may see: their own seat's, or — on a same-field
+    // invitation — the creator's, which is the field the asker would play on.
+    // A remote invitation carries no field at all: the creator's is theirs,
+    // and the joiner brings their own (decision 0060).
+    const creator: Color = game.white_player_id !== null ? 'w' : 'b';
+    const shownFor = this.accountSeat(game, account) ?? (invitation && !remote ? creator : null);
+    const field = shownFor === null ? null : this.fieldFor(game, shownFor);
     return {
       exists: true,
       status: game.status,
       joinCode: game.join_code,
       seatsFree,
-      ...(invitation || seated ? { field: this.fieldOf(game) } : {}),
+      ...(field === null ? {} : { field }),
+      ...(remote ? { remote: true as const } : {}),
     };
   }
 
@@ -3624,20 +3910,25 @@ export class GameDO extends DurableObject<Env> {
    * rather than taking the whole report down.
    */
   private buildReport(game: GameRow): GameReport {
-    let geo: FieldGeometry | null = null;
+    // Each move's fixes are turned into squares on **the mover's own board**,
+    // which in a same-field game is the one board (decision 0060).
+    const geo: Record<Color, FieldGeometry | null> = { w: null, b: null };
     let fieldName: string | null = null;
     let squareM = 0;
     let boardM = 0;
     let diagonalM = 0;
     try {
-      const snapshot = this.fieldOf(game);
-      fieldName = snapshot.name;
-      geo = geometryFromSnapshot(snapshot);
-      // The narrower step, exactly as `recordLine` judges it: a board with 12 m
-      // files and 3 m ranks is as ambiguous as a 3 m board.
-      squareM = Math.min(geo.fileM, geo.rankM);
-      boardM = boardSizeM(geo);
-      diagonalM = boardDiagonalM(geo);
+      // A remote game's report goes to both players and into the archive, so
+      // it names neither field, and its board is the shared one: eight
+      // shared squares a side (decision 0060).
+      fieldName = this.isRemote(game) ? null : (this.fieldFor(game, 'w')?.name ?? null);
+      const boards = this.boards(game);
+      geo.w = boards.w;
+      geo.b = boards.b;
+      // A same-field game's narrower step, exactly as `recordLine` judges it
+      // (`boardFigures`); a remote game's shared square `s`, which the record
+      // line does not use — each seat's line judges its own board.
+      ({ squareM, boardM, diagonalM } = this.sharedFigures(boards));
     } catch {
       // A snapshot nobody could have played on. The moves are still a game.
     }
@@ -3651,7 +3942,8 @@ export class GameDO extends DurableObject<Env> {
     ].map((row) => {
       // Squares, like the lift and the place (decision 0041); left out for a
       // move with no waypoint, which is every chess move.
-      const via = waypointsOf(row.via_json).map((w) => boardPositionOf(geo, w.lat, w.lng, w.acc));
+      const board = geo[row.color] ?? null;
+      const via = waypointsOf(row.via_json).map((w) => boardPositionOf(board, w.lat, w.lng, w.acc));
       return {
         seq: row.seq,
         color: row.color,
@@ -3661,9 +3953,9 @@ export class GameDO extends DurableObject<Env> {
         to: row.to_sq,
         carriedM: row.carried_m,
         carriedMs: row.carried_ms,
-        lift: boardPositionOf(geo, row.lift_lat, row.lift_lng, row.lift_acc),
+        lift: boardPositionOf(board, row.lift_lat, row.lift_lng, row.lift_acc),
         ...(via.length === 0 ? {} : { via }),
-        place: boardPositionOf(geo, row.place_lat, row.place_lng, row.place_acc),
+        place: boardPositionOf(board, row.place_lat, row.place_lng, row.place_acc),
       };
     });
 

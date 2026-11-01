@@ -20,7 +20,7 @@
  * Bumped when the shape changes. Stored in `meta`, so a woken object can tell
  * whether its tables predate the code now running.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const STATEMENTS = [
   // A single row, `id = 1`. One Durable Object is one game, and the CHECK makes a
@@ -42,6 +42,12 @@ const STATEMENTS = [
      -- The field is snapshotted at creation so a re-calibration elsewhere cannot
      -- reshape a game in progress. Raw corners are the source of truth.
      field_snapshot_json TEXT    NOT NULL,
+     -- 1 for a remote game, two players on two fields (schema 10, decision
+     -- 0060); NULL is the same field, which is every game before it. In a
+     -- remote game each seat's own field is in seat_field, and
+     -- field_snapshot_json is the creator's field as the game was created
+     -- with it, and is not read.
+     remote              INTEGER,
      white_player_id     TEXT,
      black_player_id     TEXT,
      -- The account each seat accrues to, or NULL for a seat held by a phone
@@ -198,6 +204,20 @@ const STATEMENTS = [
      via_json TEXT
    )`,
 
+  // Each seat's own field in a remote game (schema 10, decision 0060), one
+  // row a seat, written when the seat is taken. A row of its own rather than
+  // a column on the game, so that recalibrating one seat's field during a
+  // pause (stage 12.3) replaces one row and touches nothing of the other
+  // seat. Never a row in a same-field game. disclosure_at is when that player
+  // accepted that a remote opponent might work out where they are; a seat is
+  // not taken without it.
+  `CREATE TABLE IF NOT EXISTS seat_field (
+     color         TEXT    PRIMARY KEY,
+     field_json    TEXT    NOT NULL,
+     disclosure_at INTEGER NOT NULL,
+     updated_at    INTEGER NOT NULL
+   )`,
+
   // A Durable Object has exactly one alarm and this design needs several
   // deadlines, so they are multiplexed here and the alarm is always set to the
   // earliest. See `timers.ts` and decision 0006.
@@ -284,6 +304,12 @@ function upgradeGameTable(sql: SqlStorage): void {
   }
   if (!columns.has('options_json')) {
     sql.exec(`ALTER TABLE game ADD COLUMN options_json TEXT`);
+  }
+
+  // Schema 10: a remote game (decision 0060). NULL is the same field, which is
+  // what every game already here is; nothing is backfilled.
+  if (!columns.has('remote')) {
+    sql.exec(`ALTER TABLE game ADD COLUMN remote INTEGER`);
   }
 
   // Schema 3: which account each seat accrues to (stage 2.3.4). NULL for every

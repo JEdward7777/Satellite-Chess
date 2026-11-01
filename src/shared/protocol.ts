@@ -21,8 +21,9 @@ import type { FieldSnapshot } from './field.js';
 import type { ClockState } from './clock.js';
 import type { GameOptions, GameType } from './games/types.js';
 import type { ReachConfig, Refusal } from './reach.js';
+import type { RemoteView } from './remote.js';
 import type { Color, Square } from './squares.js';
-import type { WatchState } from './watch.js';
+import type { WatchSpot, WatchState } from './watch.js';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -105,6 +106,22 @@ export interface RelayedPos {
   at: number;
 }
 
+/**
+ * The opponent's position in a remote game (decision 0060): **board space
+ * only**, squares from the center of a1 on whichever board they stand on,
+ * so a player on a1 is drawn on a1 of yours. Built on the server from the
+ * fix by the same projection a watcher gets (`watchSpot`), and `spot` is
+ * null when they are more than a few squares off their board. No latitude,
+ * no longitude, nothing of their field.
+ */
+export interface RelayedSpot {
+  spot: WatchSpot | null;
+  /** Reported horizontal accuracy in meters. A figure, not a place. */
+  acc: number;
+  /** Server receive time. */
+  at: number;
+}
+
 export interface PlayerView {
   color: Color;
   connected: boolean;
@@ -127,6 +144,12 @@ export interface PlayerView {
    * relays once and then says nothing for the rest of the game.
    */
   pos: RelayedPos | null;
+  /**
+   * In a remote game, the **opponent's** last position as squares, and their
+   * `pos` is null (decision 0060). Absent in a same-field game, and absent on
+   * the receiver's own view, whose `pos` is their own fix.
+   */
+  spot?: RelayedSpot | null;
 }
 
 export interface MoveRecord {
@@ -190,7 +213,17 @@ export interface GameSnapshot {
   options?: GameOptions;
   /** The position, in the game's own notation: a FEN for chess. */
   fen: string;
+  /**
+   * The field. In a remote game, **the receiver's own** (decision 0060): the
+   * corners they tapped, unshrunk, and their board is `playableBoard(field,
+   * remote.squareM)`. The other player's field is never sent.
+   */
   field: FieldSnapshot;
+  /**
+   * Present only in a remote game (decision 0060), and absent in a
+   * same-field one, so that snapshot is byte for byte what it was.
+   */
+  remote?: RemoteView;
   /**
    * The reach rule this game is played by, chosen at creation and fixed for the
    * life of the game. In squares (decision 0031); metres are derived from the
@@ -430,6 +463,16 @@ export interface OppPosMsg extends RelayedPos {
   t: 'opp_pos';
 }
 
+/**
+ * The relay in a remote game (decision 0060): where the opponent is, as
+ * squares, in place of an `opp_pos`. The same shape as `PlayerView.spot`, as
+ * `opp_pos` is the same as `PlayerView.pos`. A phone that does not know it
+ * ignores it, and draws no dot.
+ */
+export interface OppSpotMsg extends RelayedSpot {
+  t: 'opp_spot';
+}
+
 export type ErrorCode =
   | 'not_your_turn'
   | 'illegal_move'
@@ -464,7 +507,7 @@ export interface ErrorMsg {
   refusal?: Refusal;
 }
 
-export type ServerMsg = StateMsg | OppPosMsg | ErrorMsg;
+export type ServerMsg = StateMsg | OppPosMsg | OppSpotMsg | ErrorMsg;
 
 // ---------------------------------------------------------------------------
 // Client-side send policy (kept here so both ends agree on the numbers)

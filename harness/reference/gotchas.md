@@ -599,4 +599,13 @@ is; this says what will bite you when you touch it.*
   25-move game was found by a search over `worker/games/checkers.ts`; if the
   rules change, find a new one rather than seeding positions (the replay
   must match the moves).
+- **A remote game asks for a seat's board, never "the" field** (stage 12.1,
+  decisions 0060, 0061). Every judgement of a position goes through
+  `GameDO.boardFor(game, color)`, and every field shown to a player comes from
+  `fieldFor`. A new `JSON.parse(game.field_snapshot_json)` elsewhere would
+  hand the creator's field to the joiner (`test/worker/remote.test.ts`
+  corrupts that column to prove nothing reads it). **Reshaping a board may
+  lower a back-rank flag, never raise one**: a stored fix is not evidence of
+  where anyone is standing now (0037). Three review rounds were spent
+  learning that. A remote opponent is `opp_spot` squares, never `opp_pos`.
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

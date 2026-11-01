@@ -11,7 +11,7 @@
  * lands on one.
  */
 
-import { type FieldSpec, snapshotField } from '../shared/field.js';
+import { type FieldSnapshot, type FieldSpec, snapshotField } from '../shared/field.js';
 import { fieldKey } from '../shared/fieldlink.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
@@ -498,6 +498,30 @@ async function writeSettings(request: Request, env: Env, url: URL): Promise<Resp
 }
 
 /**
+ * A field from a create or join body, snapshotted for a game, or null for one
+ * that describes no board. The lineage key rides along so the permanent record
+ * can count "fields played on" by ground rather than by copy (stage 2.3.5).
+ */
+function gameFieldOf(spec: unknown): FieldSnapshot | null {
+  try {
+    const field = snapshotField(spec as Parameters<typeof snapshotField>[0]);
+    const lineageKey = lineageKeyOf(spec);
+    return lineageKey !== null ? { ...field, lineageKey } : field;
+  } catch {
+    return null;
+  }
+}
+
+/** A remote game refused for want of the player's acceptance of the disclosure (decision 0060). */
+function disclosureRequired(): Response {
+  return apiError(
+    'disclosure_required',
+    'In a game played on two fields, your opponent could work out where you are. Accept that to play.',
+    400,
+  );
+}
+
+/**
  * A field's lineage key, or null for one that is not shaped like ours.
  *
  * The phone's own claim about where its field came from, and harmless as one:
@@ -652,17 +676,17 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
   // The field travels with the game as an immutable snapshot, so a
   // re-calibration on another phone cannot reshape a game in progress — and so a
   // joiner who has never calibrated anything can play immediately.
-  let field;
-  try {
-    const spec = body.field as Parameters<typeof snapshotField>[0];
-    // The lineage key rides along so the permanent record can count "fields
-    // played on" by ground rather than by copy (stage 2.3.5).
-    field = snapshotField(spec);
-    const lineageKey = lineageKeyOf(spec);
-    if (lineageKey !== null) field = { ...field, lineageKey };
-  } catch {
+  const field = gameFieldOf(body.field);
+  if (field === null) {
     return apiError('bad_field', 'That field is not usable. Re-calibrate and try again.', 400);
   }
+
+  // A remote game, two players on two fields (decision 0060). Absent is the
+  // same field, which is every create body a phone has ever sent. The creator
+  // is told what a remote opponent could work out, and accepts it, before the
+  // game exists.
+  const remote = body.remote === true;
+  if (remote && body.disclosureAccepted !== true) return disclosureRequired();
 
   // Which game (decision 0056). Left out, it is chess, which is every create
   // body a phone has ever sent; a name this build has no rules for is refused
@@ -682,6 +706,7 @@ async function createGame(request: Request, env: Env, url: URL): Promise<Respons
       creatorAccount: account,
       creatorColor,
       field,
+      ...(remote ? { remote: { disclosureAcceptedAt: Date.now() } } : {}),
       gameType: rules.type,
       // The game's own settings, read by its own rules: unknown keys dropped,
       // absent ones defaulted. Chess has none.
@@ -721,7 +746,16 @@ async function joinGame(
   const playerId = identity.sub;
   const account = identity.sub;
 
-  const result = await stub.join(playerId, account);
+  // A remote game's free seat takes the joiner's own field and their
+  // acceptance of the disclosure (decision 0060). The body is read here and
+  // judged by the game, which alone knows whether it is remote: a same-field
+  // game, and a seat already held, ignore it whatever it says, as before.
+  const body = (await readJson(request)) ?? {};
+  const seatField = body.field === undefined ? undefined : gameFieldOf(body.field);
+  const result = await stub.join(playerId, account, {
+    ...(seatField === undefined ? {} : seatField === null ? { fieldUnusable: true } : { field: seatField }),
+    disclosureAccepted: body.disclosureAccepted === true,
+  });
   if (result.ok) {
     // The field travels back with the seat (stage 6.3). A phone that arrived by
     // scanning a QR has calibrated nothing, and this is the only thing it is
@@ -732,11 +766,25 @@ async function joinGame(
       color: result.color,
       field: result.field,
       ...(result.gameType === undefined ? {} : { gameType: result.gameType }),
+      // A remote game: the field is the joiner's own, not one to keep a copy
+      // of (decision 0060, constraining 0027).
+      ...(result.remote === true ? { remote: true } : {}),
     });
   }
   if (result.reason === 'full') {
     return apiError('game_full', 'That game already has two players.', 409);
   }
+  if (result.reason === 'bad_field') {
+    return apiError('bad_field', 'That field is not usable. Re-calibrate and try again.', 400);
+  }
+  if (result.reason === 'field_required') {
+    return apiError(
+      'field_required',
+      'This game is played on two fields. Choose one of your own fields, or calibrate a new one, to join it.',
+      400,
+    );
+  }
+  if (result.reason === 'disclosure_required') return disclosureRequired();
   // A game that has finished and been archived (decision 0042). There is no
   // board to sit down at any more — the object, and the field with it, are
   // gone — so a player of it is told so and sent to the review, which reads

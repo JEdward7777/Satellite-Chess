@@ -3,49 +3,40 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **`11.4` and `10.10.3` are done** (`2026-10-31-01`):
-the owner answered both real-phone checklists from the 2026-10-22 checkers
-game, so phase `11` and stage `10.10` are closed. **`10.10.4` is deployed**
-(`2026-10-22-01`): a tap on either piece-in-hand plate now goes through to
-the square underneath (decision 0059, O-61, reversing 0048's ignored tap),
-after the owner's first real checkers game outdoors, unfinished, where
-crowning and hops worked and the plate was the one complaint. **Run 3 of
-the pipeline is complete**
-(`harness/pipeline/ratchet.md`): `10.15` (Play above the lists on home),
-`11.1` (chess behind a multi-game interface, decision 0056), `11.2`
-(checkers rules on the server, decision 0057) and **`11.3`, checkers on the
-phone** (decision 0058, `2026-10-18-01`), clean in round 2. New game offers
-Chess or Checkers with the "Jumps are required" switch (off by default);
-each hop of a jump is a tap (ring to hop, dot to place, "Stop here / Keep
-jumping / Cancel"); in checkers the `w` seat is called **Black** everywhere
-a player reads it, and chess's words are byte for byte unchanged; the record
-and head-to-head keep one distance and split results by game; an unknown
-game type says "update the app". `check-golden` against `23cee67`: identical
-in all 63 parts.
-**Active stages**: `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`, `10.7`, `10.8`,
-`10.11`, `10.12`, `10.14` and `10.15`. All but `8.5` wait only on a
-real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`,
-`10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`); `8.5` also has
-`8.5.5` and `8.5.6`.
-**Next action**: **run 4 of the ratchet, phase 12 (remote play on two fields, O-32,
-decision 0060)**, scoped with the owner on 2026-10-31 (`2026-10-31-02`): `12.1`
-server, `12.2` phone, `12.3` recalibrating in a pause, then the `12.4` real-phone
-check. After that the queue is **O-58** and other O-57 games, when the owner asks.
+**Tree state**: clean. **Run 4 of the ratchet is under way** (phase 12,
+remote play on two fields, O-32, decisions 0060 and 0061). **`12.1` is done
+and committed, not deployed** (`2026-11-01-01`), clean in review round 4.
+Remote games now work on the server: a field per seat, one shared square
+`s` (the smaller field's), the larger board shrunk about its center, each
+move judged on the mover's own board, the opponent relayed as squares
+(`opp_spot`), each player sent only their own field, and the disclosure
+accepted on create and join. A same-field game is byte for byte unchanged:
+`check-golden` against `4e0b42e` was identical in all 63 parts. Phase `11` and
+stage `10.10` are closed (`2026-10-31-01`).
+**Active stages**: `12` (run 4), and `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`,
+`10.7`, `10.8`, `10.11`, `10.12`, `10.14` and `10.15`. All but `8.5` and `12`
+wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
+`10.6.4`, `10.7.4`, `10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`);
+`8.5` also has `8.5.5` and `8.5.6`.
+**Next action**: **`12.2`, remote games on the phone**, with the ratchet
+(notes from 12.1 under it in `plan/12-remote.md`). Then `12.3` (recalibrate in
+a pause), then the owner's `12.4`. After that the queue is **O-58** and other
+O-57 games, when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`0defd5fe`, at `8c50136` (through `10.10.4`: taps go through the plate).
-Deployed 2026-10-29 on the owner's say-so. The `ARCHIVE` KV namespace id
-(`fe6b455ea33c415f983eee0921c64cdc`) is pinned in `wrangler.jsonc`. The
-operator has authorized deploys during the run once a phase is reviewed
-clean.
-**1474 tests pass, reliably.** **In a worker test, wait with `handled(ws)`
+`0defd5fe`, at `8c50136` (through `10.10.4`), so 12.1 is not live. The
+`ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in
+`wrangler.jsonc`. The operator has authorized deploys during the run once a
+phase is reviewed clean.
+**1499 tests.** **The worker tests are load-sensitive on this machine**
+(2026-11-01): each worker test took 2–4 s, at the same speed on HEAD, so
+about 190 hit the default 5 s timeout. Run with `--testTimeout=60000`. Even
+then, 3–9 pause, fallen-flag and wall-clock tests in `carry`, `endings`,
+`record` and `watch` fail under full-suite load, identically on HEAD, and
+pass when run alone. **In a worker test, wait with `handled(ws)`
 (`test/worker/record.test.ts`), never with a sleep or "the next `state`"**,
-and mind its caveat in `reference/gotchas.md` (a flag fall's ending awaits
-the accounts before its broadcast, so poll for it). A sweep over thousands
-of cases asserts once. Typecheck and `plan:check` are clean. On 2026-10-16
-all 25 browser drivers passed on the 11.3 code, including the new
-`check-checkers`. **`check-review` and `check-record` flake under load**
-(O-60): `check-record` failed 2 of 7 at both HEAD and the new code; rerun
-before believing a failure at "Fool's mate, every piece carried".
+and mind its caveat in `reference/gotchas.md`. A sweep over thousands of
+cases asserts once. Typecheck and `plan:check` are clean. **`check-review`
+and `check-record` flake under load** (O-60).
 **Run drivers from a new, uniquely named `--persist-to`** (O-19).
 Drivers take `--base=http://127.0.0.1:<port>/?sim=1`, except `check-invite`,
 `check-calibrate`, `check-deeplink`, `check-field`, `check-fields`,
@@ -61,6 +52,24 @@ filter also matches the red ring of the opponent's piece-in-hand plate, so do
 not read it mid-carry. **The scratchpad is shared between agents in a run**:
 name helper scripts per agent, since another agent may overwrite a generic
 `restart.sh`.
+
+## Remote play, in one paragraph
+
+A game can be **remote**: two players on two fields (decisions 0060, 0061,
+`shared/remote.ts`). Each seat brings its own field (`seat_field`, schema 10).
+The shared square is `s = min(meanSquareM)`, and the larger board is shrunk
+by one factor about its own center. Every judgement of a position asks
+`GameDO.boardFor(game, color)` for that seat's board, so reach, the back rank
+and the track run unchanged on it. Only board space crosses between players:
+the receiver's own `field`, `remote.squareM`, and the opponent as squares
+(`opp_spot`, `PlayerView.spot`; the opponent's `pos` is null). The report,
+archive, PGN and watcher view describe the shared board (8s a side) and name
+no field. Create and join need `disclosureAccepted: true`. **The rule most
+likely to be broken**: a board that changes shape (a join now, a
+recalibration in 12.3) may **lower** a back-rank flag but never raise one.
+Only a `pos` or `ready` on the current socket raises it (0037, 0005), and
+three review rounds were spent learning that. Absent `remote` is the same
+field, byte for byte (`check-golden`).
 
 ## Watching live, in one paragraph
 
