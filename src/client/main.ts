@@ -90,6 +90,7 @@ import {
 } from './views/games.js';
 import { mountInvite } from './views/invite.js';
 import { mountJoinFailed, mountJoining } from './views/join.js';
+import { mountRemoteJoin } from './views/remote-join.js';
 import { mountScan } from './views/scan.js';
 import { mountSurvey } from './views/survey.js';
 import type { Color } from '../shared/squares.js';
@@ -440,7 +441,7 @@ async function boot(): Promise<void> {
    * one that has just been handed a link in a park — and an unexplained blank
    * page is what makes someone scan the QR a second time.
    */
-  function showJoin(code: string): void {
+  function showJoin(code: string, remoteField?: FieldSpec): void {
     /**
      * False once this screen has been replaced by any other.
      *
@@ -462,9 +463,19 @@ async function boot(): Promise<void> {
         teardown();
       };
     });
-    void joinGame(code).then((outcome) => {
+    // A remote seat goes again with the field and the box checked on the
+    // screen that asked for them (decision 0060); every other join has no body.
+    const remote = remoteField === undefined ? undefined : { field: remoteField, disclosureAccepted: true as const };
+    void joinGame(code, { remote }).then((outcome) => {
       if (!live) return;
       if (!outcome.ok) {
+        // A remote game with a free seat, asked without a field: nothing was
+        // written, and this is how the phone finds out the game is remote.
+        // Ask for the field and the acceptance, then join again with both.
+        if (outcome.reason === 'field_required' && remoteField === undefined) {
+          void showRemoteJoin(code);
+          return;
+        }
         showJoinFailed(code, outcome);
         return;
       }
@@ -486,9 +497,40 @@ async function boot(): Promise<void> {
       // And it keeps a copy of it (decision 0027). Deliberately not awaited: a
       // slow IndexedDB write must never sit between a tapped invite and a board,
       // and there is nothing on the next screen that depends on the answer.
-      void keepGameField(store, outcome.field);
-      enterGame(outcome.code, outcome.field, outcome.colour, outcome.gameType);
+      //
+      // Not in a remote game, where the field that came back is this
+      // player's own (decision 0060): there is nothing of anybody else's to keep.
+      if (outcome.remote !== true) void keepGameField(store, outcome.field);
+      enterGame(outcome.code, outcome.field, outcome.colour, outcome.gameType, outcome.remote === true);
     });
+  }
+
+  /**
+   * A remote game's free seat (stage 12.2, decision 0060): choose one of
+   * this phone's fields, or calibrate one and come back, and accept the
+   * disclosure. Then the join goes again with both.
+   */
+  async function showRemoteJoin(code: string, preferredFieldId?: string): Promise<void> {
+    const asked = screens;
+    const fields = await store.list();
+    // Somewhere else was opened while the list loaded: stay there.
+    if (screens !== asked) return;
+    swap(() =>
+      mountRemoteJoin(root, {
+        code,
+        fields,
+        preferredFieldId,
+        onJoin: (field) => showJoin(code, field),
+        // Calibrate, and come back here with the new field chosen. Backing
+        // out of calibrating comes back here too, not home.
+        onCalibrate: () =>
+          showCalibrate(undefined, {
+            onSaved: (spec) => void showRemoteJoin(code, spec.id),
+            onCancel: () => void showRemoteJoin(code, preferredFieldId),
+          }),
+        onCancel: () => void showHome(),
+      }),
+    );
   }
 
   function showJoinFailed(code: string, rejection: JoinRejection): void {
@@ -543,7 +585,7 @@ async function boot(): Promise<void> {
     // this is a *game's* field, and it must not change shape because someone
     // re-calibrates the saved one. A joiner is handed the server's copy of the
     // same thing, so both phones hold a snapshot and neither holds a live field.
-    showInvite(body.joinCode, snapshotField(field), body.color ?? colour, draft.game);
+    showInvite(body.joinCode, snapshotField(field), body.color ?? colour, draft.game, draft.remote);
   }
 
   /**
@@ -561,6 +603,7 @@ async function boot(): Promise<void> {
     field: FieldSnapshot,
     colour: Color,
     gameType: GameType = DEFAULT_GAME_TYPE,
+    remote = false,
   ): void {
     swap(() =>
       mountInvite(root, {
@@ -568,7 +611,8 @@ async function boot(): Promise<void> {
         field,
         colour,
         gameType,
-        onOpenBoard: () => enterGame(joinCode, field, colour, gameType),
+        remote,
+        onOpenBoard: () => enterGame(joinCode, field, colour, gameType, remote),
         onLeave: () => void showHome(),
       }),
     );
@@ -579,6 +623,12 @@ async function boot(): Promise<void> {
     field: FieldSnapshot,
     colour: Color,
     gameType: GameType = DEFAULT_GAME_TYPE,
+    /**
+     * Played on two fields (decision 0060), as the create screen or the join
+     * answer said. Only the invitation's words follow it; the board takes
+     * what it plays on from the snapshot (`my-board.ts`).
+     */
+    remote = false,
   ): void {
     // The game's pieces, fetched now so they are here before the socket's
     // first snapshot is (decision 0056). The board draws without them until
@@ -611,7 +661,9 @@ async function boot(): Promise<void> {
       banner.className = 'secondary invite-again';
       banner.dataset.joinCode = joinCode;
       banner.textContent = `Invite · ${formatJoinCode(joinCode)}`;
-      banner.addEventListener('click', () => showInvite(joinCode, field, colour, gameType));
+      // In a remote game too: it still invites, in the words of a game on two
+      // fields and with no field named (`views/invite.ts`).
+      banner.addEventListener('click', () => showInvite(joinCode, field, colour, gameType, remote));
       root.querySelector('.board-status')?.prepend(banner);
       return () => {
         detachDrag?.();
@@ -739,14 +791,18 @@ async function boot(): Promise<void> {
     );
   }
 
-  function showCalibrate(existing?: FieldSpec): void {
+  function showCalibrate(
+    existing?: FieldSpec,
+    /** Where to go after, when that is not home: back to a remote join (12.2). */
+    then?: { onSaved(spec: FieldSpec): void; onCancel(): void },
+  ): void {
     swap(() =>
       mountCalibrate(root, {
         gps,
         store,
         existing,
-        onSaved: () => void showHome(),
-        onCancel: () => void showHome(),
+        onSaved: then?.onSaved ?? (() => void showHome()),
+        onCancel: then?.onCancel ?? (() => void showHome()),
       }),
     );
   }

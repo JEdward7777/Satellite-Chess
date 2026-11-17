@@ -265,7 +265,7 @@ export function privacyHtml(): string {
         board in squares and each carry, from where the piece was picked up to
         where it was put down, which the game file holds too. It never shows
         the walks, a map, a date or anyone's name, and it shows the field's
-        name only if you tick the box.</li>
+        name only if you check the box.</li>
       <li><strong>Watching a game live.</strong> If you and your opponent both
         agree, people you send a link to can watch the game as it happens,
         without signing in: the board, the moves, the clocks, and both of you

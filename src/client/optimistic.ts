@@ -42,7 +42,6 @@
  */
 
 import { freeze } from '../shared/clock.js';
-import { deriveGeometry } from '../shared/field.js';
 import { descriptorFor } from '../shared/games/catalog.js';
 import type {
   ClientMsg,
@@ -56,6 +55,7 @@ import { checkReachTo } from '../shared/reach.js';
 import type { Color, Square } from '../shared/squares.js';
 import { estimateServerNow } from './clock.js';
 import type { GpsFix } from './gps.js';
+import { myBoard } from './my-board.js';
 import type { GameConnection, NetState } from './net.js';
 
 /**
@@ -90,7 +90,9 @@ const other = (color: Color): Color => (color === 'w' ? 'b' : 'w');
 function canReach(game: GameSnapshot, pos: PosFix, square: Square): boolean {
   try {
     const bonus = game.players[game.you]?.reachBonusSquares ?? 0;
-    return checkReachTo(deriveGeometry(game.field), pos, pos.acc, square, game.reach, bonus).ok;
+    // The board the server judges this player by: in a remote game their own
+    // field shrunk to the shared square (`my-board.ts`).
+    return checkReachTo(myBoard(game).geo, pos, pos.acc, square, game.reach, bonus).ok;
   } catch {
     // A degenerate field throws rather than guessing. Declining to predict is
     // always safe; the server's answer is coming either way.

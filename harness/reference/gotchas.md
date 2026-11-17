@@ -608,4 +608,11 @@ is; this says what will bite you when you touch it.*
   lower a back-rank flag, never raise one**: a stored fix is not evidence of
   where anyone is standing now (0037). Three review rounds were spent
   learning that. A remote opponent is `opp_spot` squares, never `opp_pos`.
+- **The phone asks `myBoard(snapshot)` for its board** (`client/my-board.ts`,
+  stage 12.2, decision 0062): in a remote game its own field shrunk to the
+  shared square, with the calibrated field as an outline. A new
+  `deriveGeometry(game.field)` in the client draws and judges a remote game on
+  the wrong board. A remote opponent reaches the views as a place on *this*
+  board (`net.ts`), never as the raw spot. Driver: `scripts/check-remote.mjs`
+  (two fields of 10 m and 6 m; checks the dot is on the same square on both).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

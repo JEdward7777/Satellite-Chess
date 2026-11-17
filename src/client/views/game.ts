@@ -25,6 +25,7 @@ import {
   deriveGeometry,
   distanceFromBoardPointToSquareM,
   fromBoardPoint,
+  smallSquareWarning,
   toBoardPoint,
 } from '../../shared/field.js';
 import type { LatLng } from '../../shared/geo.js';
@@ -57,6 +58,7 @@ import {
   opponentHandshakeLine,
   walkToBackRankM,
 } from '../handshake.js';
+import { type MyBoard, myBoard } from '../my-board.js';
 import type { GameConnection, NetState } from '../net.js';
 import { OPPONENT_FRAME_MS, OpponentTrack } from '../opponent.js';
 import { pieceLook } from '../piece-look.js';
@@ -385,6 +387,33 @@ export function carryTap(guidance: Pick<CarryGuidance, 'from' | 'via' | 'destina
 }
 
 /**
+ * What the board says about a remote game (decision 0060), or null for a
+ * same-field one: the shared square for the readout, and a line under the
+ * prompt saying why the board is the size it is. The line is for the wait,
+ * the walk to the back rank and a pause, when there is time to read it; in
+ * play it stays only to warn about squares too narrow to tell apart.
+ */
+export function remoteWords(
+  board: Pick<MyBoard, 'sharedSquareM' | 'outline' | 'smallSquares' | 'geo'> | null,
+  status: GameSnapshot['status'] | undefined,
+  units: Units = 'metric',
+): { squares: string; note: string | null } | null {
+  if (board === null || board.sharedSquareM === null) return null;
+  // Alone, the square is this field's own until the other one is known.
+  const size = lengthWords(board.sharedSquareM, units, 1);
+  const squares = status === 'waiting' ? `${size} for now` : `${size} on both fields`;
+  const why =
+    status === 'waiting'
+      ? "Played on two fields. If your opponent's squares are smaller, this board shrinks to match them."
+      : board.outline !== null
+        ? "Shrunk to match your opponent's smaller squares. The dashed line is the field you marked out."
+        : 'Played on two fields. Your opponent plays on squares this size.';
+  const small = board.smallSquares ? smallSquareWarning(Math.min(board.geo.fileM, board.geo.rankM), units) : null;
+  const note = status === 'active' ? small : [why, small].filter((t) => t !== null).join(' ');
+  return { squares, note };
+}
+
+/**
  * The game's end on the board, in one line. Chess says it as it always has
  * ("1-0 — checkmate."); another game names the winner, since "1-0" is
  * chess's way of saying White, and checkers' first mover is Black
@@ -500,8 +529,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <dt data-carry-label hidden>Carrying</dt><dd data-carry hidden><span class="piece-icon" data-carry-icon></span><span data-carry-text>—</span></dd>
           <dt>Pieces</dt><dd><button class="look-toggle" data-look-toggle aria-label="Switch piece look">—</button></dd>
           <dt data-jumps-label hidden>Jumps</dt><dd data-jumps hidden>—</dd>
+          <dt data-squares-label hidden>Squares</dt><dd data-squares hidden>—</dd>
         </dl>
         <p data-prompt class="prompt">Connecting…</p>
+        <p data-remote-note class="dim" hidden></p>
         <p data-handshake class="dim" hidden></p>
         <p data-notice class="notice" hidden></p>
         <p data-my-offer class="dim" hidden></p>
@@ -610,6 +641,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    * rather than drawn raw — and the animation is what `animator` below is for.
    */
   const opponentTrack = new OpponentTrack();
+  /** The board the opponent's dot was put on, by {@link boardShape}. */
+  let drawnShape = '';
   let animator: ReturnType<typeof setInterval> | null = null;
   /**
    * The worst thing already said about my clock, so it is said once rather than
@@ -629,9 +662,15 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   /** Says "I am on my back rank" once per arrival, unasked (stage 7.2.1). */
   const autoReady = new AutoReady();
 
-  /** The field the *game* is played on, which outranks the one we were handed. */
-  const geometry = () =>
-    net.game ? deriveGeometry(net.game.field) : deriveGeometry(deps.field);
+  /**
+   * The board this phone plays on (`my-board.ts`), once the snapshot is here:
+   * the game's field, or in a remote game this player's own, shrunk to the
+   * shared square. The one place this screen gets a board from.
+   */
+  const board = (): MyBoard | null => (net.game ? myBoard(net.game) : null);
+
+  /** The board the *game* is played on, which outranks the field we were handed. */
+  const geometry = () => board()?.geo ?? deriveGeometry(deps.field);
 
   const myColor = (): Color => net.game?.you ?? 'w';
 
@@ -1019,6 +1058,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     }
     if (descriptorFor(game.gameType) === null) return UPDATE_APP_WORDS;
     if (game.result) return resultPrompt(game.gameType, game.result);
+    // Alone in the game: nobody's move yet, whoever's clock the snapshot names.
+    if (game.status === 'waiting') return 'Waiting for your opponent to join.';
     if (game.status === 'staging') return handshakeLines().mine;
     if (game.status === 'suspended') return suspendedPrompt(game.suspension);
 
@@ -1269,7 +1310,10 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
       zoomOrientation = myColor();
     }
     const { width, height } = canvasSizePx(canvas);
-    const { frame, base } = zoomFrameFor(geo, myColor(), width, height);
+    // A remote board shrunk from a larger field is drawn inside it (decision
+    // 0060 point 7). Null for every other board, which is drawn as it was.
+    const outline = board()?.outline ?? null;
+    const { frame, base } = zoomFrameFor(geo, myColor(), width, height, outline);
     const view = zoom.settle(frame, fix ? base.toScreen(toBoardPoint(geo, fix.pos)) : null);
 
     // The game on the board (decision 0056): absent is chess. Its art is
@@ -1286,6 +1330,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           });
     const drawnView: BoardView = {
       geo,
+      outline,
       zoom: view,
       orientation: myColor(),
       pieces: known === null ? {} : known.piecesOf(net.game?.fen ?? ''),
@@ -1318,7 +1363,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     );
     set(
       '[data-turn]',
-      net.game ? (net.game.clock.active === myColor() ? 'yours' : 'theirs') : '—',
+      // Nobody's turn while the game waits for its second player.
+      net.game && net.game.status !== 'waiting' ? (net.game.clock.active === myColor() ? 'yours' : 'theirs') : '—',
     );
     // Once the game is over, finished or aborted, nobody's turn is coming,
     // nothing is in reach, and nobody else is coming to join it: the square
@@ -1407,6 +1453,14 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const jumps = jumpsWords(net.game ?? null);
     set('[data-jumps]', jumps ?? '');
     for (const el of root.querySelectorAll<HTMLElement>('[data-jumps], [data-jumps-label]')) el.hidden = jumps === null;
+    // A remote game's shared square, and why the board is this size. Gone
+    // once the game is over, with the rest of what is about playing on.
+    const remote = over ? null : remoteWords(board(), net.game?.status, units.get());
+    set('[data-squares]', remote?.squares ?? '');
+    for (const el of root.querySelectorAll<HTMLElement>('[data-squares], [data-squares-label]')) el.hidden = remote === null;
+    set('[data-remote-note]', remote?.note ?? '');
+    const remoteNote = root.querySelector<HTMLElement>('[data-remote-note]');
+    if (remoteNote) remoteNote.hidden = !remote?.note;
 
     const picker = root.querySelector<HTMLElement>('[data-promotion]');
     if (picker) {
@@ -1493,7 +1547,18 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // Fed here rather than in `net.ts`, which deliberately knows nothing about
     // how anything is drawn. The track ignores a fix it has already seen, so a
     // snapshot repeating the last relay does not restart the glide.
+    //
+    // A remote opponent can go from a dot to none (relayed as off their
+    // board), and the dot is put on this board, so a board of another shape
+    // starts the dot again where it now is. Neither happens in a same-field
+    // game, whose opponent once heard from is never null again.
+    const shape = boardShape(state.game);
+    if (shape !== drawnShape) {
+      drawnShape = shape;
+      opponentTrack.clear();
+    }
     if (state.opponent) opponentTrack.push(state.opponent);
+    else opponentTrack.clear();
     // A picker left open over a carry that has ended — placed, dropped, or
     // cancelled by a suspension (decision 0009) — would offer to promote a piece
     // that is no longer in hand. The server would refuse it, but the screen
@@ -1584,6 +1649,16 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     void screenLock.release();
     root.innerHTML = '';
   };
+}
+
+/**
+ * What a remote opponent's dot depends on: this phone's field and the shared
+ * square. Empty for a same-field game, which only ever has one board.
+ */
+function boardShape(game: GameSnapshot | null): string {
+  if (!game?.remote) return '';
+  const { a1, h1, h8, a8 } = game.field;
+  return JSON.stringify([game.remote.squareM, a1, h1, h8, a8]);
 }
 
 /** `localStorage`, or null where touching it throws (some private modes do). */

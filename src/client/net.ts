@@ -25,13 +25,16 @@ import {
   type ErrorMsg,
   type GameSnapshot,
   type OppPosMsg,
+  type OppSpotMsg,
   PING,
   PONG,
   POS_MIN_DELTA_M,
   POS_MIN_INTERVAL_MS,
   type ServerMsg,
 } from '../shared/protocol.js';
+import type { WatchSpot } from '../shared/watch.js';
 import type { GpsFix } from './gps.js';
+import { myBoard, spotOnBoard } from './my-board.js';
 
 export type ConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'gone';
 
@@ -63,7 +66,13 @@ export interface NetState {
   gameAt: number | null;
   /** The most recent rejection, for the view to show and then dismiss. */
   lastError: ErrorMsg | null;
-  /** Opponent's last relayed position — atmosphere, never correctness. */
+  /**
+   * Opponent's last relayed position — atmosphere, never correctness.
+   *
+   * Always a place on *this phone's* board. In a remote game the opponent
+   * arrives as squares and is put on the same squares here (`my-board.ts`),
+   * and it is null again whenever they are relayed as off their board.
+   */
   opponent: { lat: number; lng: number; acc: number; at: number } | null;
   /** How many times the socket has had to come back. Useful in the field. */
   reconnects: number;
@@ -183,6 +192,13 @@ class Connection implements GameConnection {
     reconnects: 0,
     gone: null,
   };
+
+  /**
+   * A remote opponent as last relayed, in squares, timed on the local clock
+   * (decision 0060). Kept as squares rather than as the place they were put,
+   * so a snapshot that brings a board of another shape puts them on it again.
+   */
+  private oppSpot: { spot: WatchSpot | null; acc: number; at: number } | null = null;
 
   /** Relay bookkeeping. Both are the client half of the request budget. */
   private lastSentPos: { lat: number; lng: number } | null = null;
@@ -314,7 +330,10 @@ class Connection implements GameConnection {
           game: msg.game,
           gameAt: this.now(),
           lastError: null,
-          opponent: this.opponentFrom(msg.game) ?? this.current.opponent,
+          opponent:
+            msg.game.remote === undefined
+              ? (this.opponentFrom(msg.game) ?? this.current.opponent)
+              : this.remoteOpponentFrom(msg.game),
         });
         return;
       case 'error':
@@ -325,6 +344,45 @@ class Connection implements GameConnection {
         this.patch({ opponent: { lat: pos.lat, lng: pos.lng, acc: pos.acc, at: this.now() } });
         return;
       }
+      case 'opp_spot': {
+        // A remote game's relay (decision 0060): squares, put on this board.
+        const relayed = msg as OppSpotMsg;
+        this.oppSpot = { spot: relayed.spot ?? null, acc: relayed.acc, at: this.now() };
+        this.patch({ opponent: this.placeOpponent(this.current.game) });
+        return;
+      }
+    }
+  }
+
+  /**
+   * A remote game's opponent from its snapshot: their `spot`, if it is newer
+   * than the one already held, placed on this phone's board. The same clock
+   * conversion as {@link opponentFrom}, for the same reason.
+   */
+  private remoteOpponentFrom(game: GameSnapshot): NetState['opponent'] {
+    const spot = game.players?.[game.you === 'w' ? 'b' : 'w']?.spot;
+    if (spot) {
+      const at = this.now() - Math.max(0, game.serverNow - spot.at);
+      if (this.oppSpot === null || at > this.oppSpot.at) {
+        this.oppSpot = { spot: spot.spot ?? null, acc: spot.acc, at };
+      }
+    }
+    return this.placeOpponent(game);
+  }
+
+  /**
+   * The remote opponent on this board, or null: before they have a fix,
+   * while they are more than a few squares off their own board (`spot` null),
+   * and for a field that describes no board.
+   */
+  private placeOpponent(game: GameSnapshot | null): NetState['opponent'] {
+    const known = this.oppSpot;
+    if (game === null || known === null || known.spot === null) return null;
+    try {
+      const pos = spotOnBoard(myBoard(game).geo, known.spot);
+      return { lat: pos.lat, lng: pos.lng, acc: known.acc, at: known.at };
+    } catch {
+      return null;
     }
   }
 

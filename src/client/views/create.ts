@@ -34,6 +34,7 @@ import type { Color } from '../../shared/squares.js';
 import { descriptorOf, seatName } from '../../shared/games/catalog.js';
 import { JUMPS_REQUIRED } from '../../shared/games/checkers.js';
 import { DEFAULT_GAME_TYPE, GAME_TYPES, type GameType } from '../../shared/games/types.js';
+import { DISCLOSURE_NEEDED, disclosureHtml } from '../disclosure.js';
 
 // ---------------------------------------------------------------------------
 // Model
@@ -60,6 +61,16 @@ export interface CreateDraft {
    * chess, which has no settings.
    */
   jumpsRequired: boolean;
+  /**
+   * Played on two fields, each player on their own (decision 0060). Off is
+   * the same field, which is every game before stage 12.
+   */
+  remote: boolean;
+  /**
+   * The creator has checked the disclosure's box (0060 point 4). Off at the start
+   * of every draft, so it is accepted afresh for every remote game.
+   */
+  disclosureAccepted: boolean;
   /** `FieldSpec.id`. */
   fieldId: string;
   /** Index into {@link TIME_CONTROLS}. */
@@ -89,6 +100,8 @@ export function emptyDraft(fields: FieldSpec[]): CreateDraft {
   return {
     game: DEFAULT_GAME_TYPE,
     jumpsRequired: false,
+    remote: false,
+    disclosureAccepted: false,
     // The list is newest-first, so this is the field just calibrated — which is
     // overwhelmingly the one being played on.
     fieldId: fields[0]?.id ?? '',
@@ -156,6 +169,9 @@ export function createGameBody(
     ...(draft.game === DEFAULT_GAME_TYPE
       ? {}
       : { gameType: draft.game, options: { [JUMPS_REQUIRED]: draft.jumpsRequired } }),
+    // Absent is the same field (decision 0060), so that body is what it
+    // always was. Both are booleans: the server takes nothing else as yes.
+    ...(draft.remote ? { remote: true, disclosureAccepted: draft.disclosureAccepted === true } : {}),
     field,
     color: myColour,
     initialMs: time.initialMs,
@@ -170,6 +186,7 @@ export function createGameBody(
 export function createRefusal(draft: CreateDraft, fields: FieldSpec[]): string | null {
   if (fields.length === 0) return 'Calibrate a field first — a game needs somewhere to be played.';
   if (!draftField(draft, fields)) return 'Choose a field.';
+  if (draft.remote && !draft.disclosureAccepted) return DISCLOSURE_NEEDED;
   return null;
 }
 
@@ -236,6 +253,16 @@ export function mountCreate(root: HTMLElement, deps: CreateDeps): () => void {
         update({ game: button.dataset.game as GameType });
       });
     }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-where]')) {
+      button.addEventListener('click', () => {
+        // Switching to two fields always asks again: a box checked, then
+        // switched away from and back, is not an answer to this game.
+        update({ remote: button.dataset.where === 'remote', disclosureAccepted: false });
+      });
+    }
+    root.querySelector<HTMLInputElement>('[data-disclosure]')?.addEventListener('change', (event) => {
+      update({ disclosureAccepted: (event.target as HTMLInputElement).checked });
+    });
     root.querySelector<HTMLInputElement>('[data-jumps-required]')?.addEventListener('change', (event) => {
       update({ jumpsRequired: (event.target as HTMLInputElement).checked });
     });
@@ -284,9 +311,12 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
   const refusal = createRefusal(draft, fields);
   const selected = draftField(draft, fields);
 
+  // The disclosure waiting to be checked is not a fault in the form: it is
+  // said beside the button, under the note itself, rather than in red above.
+  const blocker = refusal === DISCLOSURE_NEEDED ? null : refusal;
   return `
     <h1>New game</h1>
-    ${refusal ? `<p class="notice" data-notice>${escapeHtml(refusal)}</p>` : ''}
+    ${blocker ? `<p class="notice" data-notice>${escapeHtml(blocker)}</p>` : ''}
 
     <h2>Game</h2>
     <div class="choices" data-games>
@@ -306,7 +336,20 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
         : ''
     }
 
-    <h2>Field</h2>
+    <h2>Where</h2>
+    <div class="choices" data-wheres>
+      ${(['same', 'remote'] as const)
+        .map((where) => {
+          const on = draft.remote === (where === 'remote');
+          return `<button data-where="${where}" class="choice ${on ? 'is-on' : ''}" aria-pressed="${on}">${
+            where === 'remote' ? 'Remote' : 'Same field'
+          }</button>`;
+        })
+        .join('')}
+    </div>
+    <p class="dim" data-where-note>${escapeHtml(whereNote(draft.remote))}</p>
+
+    <h2>${draft.remote ? 'Your field' : 'Field'}</h2>
     <p>
       <select data-field ${fields.length === 0 ? 'disabled' : ''}>
         ${fields
@@ -390,6 +433,8 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
            <p class="dim" data-handicap-note>${escapeHtml(handicapNote(draft))}</p>`
     }
 
+    ${draft.remote ? disclosureHtml(draft.disclosureAccepted) : ''}
+    ${refusal === DISCLOSURE_NEEDED ? `<p class="dim" data-create-hint>${escapeHtml(refusal)}</p>` : ''}
     <p>
       <button data-create ${refusal ? 'disabled' : ''}>Create the game</button>
     </p>
@@ -400,6 +445,13 @@ function html(draft: CreateDraft, fields: FieldSpec[], units: Units): string {
 function fieldSummary(field: FieldSpec, units: Units): string {
   const geo = deriveGeometry(field);
   return describeSquares(geo, units);
+}
+
+/** What "Same field" and "Remote" mean, said under them (decision 0060). */
+export function whereNote(remote: boolean): string {
+  return remote
+    ? "You each play on a field of your own. The larger board shrinks to the smaller one's squares, so a move is the same walk for both of you."
+    : 'You both play on this field, in the same place.';
 }
 
 /** What the checkers switch means, said beside it (decision 0057). */
@@ -437,8 +489,11 @@ export function reachNote(
 ): string {
   const squares = clampReach(draft.reachSquares);
   const metres = field ? deriveGeometry(field).meanSquareM * squares : null;
+  // On two fields the board may shrink to the other one's squares
+  // (decision 0060), and the reach in meters with it.
+  const shrinks = draft.remote ? ", or less if your opponent's squares are smaller" : '';
   const onThisField =
-    metres === null ? '' : ` — about ${lengthWords(metres, units, 1)} on this field`;
+    metres === null ? '' : ` — about ${lengthWords(metres, units, 1)} on this field${shrinks}`;
   const character =
     squares <= 0.5
       ? 'You must stand on or beside a square to touch it, so every move is a walk.'

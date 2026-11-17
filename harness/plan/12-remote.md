@@ -29,7 +29,7 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
     back-rank flags and only ever lowers one. Tests in
     `test/remote.test.ts` and `test/worker/remote.test.ts`. `check-golden`
     against HEAD `4e0b42e`: identical in all 63 parts. Four review rounds.
-- `12.2` todo: Remote games on the phone: the choice at creation, picking or calibrating a field on join, the disclosure, the opponent dot in squares, the calibrated outline around a shrunk board
+- `12.2` done: Remote games on the phone: the choice at creation, picking or calibrating a field on join, the disclosure, the opponent dot in squares, the calibrated outline around a shrunk board
   - The disclosure is shown and accepted on every remote create and join.
   - Show the shared square size. The opponent's dot is drawn from board
     space onto your own board.
@@ -55,6 +55,16 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
       out narrower than 2 m on its short step. Show the existing
       small-square warning on the shared board in that case.
     - `remote` and `disclosureAccepted` must be the boolean `true`.
+  - Built (decision 0062, `2026-11-17-01`): `client/my-board.ts` is the one
+    seam (`myBoard(snapshot)`: the playable board, the calibrated outline when
+    shrunk, the shared square, the small-square flag); `net.ts` puts a remote
+    opponent on the same squares of this board; the canvas is fitted to the
+    dashed outline; "Same field / Remote" and the disclosure on New game;
+    `views/remote-join.ts` after a `field_required` join; the invitation
+    names no field; a "Squares" readout and a why-line; "Waiting for your
+    opponent to join." and Turn "—" while waiting (both kinds of game).
+    Driver `scripts/check-remote.mjs`. `check-golden` against `4389ec8`:
+    identical in all 63 parts. One review round, clean.
 - `12.3` todo: Recalibrate your own field during a pause in a remote game; the square size crosses over again with no re-approval
   - One inbound message, accepted only while suspended, only from that
     seat. `s` is recomputed and both snapshots updated. Resume is the
@@ -72,3 +82,10 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
 - `12.4` todo: Real-phone check: a remote game between two places
   - Does A1 feel like A1? Is the disclosure read or dismissed? Does a
     rescale after recalibrating surprise the other player?
+  - Notes from 12.2:
+    - Is the shrunk board big enough? At 10 m against 6 m on a 390 px phone
+      its squares are about 23 px. The owner (2026-11-17): keep the fit to
+      the outline and revisit after play; if it is too small, auto-zoom onto
+      the playable board is the change (decision 0062).
+    - The why-line under the prompt ("Shrunk to match…") may be wanted only
+      while waiting.

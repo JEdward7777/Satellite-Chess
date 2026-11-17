@@ -54,6 +54,8 @@ export interface Invite {
   fieldName?: string;
   /** Which game (decision 0056). Absent is chess, whose words are as they were. */
   gameType?: string;
+  /** A game on two fields (decision 0060): no field is named, and each plays on their own. */
+  remote?: boolean;
 }
 
 export type ShareTier = 'share-file' | 'share-sheet' | 'mailto' | 'clipboard' | 'download' | 'manual';
@@ -111,9 +113,13 @@ export function inviteShareData(invite: Invite): SharePayload {
   // Another game names itself (decision 0058); chess's words are unchanged.
   const label = gameLabel(invite.gameType);
   const game = label === null ? 'chess' : label.toLowerCase();
+  // A game on two fields names neither (decision 0060).
+  const invitation = invite.remote
+    ? `Come and play ${game} with me, each of us on a real field of our own.`
+    : `Come and play ${game} on a real field${where}.`;
   return {
     title: label === null ? SUBJECT : `A game of ${game} on Satellite Chess`,
-    text: `Come and play ${game} on a real field${where}. Join code ${formatJoinCode(invite.code)}.`,
+    text: `${invitation} Join code ${formatJoinCode(invite.code)}.`,
     url: invite.url,
   };
 }

@@ -294,13 +294,12 @@ try {
   // reach, exactly 3.2 m, the instant there is a fix. Waiting for any digit
   // matched that pre-snapshot value every time, at every commit, which is what
   // made this look like a regression in the handicap round trip when it was a
-  // race in the driver. `[data-turn]` only stops being '—' once `net.game`
-  // exists, so it is the signal that the server has actually spoken.
+  // race in the driver. The creator is alone in the game here, and the prompt
+  // says "Waiting for your opponent to join." only once `net.game` exists, so
+  // it is the signal that the server has actually spoken. (`[data-turn]` was,
+  // until stage 12.2 made it '—' for a game nobody has joined.)
   await page.waitForFunction(
-    () => {
-      const turn = document.querySelector('[data-turn]')?.textContent?.trim();
-      return turn === 'yours' || turn === 'theirs';
-    },
+    () => /Waiting for your opponent to join/.test(document.querySelector('[data-prompt]')?.textContent ?? ''),
     { timeout: 15_000 },
   );
   await page.waitForFunction(

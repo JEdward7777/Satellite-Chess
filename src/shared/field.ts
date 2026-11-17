@@ -660,6 +660,18 @@ export function calibrationResiduals(
 export const SMALL_SQUARE_M = 4;
 
 /**
+ * The warning for squares under {@link SMALL_SQUARE_M} at the narrowest. Said
+ * by the calibration check, and by the board of a remote game whose shrunk
+ * board comes out that narrow (stage 12.2): one sentence, so the two agree.
+ */
+export function smallSquareWarning(narrowestM: number, units: Units = 'metric'): string {
+  return (
+    `Squares are only ${lengthWords(narrowestM, units, 1)} across at the narrowest. Expect ambiguity ` +
+    `about which square you are on. ${ADVICE.goodSquare[units]} or more plays much better.`
+  );
+}
+
+/**
  * Sanity-check a calibration before anyone commits to playing on it.
  *
  * The binding constraint is that one square has to be meaningfully larger than
@@ -709,10 +721,7 @@ export function checkCalibration(
         `GPS can resolve — pick a bigger field (at least ${ADVICE.smallestBoard[units]} corner to corner).`,
     );
   } else if (smallest < SMALL_SQUARE_M) {
-    warnings.push(
-      `Squares are only ${len(smallest, 1)} across at the narrowest. Expect ambiguity ` +
-        `about which square you are on. ${ADVICE.goodSquare[units]} or more plays much better.`,
-    );
+    warnings.push(smallSquareWarning(smallest, units));
   }
 
   if (squareM > 40) {

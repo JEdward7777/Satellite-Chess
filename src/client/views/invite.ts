@@ -38,6 +38,11 @@ export interface InviteDeps {
   colour: Color;
   /** Which game the invitation is to (decision 0058); absent is chess. */
   gameType?: string;
+  /**
+   * A game on two fields (decision 0060). The invitation then names no field,
+   * since the opponent plays on their own, and says so.
+   */
+  remote?: boolean;
   /** Overridden in tests and by the deep-link driver. */
   origin?: string;
   onOpenBoard(): void;
@@ -54,11 +59,19 @@ export interface InviteDeps {
  */
 const EC_LEVEL = 'M';
 
-export function inviteFor(joinCode: string, field: NamedField, origin: string, gameType?: string): Invite {
+export function inviteFor(
+  joinCode: string,
+  field: NamedField,
+  origin: string,
+  gameType?: string,
+  remote = false,
+): Invite {
   return {
     url: joinUrl(origin, joinCode),
     code: joinCode,
-    fieldName: field.name,
+    // A remote opponent is not coming to this field, and its name is a place
+    // (decision 0060): the invitation says "on your own field" instead.
+    ...(remote ? { remote: true } : { fieldName: field.name }),
     // Absent for chess, so a chess invitation is what it always was.
     ...(gameType === undefined || gameType === 'chess' ? {} : { gameType }),
   };
@@ -66,7 +79,7 @@ export function inviteFor(joinCode: string, field: NamedField, origin: string, g
 
 export function mountInvite(root: HTMLElement, deps: InviteDeps): () => void {
   const origin = deps.origin ?? location.origin;
-  const invite = inviteFor(deps.joinCode, deps.field, origin, deps.gameType);
+  const invite = inviteFor(deps.joinCode, deps.field, origin, deps.gameType, deps.remote === true);
   const caps = detectShareCapabilities();
 
   // Encoded once. It never changes while this screen is up, and re-encoding on
@@ -107,7 +120,7 @@ export function mountInvite(root: HTMLElement, deps: InviteDeps): () => void {
     <p class="dim" data-share-note>${escapeHtml(shareNote(invite.url))}</p>
 
     <h2>Then</h2>
-    <p class="dim" data-start-note>${escapeHtml(startNote(deps.colour, deps.field))}</p>
+    <p class="dim" data-start-note>${escapeHtml(startNote(deps.colour, deps.field, deps.remote === true))}</p>
     <p><button data-open>Open the board</button></p>
     <p><button data-leave class="secondary">Leave this game</button></p>
   `;
@@ -165,8 +178,14 @@ function shareNote(url: string): string {
  * walk in, not a button to press. See O-08: the clock can start while nobody is
  * looking at a phone, so it is worth saying so before it does.
  */
-function startNote(colour: Color, field: NamedField): string {
+export function startNote(colour: Color, field: NamedField, remote = false): string {
   const rank = colour === 'w' ? 'a1–h1' : 'a8–h8';
+  if (remote) {
+    return (
+      `Walk to your back rank — ${rank} on ${field.name}. Your opponent plays on a field of their own. ` +
+      'The clock starts by itself once you are both standing on your back ranks.'
+    );
+  }
   return (
     `Walk to your back rank — ${rank} on ${field.name}. ` +
     'The clock starts by itself once you are both standing on yours.'

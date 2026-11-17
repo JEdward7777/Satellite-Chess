@@ -101,6 +101,18 @@ export class OpponentTrack {
     this.startedAt = fix.at;
   }
 
+  /**
+   * Forget them: there is no dot to draw. A remote opponent who has walked
+   * well off their board is relayed as no square at all (decision 0060),
+   * and the board they were on may have changed shape since the last fix;
+   * either way the next fix appears where it is rather than gliding there.
+   */
+  clear(): void {
+    this.from = null;
+    this.to = null;
+    this.durationMs = 0;
+  }
+
   /** Where to draw them at `now`, or null if they have never been heard from. */
   at(now: number): OpponentDot | null {
     const to = this.to;

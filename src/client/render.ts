@@ -19,6 +19,7 @@ import {
   boardIndexOf,
   boardPointOfIndex,
   distanceFromBoardPointToSquareM,
+  fromBoardPoint,
   squareCentre,
   squareCornersBoard,
   toBoardPoint,
@@ -43,6 +44,15 @@ export type PieceMap = Partial<Record<Square, Piece>>;
 
 export interface BoardView {
   geo: FieldGeometry;
+  /**
+   * The field {@link geo} was shrunk from, in a remote game whose other field
+   * is the smaller (decision 0060 point 7): drawn as a dashed line round the
+   * board, and fitted on the canvas with it, so the corners that were tapped
+   * are on screen and it is plain why the board stops short of them. Absent
+   * or null, which is every same-field game, the board is drawn as it always
+   * was.
+   */
+  outline?: FieldGeometry | null;
   /** Whose side is at the bottom of the screen. */
   orientation: Color;
   pieces: PieceMap;
@@ -194,6 +204,12 @@ const PLAYER_EDGE = '#0d1117';
  * moves on its own has to be identifiable at a glance from ten metres away.
  */
 const OPPONENT_DOT = '#ff4d6d';
+/**
+ * The calibrated field round a shrunk board (decision 0060 point 7). The
+ * light square's cream, faint and dashed: it is ground, not board, and has to
+ * read on the dark page without looking like a square anyone can stand on.
+ */
+const FIELD_OUTLINE = 'rgba(230, 220, 188, 0.7)';
 /** The dots for the two players, in screen pixels. */
 const DOT_RADIUS_PX = 7;
 /**
@@ -243,8 +259,9 @@ export function projectionFor(
   orientation: Color,
   width: number,
   height: number,
+  outline: FieldGeometry | null = null,
 ): Projection {
-  const extent = boardExtentM(geo);
+  const extent = fitExtentM(geo, outline);
   const size = Math.min(width, height);
   const pad = size * PADDING;
   const scale = (size - 2 * pad) / extent.sizeM;
@@ -275,6 +292,35 @@ export function projectionFor(
 }
 
 /**
+ * The four corners of a calibrated field, in the board space of the board
+ * shrunk from it. The two share their axes (`shrinkBoard` keeps the bearing),
+ * so only the origin differs, and going through the ground is exact enough.
+ */
+export function outlineBoardPoints(geo: FieldGeometry, outline: FieldGeometry): BoardPoint[] {
+  return [
+    { file: -0.5, rank: -0.5 },
+    { file: 7.5, rank: -0.5 },
+    { file: 7.5, rank: 7.5 },
+    { file: -0.5, rank: 7.5 },
+  ].map((bi) => toBoardPoint(geo, fromBoardPoint(outline, boardPointOfIndex(outline, bi))));
+}
+
+/**
+ * What the canvas is fitted to: the board, and round it the field it was
+ * shrunk from when there is one. Exactly {@link boardExtentM} without one.
+ */
+function fitExtentM(geo: FieldGeometry, outline: FieldGeometry | null): ReturnType<typeof boardExtentM> {
+  const board = boardExtentM(geo);
+  if (outline === null) return board;
+  const points = outlineBoardPoints(geo, outline);
+  const minU = Math.min(board.minU, ...points.map((p) => p.u));
+  const maxU = Math.max(board.maxU, ...points.map((p) => p.u));
+  const minV = Math.min(board.minV, ...points.map((p) => p.v));
+  const maxV = Math.max(board.maxV, ...points.map((p) => p.v));
+  return { minU, maxU, minV, maxV, sizeM: Math.max(maxU - minU, maxV - minV) };
+}
+
+/**
  * The board's outline in a projection's pixels, outer half-squares included:
  * what a zoomed view is kept on the canvas by.
  */
@@ -301,8 +347,11 @@ export function zoomFrameFor(
   orientation: Color,
   width: number,
   height: number,
+  outline: FieldGeometry | null = null,
 ): { frame: ZoomFrame; base: Projection } {
-  const base = projectionFor(geo, orientation, width, height);
+  // Fitted with the outline, as `drawBoard` fits it; the zoom is still kept
+  // on the board, the part that can be played on.
+  const base = projectionFor(geo, orientation, width, height, outline);
   return {
     base,
     frame: {
@@ -355,10 +404,11 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const base = projectionFor(view.geo, view.orientation, width, height);
+  const base = projectionFor(view.geo, view.orientation, width, height, view.outline ?? null);
   const projection = view.zoom ? zoomProjection(base, view.zoom) : base;
   const here = view.pos ? toBoardPoint(view.geo, view.pos) : null;
 
+  if (view.outline) drawFieldOutline(ctx, view.geo, view.outline, projection);
   drawSquares(ctx, view, projection, here);
   drawLiftedFrom(ctx, view, projection);
   // Under the pieces: the art fills most of its cell (decision 0045), and on a
@@ -377,6 +427,30 @@ export function drawBoard(canvas: HTMLCanvasElement, view: BoardView): Projectio
   // Last of all, so the reach circle's tint never washes over it.
   drawInHand(ctx, view, projection, width, height);
   return projection;
+}
+
+/**
+ * The field as it was tapped out, round the board shrunk from it (decision
+ * 0060 point 7): a dashed line through the four outer corners, under
+ * everything else.
+ */
+function drawFieldOutline(
+  ctx: CanvasRenderingContext2D,
+  geo: FieldGeometry,
+  outline: FieldGeometry,
+  projection: Projection,
+): void {
+  const corners = outlineBoardPoints(geo, outline).map((bp) => projection.toScreen(bp));
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = FIELD_OUTLINE;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**

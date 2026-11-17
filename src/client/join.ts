@@ -41,6 +41,16 @@ export type JoinFailure =
   | 'not_found'
   /** Two players already, and neither of them is this phone. */
   | 'full'
+  /**
+   * A remote game (decision 0060): the seat needs one of this player's own
+   * fields, which the phone asks for and sends (`views/remote-join.ts`).
+   * Seen first on every remote join, and the cue to ask.
+   */
+  | 'field_required'
+  /** A remote seat asked for without the disclosure accepted. */
+  | 'disclosure_required'
+  /** The field sent for a remote seat describes no board. */
+  | 'bad_field'
   /** The request never reached a server. */
   | 'offline'
   /** It did, and something else went wrong. */
@@ -51,8 +61,17 @@ export interface JoinSuccess {
   /** Normalised, so it is the code the game is actually filed under. */
   code: string;
   colour: Color;
-  /** The field the game is played on. The joiner may never have seen it before. */
+  /**
+   * The field the game is played on. The joiner may never have seen it before.
+   * In a remote game it is **the joiner's own** (decision 0060).
+   */
   field: FieldSnapshot;
+  /**
+   * A remote game: two players, two fields. The field above is this
+   * player's own, so there is nothing to keep a copy of (0060, constraining
+   * 0027). Absent for a same-field game.
+   */
+  remote?: true;
   /**
    * Which game (decision 0056), so its pieces can be fetched while the socket
    * opens. Absent is chess, and a chess join leaves it out.
@@ -97,6 +116,9 @@ const DEFAULT_MESSAGE: Record<JoinFailure, string> = {
   bad_code: 'That is not a six-character game code.',
   not_found: 'No game with that code. It may have expired.',
   full: 'That game already has two players.',
+  field_required: 'This game is played on two fields. Choose one of your own fields to join it.',
+  disclosure_required: 'This game is played on two fields. Accept the note about your location to join it.',
+  bad_field: 'That field could not be used for this game.',
   offline: 'Could not reach the game.',
   server: 'Something went wrong at the other end.',
 };
@@ -108,6 +130,9 @@ const HINT: Record<JoinFailure, string> = {
   not_found:
     'Check the code, or ask for the invite again — a game nobody joins is cleared after half an hour.',
   full: 'If one of those two is you, open the link on the phone you joined from first.',
+  field_required: 'Try again to choose a field, or calibrate a new one first.',
+  disclosure_required: 'Try again, and check the box under the note before you join.',
+  bad_field: 'Calibrate the field again, or choose another one.',
   offline: 'Move somewhere with a signal and try again.',
   server: 'Try again in a moment.',
 };
@@ -120,6 +145,9 @@ function failureFor(status: number, code: unknown): JoinFailure {
   // not happen — but if the two ever disagree, the player is told about the code
   // rather than about the game.
   if (code === 'bad_code') return 'bad_code';
+  // A remote game's seat (decision 0060). Each is said in our own words below
+  // rather than the server's, with a hint that fits it.
+  if (code === 'field_required' || code === 'disclosure_required' || code === 'bad_field') return code;
   if (code === 'not_found' || status === 404) return 'not_found';
   return 'server';
 }
@@ -133,6 +161,12 @@ export interface JoinOptions {
   fetch?: typeof fetch;
   /** Overridable for tests; defaults to a same-origin request. */
   origin?: string;
+  /**
+   * What a remote seat needs (decision 0060): the player's own field and
+   * their acceptance of the disclosure, both sent as the server wants them.
+   * Absent, the request has no body, as every join before stage 12 had.
+   */
+  remote?: { field: unknown; disclosureAccepted: true };
 }
 
 /**
@@ -159,7 +193,19 @@ export async function joinGame(
     // No body. The seat used to be named here by a `playerId` the phone made
     // up; since stage 2.5.1 the session cookie is the only thing that names a
     // player, and it rides along on its own.
-    response = await request(url, { method: 'POST' });
+    //
+    // A remote seat is the one exception: it carries the player's own field
+    // and their acceptance, and only once the phone has asked for both.
+    response = await request(
+      url,
+      options.remote === undefined
+        ? { method: 'POST' }
+        : {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ field: options.remote.field, disclosureAccepted: true }),
+          },
+    );
   } catch {
     // A fetch only rejects when the request never got an answer — DNS, no
     // route, aeroplane mode. An HTTP error is a resolved promise.
@@ -170,6 +216,7 @@ export async function joinGame(
     color?: Color;
     field?: FieldSnapshot;
     gameType?: unknown;
+    remote?: unknown;
     archived?: boolean;
     error?: string;
     message?: string;
@@ -183,7 +230,11 @@ export async function joinGame(
   }
 
   if (!response.ok) {
-    return reject(failureFor(response.status, body.error), body.message);
+    const reason = failureFor(response.status, body.error);
+    // A remote seat's refusals are said in this phone's words: the server's
+    // are written for the request, and these for the person (decision 0036).
+    const remoteSeat = reason === 'field_required' || reason === 'disclosure_required' || reason === 'bad_field';
+    return reject(reason, remoteSeat ? undefined : body.message);
   }
   // Checked before the field, which an archived game never has.
   if (body.archived === true && (body.color === 'w' || body.color === 'b')) {
@@ -204,5 +255,6 @@ export async function joinGame(
     colour: body.color,
     field: body.field,
     ...(gameType === null || gameType === DEFAULT_GAME_TYPE ? {} : { gameType }),
+    ...(body.remote === true ? { remote: true as const } : {}),
   };
 }
