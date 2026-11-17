@@ -22,7 +22,11 @@ wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
 `10.6.4`, `10.7.4`, `10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`);
 `8.5` also has `8.5.5` and `8.5.6`.
 **Next action**: **`12.3`, recalibrate your own field in a pause**, with the
-ratchet (notes from 12.1 under it in `plan/12-remote.md`). Then the owner's
+ratchet (notes from 12.1 under it in `plan/12-remote.md`; **how to run it is the
+resume checklist in `sessions/2026-11-01-02.md`**: Playwright screenshots read
+by implementer and every reviewer, `--testTimeout=60000` with failures compared
+against a HEAD export, a new `--persist-to` per server start, and ports
+8861–8922 / 9261–9322 already used by run 4 agents). Then the owner's
 `12.4` (real phones; notes from 12.2 there). After that the queue is **O-58**
 and other O-57 games, when the owner asks.
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
