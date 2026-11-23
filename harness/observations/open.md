@@ -794,3 +794,48 @@ the plate) once the cause is confirmed; or reconsider whether a tap on my
 own plate over a legal destination should place.
 **Not doing yet because:** out of scope for 11.1, which must not change
 behavior.
+
+### O-62 — No bounds on a remote field's size, and no rate limit on recalibration
+**Spotted:** 2026-11-23, stage 12.3 review (rounds 2 and 4)
+**Why it matters:** the shared square is the smaller field's mean square, and
+nothing on the server bounds it. A hostile client can join with, or now
+recalibrate mid-game to, a field of millimetre squares (the shape check in
+`gameFieldOf` takes any board that can be fitted), shrinking both boards
+without the opponent's agreement. `recalibrate` has no rate limit either:
+each one re-writes the seat row, every played move's fixes
+(`keepMovesOnTheirSquares`) and the game-index line.
+**Notes:** a minimum square size on the server (the calibration's 2 m
+refusal, at create, join and recalibrate), and a cap such as one
+recalibration per seat per suspension, or a floor between them.
+**Not doing yet because:** out of scope for 12.3; the opponent is invited,
+and 0060's revisit condition already names a minimum shared square.
+
+### O-63 — An unconfirmed recalibration is per phone, and its record is never pruned
+**Spotted:** 2026-11-23, stage 12.3 review (rounds 3 and 4)
+**Why it matters:** the gate that keeps a phone from claiming its back rank
+until its recalibration lands (decision 0063) lives on the phone that walked
+it. A second tab or device on the same seat is not gated, and could resume
+the game on the old field. A record in `satchess.recalibrations` for a game
+never reopened stays in `localStorage` for good (a few hundred bytes each).
+**Not doing yet because:** two devices on one seat is rare, and the records
+are tiny; prune them when the record is next touched for another reason.
+
+### O-64 — A recalibration can leave a duplicate saved field
+**Spotted:** 2026-11-23, stage 12.3 review (round 2)
+**Why it matters:** a phone that does not hold the game's field saves the
+recalibration as a new saved field (decision 0063). If the player starts a
+second recalibration before the first has landed, the game still names the
+old field id, so the second walk is saved as another new field: two saved
+fields for one piece of ground.
+**Not doing yet because:** needs a phone without the field and two walks in
+one pause; deleting the extra is one tap on the field screen.
+
+### O-65 — A re-projected old opponent fix is shown as fresh
+**Spotted:** 2026-11-23, stage 12.3 review (round 1)
+**Why it matters:** after a rescale `net.ts` takes the server's re-projection
+of the opponent's stored fix and times it "now", so the dot moves at once.
+But the fix itself may be minutes old, and the dot then looks current while
+it describes where the opponent stood before the pause.
+**Not doing yet because:** the dot is atmosphere and the next relay
+replaces it; a stale-dot treatment would apply to every game, not just this
+case.

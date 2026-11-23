@@ -281,12 +281,12 @@ export function asId(value: unknown): string | null {
  * label would be the wrong trade — the same reasoning that makes a link
  * truncate rather than refuse.
  */
-function asName(value: unknown): string {
+export function asName(value: unknown): string {
   const name = typeof value === 'string' ? value.trim().slice(0, MAX_FIELD_NAME_CHARS) : '';
   return name === '' ? 'Field' : name;
 }
 
-function asLatLng(value: unknown): LatLng | null {
+export function asLatLng(value: unknown): LatLng | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
   const lat = raw.lat;
@@ -300,7 +300,7 @@ function asAccuracy(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function asPositiveInt(value: unknown): number | null {
+export function asPositiveInt(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 1
     ? Math.floor(value)
     : null;

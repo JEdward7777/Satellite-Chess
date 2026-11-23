@@ -198,7 +198,7 @@ class Connection implements GameConnection {
    * (decision 0060). Kept as squares rather than as the place they were put,
    * so a snapshot that brings a board of another shape puts them on it again.
    */
-  private oppSpot: { spot: WatchSpot | null; acc: number; at: number } | null = null;
+  private oppSpot: { spot: WatchSpot | null; acc: number; at: number; serverAt: number } | null = null;
 
   /** Relay bookkeeping. Both are the client half of the request budget. */
   private lastSentPos: { lat: number; lng: number } | null = null;
@@ -347,7 +347,12 @@ class Connection implements GameConnection {
       case 'opp_spot': {
         // A remote game's relay (decision 0060): squares, put on this board.
         const relayed = msg as OppSpotMsg;
-        this.oppSpot = { spot: relayed.spot ?? null, acc: relayed.acc, at: this.now() };
+        this.oppSpot = {
+          spot: relayed.spot ?? null,
+          acc: relayed.acc,
+          at: this.now(),
+          serverAt: typeof relayed.at === 'number' ? relayed.at : -Infinity,
+        };
         this.patch({ opponent: this.placeOpponent(this.current.game) });
         return;
       }
@@ -363,8 +368,15 @@ class Connection implements GameConnection {
     const spot = game.players?.[game.you === 'w' ? 'b' : 'w']?.spot;
     if (spot) {
       const at = this.now() - Math.max(0, game.serverNow - spot.at);
-      if (this.oppSpot === null || at > this.oppSpot.at) {
-        this.oppSpot = { spot: spot.spot ?? null, acc: spot.acc, at };
+      const known = this.oppSpot;
+      if (known === null || at > known.at) {
+        this.oppSpot = { spot: spot.spot ?? null, acc: spot.acc, at, serverAt: spot.at };
+      } else if (known.serverAt === spot.at && !sameSpot(known.spot, spot.spot ?? null)) {
+        // The same fix, on squares of its own again: a recalibration has
+        // reshaped the opponent's board under them while they stood still
+        // (stage 12.3), and the server has put that fix on it again. It is
+        // news now, so it is timed now, and the dot goes there.
+        this.oppSpot = { spot: spot.spot ?? null, acc: spot.acc, at: this.now(), serverAt: spot.at };
       }
     }
     return this.placeOpponent(game);
@@ -491,6 +503,12 @@ class Connection implements GameConnection {
     this.socket = null;
     this.patch({ status: 'closed' });
   }
+}
+
+/** Whether two spots are the same place in board space (hundredths of a square, as sent). */
+function sameSpot(a: WatchSpot | null, b: WatchSpot | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.file === b.file && a.rank === b.rank;
 }
 
 export function connectToGame(opts: GameConnectionOptions): GameConnection {

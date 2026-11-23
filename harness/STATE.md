@@ -3,38 +3,36 @@
 *Rewritten every session. Short by design — the plan holds the detail, the session
 files hold the history, and `reference/` holds everything that is simply true.*
 
-**Tree state**: clean. **Run 4 of the ratchet is under way** (phase 12,
-remote play on two fields, O-32, decisions 0060–0062). **`12.1` and `12.2`
-are done and committed, not deployed** (`2026-11-01-01`, `2026-11-17-01`).
-The server side (12.1) holds a field per seat and one shared square `s`,
-shrinks the larger board about its center, and relays the opponent as squares.
-The phone (12.2) offers "Same field / Remote" and the disclosure on New game,
-asks a remote joiner for one of their fields (or a calibration) and the
-disclosure, draws and judges on `myBoard(snapshot)` (`client/my-board.ts`,
-the one seam), fits a shrunk board inside its dashed calibrated outline, and
-puts the opponent on the same squares of its own board. A same-field game is
-byte for byte unchanged: `check-golden` identical in all 63 parts both times.
-The owner's ruling on the shrunk board's size (about 23 px squares at
-10 m vs 6 m): keep it, revisit after play; auto-zoom is the fix (0062, 12.4).
-**Active stages**: `12` (run 4), and `8.3`, `8.5`, `8.5.4`, `10.5`, `10.6`,
-`10.7`, `10.8`, `10.11`, `10.12`, `10.14` and `10.15`. All but `8.5` and `12`
-wait only on a real-phone check (`8.3.4`, `8.5.4.3`, `8.5.7`, `10.5.4`,
-`10.6.4`, `10.7.4`, `10.8.4`, `10.11.5`, `10.12.3`, `10.14.6`, `10.15.3`);
-`8.5` also has `8.5.5` and `8.5.6`.
-**Next action**: **`12.3`, recalibrate your own field in a pause**, with the
-ratchet (notes from 12.1 under it in `plan/12-remote.md`; **how to run it is the
-resume checklist in `sessions/2026-11-01-02.md`**: Playwright screenshots read
-by implementer and every reviewer, `--testTimeout=60000` with failures compared
-against a HEAD export, a new `--persist-to` per server start, and ports
-8861–8922 / 9261–9322 already used by run 4 agents). Then the owner's
-`12.4` (real phones; notes from 12.2 there). After that the queue is **O-58**
-and other O-57 games, when the owner asks.
+**Tree state**: clean. **Run 4 of the ratchet has finished its stages**
+(phase 12, remote play on two fields, O-32, decisions 0060–0063). **`12.1`,
+`12.2` and `12.3` are done and committed, not deployed** (`2026-11-01-01`,
+`2026-11-17-01`, `2026-11-23-01`). The server side (12.1) holds a field per
+seat and one shared square `s`, shrinks the larger board about its center,
+and relays the opponent as squares. The phone (12.2) offers "Same field /
+Remote" and the disclosure, asks a remote joiner for a field, draws and
+judges on `myBoard(snapshot)` (`client/my-board.ts`, the one seam), and fits
+a shrunk board inside its dashed calibrated outline. 12.3 lets a player
+recalibrate their own field during a pause, with no re-approval (decision
+0063). A same-field game is byte for byte unchanged: `check-golden`
+identical in all 63 parts each time. The owner's ruling on the shrunk
+board's size: keep it, revisit after play; auto-zoom is the fix (0062, 12.4).
+**Active stages**: `12` (only `12.4` left), and `8.3`, `8.5`, `8.5.4`,
+`10.5`, `10.6`, `10.7`, `10.8`, `10.11`, `10.12`, `10.14` and `10.15`. All
+but `8.5` wait only on a real-phone check (`12.4`, `8.3.4`, `8.5.4.3`,
+`8.5.7`, `10.5.4`, `10.6.4`, `10.7.4`, `10.8.4`, `10.11.5`, `10.12.3`,
+`10.14.6`, `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`.
+**Next action**: **the owner's `12.4`, a real-phone remote game between two
+places** (notes from 12.2 and 12.3 under it in `plan/12-remote.md`).
+**Deploying 12.1–12.3 is the owner's call: ask before deploying.** After that
+the queue is **O-58** and other O-57 games, when the owner asks. Ports used by
+run 4 agents: 8861–8999 and 9011–9030, inspectors 9261–9430; a new
+`--persist-to` per server start (O-19).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`0defd5fe`, at `8c50136` (through `10.10.4`), so 12.1 and 12.2 are not live. The
+`0defd5fe`, at `8c50136` (through `10.10.4`), so 12.1–12.3 are not live. The
 `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in
 `wrangler.jsonc`. Deploys were authorized for run 3; **for run 4, ask before
 deploying**.
-**1525 tests.** **The worker tests are load-sensitive on this machine**
+**1552 tests.** **The worker tests are load-sensitive on this machine**
 (2026-11-01): each worker test took 2–4 s, at the same speed on HEAD, so
 about 190 hit the default 5 s timeout. Run with `--testTimeout=60000`. Even
 then, 3–9 pause, fallen-flag and wall-clock tests in `carry`, `endings`,
@@ -76,7 +74,16 @@ likely to be broken**: a board that changes shape (a join now, a
 recalibration in 12.3) may **lower** a back-rank flag but never raise one.
 Only a `pos` or `ready` on the current socket raises it (0037, 0005), and
 three review rounds were spent learning that. Absent `remote` is the same
-field, byte for byte (`check-golden`). On the phone everything asks `myBoard(snapshot)` for its board, and the
+field, byte for byte (`check-golden`). **Recalibration (12.3, decision
+0063)**: in a pause, one `recalibrate` message replaces the sender's seat
+field (through `setSeatField`, lower-only; the sender's own flag cleared;
+played moves kept on their squares; every field shape-checked in
+`gameFieldOf`). The phone walks it on the calibration screen with the board's
+socket closed, saves it to the player's own field, and sends it once per
+socket until it is applied, refused or moot — claiming no back rank meanwhile,
+and keeping it in `localStorage` (by game and account) across a reload. The
+symptom every review round chased: **a game silently resuming on the old
+field.** Driver `scripts/check-recalibrate.mjs`. On the phone everything asks `myBoard(snapshot)` for its board, and the
 opponent arrives as a place on that board (`net.ts`); driver
 `scripts/check-remote.mjs`.
 

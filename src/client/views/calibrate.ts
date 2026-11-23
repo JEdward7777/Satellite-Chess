@@ -181,6 +181,41 @@ export interface CalibrateDeps {
    */
   onCancel?(): void;
   existing?: FieldSpec;
+  /** The name to start from with no `existing`: a game's field this phone does not hold (12.3). */
+  name?: string;
+  /**
+   * What the walk is for, when it is not simply a field: recalibrating a
+   * remote game's field in a pause (stage 12.3). A title, a line said above
+   * every corner, and the save button's words; the walk is the same.
+   */
+  purpose?: CalibratePurpose;
+}
+
+/** The words of a calibration made for something (stage 12.3). */
+export interface CalibratePurpose {
+  title: string;
+  intro: string;
+  save: string;
+}
+
+/**
+ * The words of a remote game's recalibration (stage 12.3, decision 0063).
+ *
+ * The taps are the field's own corner squares, which on a shrunk board are
+ * just inside the dashed outline, not on the smaller board inside it — the
+ * one mistake 0060 point 7 drew the outline to prevent. And the other
+ * player's board may change size, which nobody re-approves (0060), so the
+ * player doing it is told before they walk.
+ */
+export function recalibratePurpose(shrunk: boolean): CalibratePurpose {
+  return {
+    title: 'Recalibrate your field',
+    intro: shrunk
+      ? 'Walk the corners of the whole field you marked out, just inside the dashed line on the board, ' +
+        "not the smaller board inside it. Your opponent's board may change size to match."
+      : "Walk the corners of your field again. Your opponent's board may change size to match.",
+    save: 'Save and play on it',
+  };
 }
 
 /**
@@ -220,7 +255,7 @@ function stepNumber(corner: Corner): string {
 export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => void {
   let draft = deps.existing
     ? { ...emptyDraft(deps.existing.name) }
-    : emptyDraft();
+    : emptyDraft(deps.name);
   let gpsState = deps.gps.state;
   let saving = false;
 
@@ -239,7 +274,9 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
   function paint(): void {
     const units = displayUnits().get();
     const screen =
-      draft.step === 'review' ? reviewHtml(draft, units) : cornerHtml(draft, gpsState, units);
+      draft.step === 'review'
+        ? reviewHtml(draft, units, deps.purpose)
+        : cornerHtml(draft, gpsState, units, deps.purpose);
     root.innerHTML = deps.onCancel
       ? `${screen}<p><button data-cancel class="secondary">Not now</button></p>`
       : screen;
@@ -298,20 +335,22 @@ export function mountCalibrate(root: HTMLElement, deps: CalibrateDeps): () => vo
   };
 }
 
-function cornerHtml(draft: CalibrationDraft, state: GpsState, units: Units): string {
+function cornerHtml(draft: CalibrationDraft, state: GpsState, units: Units, purpose?: CalibratePurpose): string {
   const corner = draft.step as Corner;
   const fix = state.fix;
   const refusal = tapRefusal(fix, units);
   const done = CORNER_STEPS.filter((name) => draft[name] !== null && name !== corner);
 
   return `
-    <h1>Calibrate a field</h1>
+    <h1>${escapeHtml(purpose?.title ?? 'Calibrate a field')}</h1>
+    ${purpose ? `<p data-purpose>${escapeHtml(purpose.intro)}</p>` : ''}
     <p class="dim" data-step>Corner ${stepNumber(corner)}</p>
     <p data-brief>${escapeHtml(CORNER_BRIEF[corner])}</p>
     ${
       // Before the first tap only: once a corner is down, the board's size is
-      // already chosen, and the review says what it came out as.
-      corner === 'a1' && done.length === 0
+      // already chosen, and the review says what it came out as. Not for a
+      // field that already exists on the ground.
+      corner === 'a1' && done.length === 0 && purpose === undefined
         ? `<p class="dim" data-size-hint>${escapeHtml(sizeHint(units))}</p>`
         : ''
     }
@@ -340,7 +379,7 @@ function cornerHtml(draft: CalibrationDraft, state: GpsState, units: Units): str
   `;
 }
 
-function reviewHtml(draft: CalibrationDraft, units: Units): string {
+function reviewHtml(draft: CalibrationDraft, units: Units, purpose?: CalibratePurpose): string {
   const check = draftCheck(draft, units);
   if (!check) return '';
 
@@ -364,7 +403,7 @@ function reviewHtml(draft: CalibrationDraft, units: Units): string {
       </label>
     </p>
     <p>
-      <button data-save ${check.ok ? '' : 'disabled'}>Save this field</button>
+      <button data-save ${check.ok ? '' : 'disabled'}>${escapeHtml(purpose?.save ?? 'Save this field')}</button>
     </p>
     <p>
       ${CORNER_STEPS.map(

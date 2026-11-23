@@ -17,7 +17,7 @@
  * snapshot on every change rather than maintaining a delta protocol.
  */
 
-import type { FieldSnapshot } from './field.js';
+import type { FieldSnapshot, FieldSpec } from './field.js';
 import type { ClockState } from './clock.js';
 import type { GameOptions, GameType } from './games/types.js';
 import type { ReachConfig, Refusal } from './reach.js';
@@ -424,6 +424,27 @@ export interface WatchMsg {
   action: 'on' | 'off';
 }
 
+/**
+ * "My field was calibrated badly; here are its corners again" (stage 12.3,
+ * decisions 0060 and 0063).
+ *
+ * Only in a remote game, only while it is suspended, and only for the
+ * sender's own seat: the socket says whose field it is, so there is nothing
+ * here to name another. `field` is the saved field as the phone holds it —
+ * the raw taps, never a projection — and the server snapshots it as a join
+ * does. The shared square is then derived again and may change both boards;
+ * nobody is asked to approve that (decision 0060). Resuming is the ordinary
+ * back-rank handshake. One tap at the end of a walk round four corners, so
+ * one message, never periodic: it is inbound and billed. Sent again only on a
+ * new socket while no snapshot shows it applied (`client/recalibration.ts`);
+ * the same field twice is harmless. A same-field game answers it as a type it
+ * does not take.
+ */
+export interface RecalibrateMsg {
+  t: 'recalibrate';
+  field: FieldSpec;
+}
+
 /** Full state, please — sent after a reconnect. */
 export interface SyncMsg {
   t: 'sync';
@@ -442,6 +463,7 @@ export type ClientMsg =
   | PauseMsg
   | ClaimMsg
   | WatchMsg
+  | RecalibrateMsg
   | SyncMsg;
 
 // ---------------------------------------------------------------------------
@@ -491,7 +513,9 @@ export type ErrorCode =
   | 'already_carrying'
   | 'no_legal_moves'
   /** Claimed too early, or by the player who caused the suspension. */
-  | 'cannot_claim';
+  | 'cannot_claim'
+  /** A recalibrated field that describes no board (stage 12.3). */
+  | 'bad_field';
 
 export interface ErrorMsg {
   t: 'error';

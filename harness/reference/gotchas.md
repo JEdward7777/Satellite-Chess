@@ -615,4 +615,12 @@ is; this says what will bite you when you touch it.*
   the wrong board. A remote opponent reaches the views as a place on *this*
   board (`net.ts`), never as the raw spot. Driver: `scripts/check-remote.mjs`
   (two fields of 10 m and 6 m; checks the dot is on the same square on both).
+- **A recalibration must land before this phone claims a back rank** (stage
+  12.3, decision 0063). Until `sendRecalibration` settles, the board sends no
+  `ready` and no relay — a relay raises the flag too — and the pending field
+  is kept in `localStorage` by game and account, so a reload resumes it.
+  Each of four review rounds found a new way for a game to **resume silently
+  on the old field**; any change near the handshake, the socket's open, or
+  the board's teardown should be checked against that symptom with
+  `scripts/check-recalibrate.mjs` (steps 10–12 lose the frame on purpose).
 - Full rules: `harness/AGENTS.md`. Stage tree: `npm run plan`.

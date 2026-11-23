@@ -15,6 +15,7 @@ import {
 import { decodeFieldLink } from '../shared/fieldlink.js';
 import { DEFAULT_GAME_TYPE, type GameType } from '../shared/games/types.js';
 import type { ListedGame } from '../shared/game-index.js';
+import type { GameSnapshot } from '../shared/protocol.js';
 import { fromLocal } from '../shared/geo.js';
 import { formatJoinCode } from '../shared/joincode.js';
 import { loadArt } from './games/registry.js';
@@ -71,7 +72,8 @@ import { browserRecordTransport } from './record.js';
 import { browserReviewTransport } from './review.js';
 import { mountSignIn } from './views/signin.js';
 import { mountBoard } from './views/board.js';
-import { mountCalibrate } from './views/calibrate.js';
+import { mountCalibrate, recalibratePurpose } from './views/calibrate.js';
+import { myBoard } from './my-board.js';
 import { type CreateDraft, createGameBody, mountCreate } from './views/create.js';
 import { mountField, mountFieldLinkFailed, mountFieldOffer } from './views/field.js';
 import { mountGame } from './views/game.js';
@@ -97,6 +99,12 @@ import type { Color } from '../shared/squares.js';
 import { connectToGame } from './net.js';
 import { type InputDraft, readDraft, restoreDraft } from './draft.js';
 import { withOptimism } from './optimistic.js';
+import {
+  forgetRecalibration,
+  pendingRecalibration,
+  rememberRecalibration,
+  sendRecalibration,
+} from './recalibration.js';
 import { type SimPanelHandle, attachSimDrag, mountSimPanel } from './views/sim-panel.js';
 
 /**
@@ -629,6 +637,11 @@ async function boot(): Promise<void> {
      * what it plays on from the snapshot (`my-board.ts`).
      */
     remote = false,
+    /**
+     * A remote game's field, just walked again in a pause (stage 12.3): sent
+     * once, on this board's own socket, as soon as it opens.
+     */
+    recalibrated?: FieldSpec,
   ): void {
     // The game's pieces, fetched now so they are here before the socket's
     // first snapshot is (decision 0056). The board draws without them until
@@ -638,6 +651,19 @@ async function boot(): Promise<void> {
     // tapped. The messages on the wire are identical; only the wait is gone.
     const server = connectToGame({ joinCode });
     const connection = withOptimism(server);
+    // Sent on this board's socket, and again on every one that opens until
+    // the snapshot shows it applied or the server refuses it (decision 0063,
+    // `recalibration.ts`).
+    // Or one this account saved for this game on an earlier board that went
+    // before it landed: a reload, a discarded tab, Home and back.
+    const sub = identity?.sub ?? null;
+    const pendingField = recalibrated ?? pendingRecalibration(identityStorage, joinCode, sub);
+    const recalibration =
+      pendingField === null
+        ? null
+        : sendRecalibration(server, pendingField, {
+            onDone: () => forgetRecalibration(identityStorage, joinCode, pendingField),
+          });
     swap(() => {
       let detachDrag: (() => void) | null = null;
       const teardown = mountGame(root, {
@@ -646,6 +672,11 @@ async function boot(): Promise<void> {
         field,
         onLeave: () => void showHome(),
         onReview: () => showReview(joinCode),
+        recalibrating: () => recalibration?.pending() === true,
+        onRecalibrate: () => {
+          const game = server.state.game;
+          if (game !== null) void showGameRecalibrate(joinCode, colour, gameType, game);
+        },
         serverState: () => server.state,
         onCanvas: (canvas, toLatLng, zoomed) => {
           const panel = simPanel;
@@ -667,10 +698,51 @@ async function boot(): Promise<void> {
       root.querySelector('.board-status')?.prepend(banner);
       return () => {
         detachDrag?.();
+        recalibration?.stop();
         teardown();
         connection.close();
       };
     });
+  }
+
+  /**
+   * A remote game's own field, walked again in a pause (stage 12.3, decision
+   * 0063). The ordinary calibration, in the words of a recalibration, and
+   * saved as one: the saved field this phone holds is re-calibrated in place
+   * (a new version), or, if this phone does not hold it, saved as a new one
+   * under the game's name for it. Then back to the board, which sends it.
+   *
+   * The board's socket is closed meanwhile, as for the invite screen. That
+   * is what keeps the game from resuming while this player walks the
+   * corners: the server forgets a back rank with its socket (decision 0037)
+   * and resumes only with both players connected.
+   */
+  async function showGameRecalibrate(
+    joinCode: string,
+    colour: Color,
+    gameType: GameType,
+    game: GameSnapshot,
+  ): Promise<void> {
+    const asked = screens;
+    const saved = (await store.list()).find((f) => f.id === game.field.fieldId);
+    // Somewhere else was opened while the list loaded: stay there.
+    if (screens !== asked) return;
+    const back = () => enterGame(joinCode, game.field, colour, gameType, true);
+    swap(() =>
+      mountCalibrate(root, {
+        gps,
+        store,
+        existing: saved,
+        name: game.field.name,
+        purpose: recalibratePurpose(myBoard(game).outline !== null),
+        onSaved: (spec) => {
+          // Written down before the board opens, so it outlives that board.
+          rememberRecalibration(identityStorage, joinCode, identity?.sub ?? null, spec);
+          enterGame(joinCode, snapshotField(spec), colour, gameType, true, spec);
+        },
+        onCancel: back,
+      }),
+    );
   }
 
   /**

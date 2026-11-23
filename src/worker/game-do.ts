@@ -29,9 +29,16 @@ import {
   remainingMs,
   snapshot as clockSnapshot,
 } from '../shared/clock.js';
-import { type FieldGeometry, type FieldSnapshot, geometryFromSnapshot, toBoardIndex } from '../shared/field.js';
+import {
+  type FieldGeometry,
+  type FieldSnapshot,
+  boardPointOfIndex,
+  fromBoardPoint,
+  geometryFromSnapshot,
+  toBoardIndex,
+} from '../shared/field.js';
 import { originKeyFor } from '../shared/fieldlink.js';
-import { pathLengthM } from '../shared/geo.js';
+import { type LatLng, pathLengthM } from '../shared/geo.js';
 import type { GameIndexUpdate } from '../shared/game-index.js';
 import {
   type CarryPath,
@@ -113,6 +120,7 @@ import {
   collectionKind,
 } from './collection.js';
 import { rulesFor } from './games/index.js';
+import { gameFieldOf } from './game-field.js';
 import { Timers } from './timers.js';
 import { MAX_TRAVEL_LEG_CHARS, creditTravel, measuredTravelM } from './travel.js';
 import { pairIdFor } from './user-record.js';
@@ -953,6 +961,19 @@ export class GameDO extends DurableObject<Env> {
       // the link then.
       case 'watch':
         this.onWatch(ws, who, msg as { action?: unknown });
+        return;
+
+      // Not settled against the flag either: it is taken only while the game
+      // is suspended, when no clock runs.
+      case 'recalibrate':
+        // Only a game on two fields takes one (stage 12.3). Asked before
+        // anything else, so a same-field game answers it exactly as it
+        // answers any type it does not take, as a chess game a waypoint.
+        if (!this.takesRecalibration()) {
+          this.send(ws, { t: 'error', code: 'bad_message', message: `Unknown message type ${JSON.stringify(t)}.` });
+          return;
+        }
+        await this.onRecalibrate(ws, who, msg as { field?: unknown });
         return;
 
       default:
@@ -1859,6 +1880,72 @@ export class GameDO extends DurableObject<Env> {
     const rows = this.presence();
     const absent = rows.filter((row) => row.connected !== 1);
     return absent.length === 1 ? absent[0].color : null;
+  }
+
+  /** Whether this object holds a remote game, the only kind a recalibration is for. */
+  private takesRecalibration(): boolean {
+    const game = this.game();
+    return game !== null && this.isRemote(game);
+  }
+
+  /**
+   * A remote player's own field, tapped again during a pause (stage 12.3,
+   * decisions 0060 and 0063).
+   *
+   * Taken only while the game is suspended — a pause or a disconnect, which
+   * are one state (decision 0025) — and only for the sender's own seat, which
+   * the socket names. Not re-approved by the other player, whose board may
+   * change size with the shared square (0060, point 6): the disclosure each
+   * accepted still stands, so the seat's `disclosure_at` is kept.
+   *
+   * The write goes through `setSeatField`, which judges both back ranks again
+   * against the boards as they now are and **only lowers** a flag. The
+   * sender's own is then cleared outright, whatever their stored fix says:
+   * the last place they told anyone they stood was a corner of the field, or
+   * wherever they were when they set off to walk it, and neither is evidence
+   * of a back rank on the new board. Nothing here raises a flag, so nothing
+   * here can resume the game; a `pos` or a `ready` on the current socket does
+   * that, as in every game (decisions 0005, 0037).
+   */
+  private async onRecalibrate(ws: WebSocket, who: SocketAttachment, msg: { field?: unknown }): Promise<void> {
+    const game = this.game();
+    if (game === null) return;
+    if (game.status !== 'suspended') {
+      this.send(ws, {
+        t: 'error',
+        code: 'not_active',
+        message:
+          game.status === 'active'
+            ? 'Pause the game first: a field can be recalibrated only while the game is paused.'
+            : `The game is ${game.status}; a field can be recalibrated only while it is paused.`,
+      });
+      return;
+    }
+    const field = gameFieldOf(msg?.field);
+    if (field === null) {
+      this.send(ws, {
+        t: 'error',
+        code: 'bad_field',
+        message: 'That field is not usable. Re-calibrate and try again.',
+      });
+      return;
+    }
+
+    const now = Date.now();
+    const before = this.boards(game);
+    // `null`: the seat keeps the moment its player accepted the disclosure.
+    this.setSeatField(game, who.color, field, null, now);
+    this.keepMovesOnTheirSquares(before, this.boards(game));
+    this.sql.exec(`UPDATE presence SET in_start_zone = 0 WHERE player_id = ?`, who.playerId);
+    this.sql.exec(`UPDATE game SET updated_at = ? WHERE id = 1`, now);
+
+    // After the re-judge, so both phones learn the new boards and who is
+    // still on their back rank from the same snapshot.
+    this.bumpRev();
+    this.broadcastState();
+    // The seat's line in its own account names its own field, which may
+    // have been renamed since the game began.
+    await this.syncIndex(now);
   }
 
   /**
@@ -3218,19 +3305,91 @@ export class GameDO extends DurableObject<Env> {
    * here (the creator's, the joiner's, and stage 12.3's recalibration), so
    * none can leave a back-rank flag that was judged on a board that no longer
    * exists.
+   *
+   * `disclosureAt` is when the player accepted the disclosure, or null to
+   * keep the moment already stored: a recalibration replaces a seat's field,
+   * never its player's agreement, and there is no seat to recalibrate
+   * without one.
    */
-  private setSeatField(game: GameRow, color: Color, field: FieldSnapshot, disclosureAt: number, now: number): void {
-    this.sql.exec(
-      `INSERT INTO seat_field (color, field_json, disclosure_at, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT (color) DO UPDATE SET field_json = excluded.field_json,
-                                          disclosure_at = excluded.disclosure_at,
-                                          updated_at = excluded.updated_at`,
-      color,
-      JSON.stringify(field),
-      disclosureAt,
-      now,
-    );
+  private setSeatField(
+    game: GameRow,
+    color: Color,
+    field: FieldSnapshot,
+    disclosureAt: number | null,
+    now: number,
+  ): void {
+    if (disclosureAt === null) {
+      this.sql.exec(
+        `UPDATE seat_field SET field_json = ?, updated_at = ? WHERE color = ?`,
+        JSON.stringify(field),
+        now,
+        color,
+      );
+    } else {
+      this.sql.exec(
+        `INSERT INTO seat_field (color, field_json, disclosure_at, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT (color) DO UPDATE SET field_json = excluded.field_json,
+                                            disclosure_at = excluded.disclosure_at,
+                                            updated_at = excluded.updated_at`,
+        color,
+        JSON.stringify(field),
+        disclosureAt,
+        now,
+      );
+    }
     this.rejudgeStartZones(game);
+  }
+
+  /**
+   * The moves already played stay on the squares they were judged on, when
+   * a recalibration reshapes a board (stage 12.3, decision 0063).
+   *
+   * A move keeps its fixes as coordinates, and the report turns them into
+   * squares on the mover's board when it is built (decision 0041). After a
+   * recalibration that board is another shape — the recalibrating player's,
+   * and the other player's too when the shared square moves — and the same
+   * coordinates would come out as other squares: a pawn lifted from f2 would
+   * be "picked up standing on" g1 in the replay. So each fix of the moves
+   * already played on a reshaped board is moved to the place on the new board
+   * that is the same squares it was on the old one. The walk (`track`) is
+   * already squares and needs nothing. Nothing else reads these columns, and
+   * none of them ever leaves the object as a coordinate.
+   */
+  private keepMovesOnTheirSquares(
+    before: { w: FieldGeometry | null; b: FieldGeometry | null },
+    after: { w: FieldGeometry | null; b: FieldGeometry | null },
+  ): void {
+    for (const color of ['w', 'b'] as const) {
+      const from = before[color];
+      const to = after[color];
+      if (from === null || to === null || JSON.stringify(from) === JSON.stringify(to)) continue;
+      const moved = (lat: number, lng: number): LatLng =>
+        fromBoardPoint(to, boardPointOfIndex(to, toBoardIndex(from, { lat, lng })));
+      const rows = [
+        ...this.sql.exec<{
+          seq: number;
+          lift_lat: number | null;
+          lift_lng: number | null;
+          place_lat: number | null;
+          place_lng: number | null;
+          via_json: string | null;
+        }>(`SELECT seq, lift_lat, lift_lng, place_lat, place_lng, via_json FROM moves WHERE color = ?`, color),
+      ];
+      for (const row of rows) {
+        const lift = row.lift_lat === null || row.lift_lng === null ? null : moved(row.lift_lat, row.lift_lng);
+        const place = row.place_lat === null || row.place_lng === null ? null : moved(row.place_lat, row.place_lng);
+        const via = waypointsOf(row.via_json).map((w) => ({ ...w, ...moved(w.lat, w.lng) }));
+        this.sql.exec(
+          `UPDATE moves SET lift_lat = ?, lift_lng = ?, place_lat = ?, place_lng = ?, via_json = ? WHERE seq = ?`,
+          lift?.lat ?? null,
+          lift?.lng ?? null,
+          place?.lat ?? null,
+          place?.lng ?? null,
+          via.length === 0 ? row.via_json : JSON.stringify(via),
+          row.seq,
+        );
+      }
+    }
   }
 
   /**

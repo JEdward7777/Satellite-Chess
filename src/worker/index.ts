@@ -11,8 +11,7 @@
  * lands on one.
  */
 
-import { type FieldSnapshot, type FieldSpec, snapshotField } from '../shared/field.js';
-import { fieldKey } from '../shared/fieldlink.js';
+import type { FieldSpec } from '../shared/field.js';
 import { DEFAULT_TIME_CONTROL } from '../shared/clock.js';
 import { generateJoinCode, normaliseJoinCode } from '../shared/joincode.js';
 import type { GameReport } from '../shared/review.js';
@@ -36,6 +35,7 @@ import {
 import { clearCookieHeader, destroySession, sessionCookieHeader } from './sessions.js';
 import { authRoutes } from './auth.js';
 import { MAX_FIELDS_PER_ACCOUNT, asFieldSpec, asId } from './user-fields.js';
+import { gameFieldOf } from './game-field.js';
 import { MAX_GAMES_PER_ACCOUNT, asJoinCode } from './user-games.js';
 import { byMostWanted, listedGame } from '../shared/game-index.js';
 import { apiError, json } from './http.js';
@@ -497,21 +497,6 @@ async function writeSettings(request: Request, env: Env, url: URL): Promise<Resp
   return json({ units: settings.units });
 }
 
-/**
- * A field from a create or join body, snapshotted for a game, or null for one
- * that describes no board. The lineage key rides along so the permanent record
- * can count "fields played on" by ground rather than by copy (stage 2.3.5).
- */
-function gameFieldOf(spec: unknown): FieldSnapshot | null {
-  try {
-    const field = snapshotField(spec as Parameters<typeof snapshotField>[0]);
-    const lineageKey = lineageKeyOf(spec);
-    return lineageKey !== null ? { ...field, lineageKey } : field;
-  } catch {
-    return null;
-  }
-}
-
 /** A remote game refused for want of the player's acceptance of the disclosure (decision 0060). */
 function disclosureRequired(): Response {
   return apiError(
@@ -519,23 +504,6 @@ function disclosureRequired(): Response {
     'In a game played on two fields, your opponent could work out where you are. Accept that to play.',
     400,
   );
-}
-
-/**
- * A field's lineage key, or null for one that is not shaped like ours.
- *
- * The phone's own claim about where its field came from, and harmless as one:
- * it can only decide which of the player's *own* fields a game is filed under
- * in their record. Checked for shape so that a hand-rolled request cannot park
- * an arbitrary string inside every game's snapshot.
- */
-function lineageKeyOf(spec: unknown): string | null {
-  try {
-    const key = fieldKey(spec as FieldSpec);
-    return typeof key === 'string' && /^[0-9a-f]{16}$/.test(key) ? key : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

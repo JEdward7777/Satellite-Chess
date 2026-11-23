@@ -59,9 +59,18 @@ export function awaitingHandshake(status: GameStatus | null | undefined): boolea
  * zone. The episode changes whenever the server may have forgotten what it was
  * told: a new socket (the server clears the flag when the last one closes —
  * decision 0037), or a new suspension.
+ *
+ * Or, in a remote game, a board of another shape (stage 12.3, O-26): a
+ * recalibration during a pause moves the shared square, the server judges
+ * both back ranks again and may lower a flag, and a player standing on the
+ * new back rank has to say so again. The shared square and this phone's own
+ * field are what the board is made from, so both are in the episode. A
+ * same-field game's episode is what it always was.
  */
 export function handshakeEpisode(game: GameSnapshot | null, reconnects: number): string {
-  return `${game?.status ?? '-'}|${reconnects}|${game?.suspension?.at ?? '-'}`;
+  const base = `${game?.status ?? '-'}|${reconnects}|${game?.suspension?.at ?? '-'}`;
+  if (!game?.remote) return base;
+  return `${base}|${game.remote.squareM}|${game.field.snapshotAt}`;
 }
 
 export interface AutoReadyInput {

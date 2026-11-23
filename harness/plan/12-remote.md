@@ -65,7 +65,7 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
     opponent to join." and Turn "—" while waiting (both kinds of game).
     Driver `scripts/check-remote.mjs`. `check-golden` against `4389ec8`:
     identical in all 63 parts. One review round, clean.
-- `12.3` todo: Recalibrate your own field during a pause in a remote game; the square size crosses over again with no re-approval
+- `12.3` done: Recalibrate your own field during a pause in a remote game; the square size crosses over again with no re-approval
   - One inbound message, accepted only while suspended, only from that
     seat. `s` is recomputed and both snapshots updated. Resume is the
     ordinary back-rank handshake.
@@ -79,6 +79,17 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
     - Put `remote.squareM` or a field revision into `handshakeEpisode`, so
       `AutoReady` re-arms after a rescale (O-26).
     - Broadcast after the re-judge.
+  - Built (decision 0063, `2026-11-23-01`): one `recalibrate` message,
+    taken only while suspended and only for the sender's seat; a same-field
+    game answers it as an unknown type. The write goes through
+    `setSeatField` (lower-only), the sender's flag is cleared, played moves
+    stay on their squares (`keepMovesOnTheirSquares`), and every field is
+    shape-checked in `gameFieldOf`. The phone walks the field on the
+    calibration screen with the board's socket closed, saves it to the
+    player's own field, sends it once per socket until applied, refused or
+    moot, claims no back rank meanwhile, and keeps it in `localStorage`
+    across reloads. Driver `scripts/check-recalibrate.mjs`. `check-golden`
+    identical in all 63 parts. Four review rounds.
 - `12.4` todo: Real-phone check: a remote game between two places
   - Does A1 feel like A1? Is the disclosure read or dismissed? Does a
     rescale after recalibrating surprise the other player?
@@ -89,3 +100,13 @@ ratchet (`harness/pipeline/ratchet.md`), as run 4.
       the playable board is the change (decision 0062).
     - The why-line under the prompt ("Shrunk to match…") may be wanted only
       while waiting.
+  - Notes from 12.3:
+    - During a recalibration walk the opponent reads "Waiting for your
+      opponent to come back" — it looks like a dropped connection, not
+      "recalibrating".
+    - The rescale line clears on resume, which can be immediate (the
+      recalibrating player can end the walk on a8, on their back rank), so
+      the other player may never see it.
+    - While offline the recalibrating phone shows "Reconnecting…", not
+      "Sending your recalibrated field…".
+    - Does a rescale surprise the other player?

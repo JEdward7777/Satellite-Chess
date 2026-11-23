@@ -414,6 +414,43 @@ export function remoteWords(
 }
 
 /**
+ * Whether this player may recalibrate their own field now (stage 12.3,
+ * decision 0063): a remote game, suspended, with no result. The server asks
+ * the same and is the one that counts.
+ */
+export function canRecalibrate(game: Pick<GameSnapshot, 'remote' | 'status' | 'result'> | null): boolean {
+  return game?.remote !== undefined && game.status === 'suspended' && game.result == null;
+}
+
+/**
+ * What a recalibration changed, said once a snapshot shows it, or null
+ * (stage 12.3). Mine is told by my own field being a new snapshot; the
+ * opponent's, which this phone never sees, by the shared square moving while
+ * my field did not. A rescale is not re-approved (decision 0060), so it is
+ * at least said: the board on screen has just changed size.
+ */
+export function rescaleNotice(
+  before: Pick<GameSnapshot, 'remote' | 'field' | 'status'> | null,
+  after: Pick<GameSnapshot, 'remote' | 'field' | 'status'> | null,
+  units: Units = 'metric',
+): string | null {
+  if (before?.remote === undefined || after?.remote === undefined) return null;
+  // Only in a pause, the one time a field may change (decision 0060): the
+  // join moves the shared square too, and that is nobody's recalibration.
+  if (before.status !== 'suspended' || after.status !== 'suspended') return null;
+  const size = `${lengthWords(after.remote.squareM, units, 1)} on both fields`;
+  if (before.field.snapshotAt !== after.field.snapshotAt) {
+    return before.remote.squareM === after.remote.squareM
+      ? `Your field is recalibrated. The squares are still ${size}.`
+      : `Your field is recalibrated. The squares are now ${size}.`;
+  }
+  if (before.remote.squareM !== after.remote.squareM) {
+    return `Your opponent recalibrated their field. The squares are now ${size}.`;
+  }
+  return null;
+}
+
+/**
  * The game's end on the board, in one line. Chess says it as it always has
  * ("1-0 — checkmate."); another game names the winner, since "1-0" is
  * chess's way of saying White, and checkers' first mover is Black
@@ -453,6 +490,19 @@ export interface GameViewDeps {
    * button is here, because re-joining a finished game is idempotent.
    */
   onReview?(): void;
+  /**
+   * Walk this player's own field again, during a pause in a remote game
+   * (stage 12.3). Offered only when {@link canRecalibrate}; left out, never.
+   */
+  onRecalibrate?(): void;
+  /**
+   * True while a recalibration sent from this board has not yet been applied
+   * or refused (stage 12.3, `recalibration.ts`). Meanwhile this phone claims
+   * no back rank, by `ready` or by relay: the server would judge it on the
+   * old board, and an opponent waiting on theirs would resume the game on the
+   * old field before the new one arrived (review, round 2).
+   */
+  recalibrating?(): boolean;
   /**
    * The server's own view, before any optimistic prediction, for the clock's
    * debug readout (O-31). Omitted, the readout shows the decorated view.
@@ -534,6 +584,8 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         <p data-prompt class="prompt">Connecting…</p>
         <p data-remote-note class="dim" hidden></p>
         <p data-handshake class="dim" hidden></p>
+        <p data-rescaled class="dim" hidden></p>
+        <p data-recalibrate-hint class="dim" hidden></p>
         <p data-notice class="notice" hidden></p>
         <p data-my-offer class="dim" hidden></p>
         <p data-watch-line class="dim" hidden></p>
@@ -541,6 +593,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
           <button data-ready hidden>I'm on my back rank</button>
           <button data-drop class="secondary" hidden>Put it back</button>
           <button data-claim hidden>Claim the win</button>
+          <button data-recalibrate class="secondary" hidden>Recalibrate my field</button>
           <button data-review-open hidden>After the game</button>
           <button data-pause class="secondary" hidden>Pause</button>
           <button data-end class="secondary" hidden>End game…</button>
@@ -618,6 +671,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   const offerShownAt = new Map<string, number>();
   /** The last snapshot, to tell a declined offer from a lapsed one. */
   let previousGame: NetState['game'] = null;
+  /**
+   * What the last recalibration changed (stage 12.3), said until the game
+   * resumes, and as a snapshot pair so it is said again in the player's
+   * units if they change them.
+   */
+  let rescaled: { before: GameSnapshot; after: GameSnapshot } | null = null;
   /** The repaint that arms a confirming button; cleared on teardown. */
   let armTimer: ReturnType<typeof setTimeout> | null = null;
   let errorShownAt = 0;
@@ -702,6 +761,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
    * back as the same "you are N m from your back rank" the button would get.
    */
   function considerReady(relayed: boolean): void {
+    if (deps.recalibrating?.() === true) return;
     const game = net.game;
     const fix = fixNow();
     const mine = myBackRank();
@@ -878,6 +938,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   root.querySelector<HTMLButtonElement>('[data-pause]')?.addEventListener('click', () => {
     deps.connection.send({ t: 'pause' });
   });
+  root.querySelector<HTMLButtonElement>('[data-recalibrate]')?.addEventListener('click', () => {
+    if (canRecalibrate(net.game) && deps.recalibrating?.() !== true) deps.onRecalibrate?.();
+  });
   root.querySelector<HTMLButtonElement>('[data-claim]')?.addEventListener('click', () => {
     // Confirmed, because it ends someone else's game and cannot be undone.
     if (confirm('End this game and record a win? Your opponent has not returned.')) {
@@ -1031,6 +1094,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
   });
 
   root.querySelector<HTMLButtonElement>('[data-ready]')?.addEventListener('click', () => {
+    if (deps.recalibrating?.() === true) return;
     const fix = fixNow();
     // The server checks the back rank itself and says how far off you are, so
     // there is nothing to pre-validate here.
@@ -1409,7 +1473,7 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     const readyButton = root.querySelector<HTMLButtonElement>('[data-ready]');
     if (readyButton) {
       readyButton.hidden = !awaiting;
-      readyButton.disabled = !fix;
+      readyButton.disabled = !fix || deps.recalibrating?.() === true;
     }
     const handshake = root.querySelector<HTMLElement>('[data-handshake]');
     if (handshake) {
@@ -1418,8 +1482,11 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
         const lines = handshakeLines();
         // While staging, my own line is already the prompt. While suspended the
         // prompt is about the suspension itself (decision 0025), so both go here.
+        // While a recalibration is on its way this phone claims no back
+        // rank, and says why rather than leaving a dead button unexplained.
+        const mine = deps.recalibrating?.() === true ? 'Sending your recalibrated field…' : lines.mine;
         handshake.textContent =
-          net.game?.status === 'staging' ? lines.theirs : `${lines.mine} ${lines.theirs}`;
+          net.game?.status === 'staging' ? lines.theirs : `${mine} ${lines.theirs}`;
       }
     }
 
@@ -1432,6 +1499,30 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
 
     const claimButton = root.querySelector<HTMLButtonElement>('[data-claim]');
     if (claimButton) claimButton.hidden = net.game?.suspension?.canClaim !== true;
+
+    // A remote game's own field, walked again in a pause (stage 12.3). The
+    // hint says which corners, since a shrunk board's are not its own.
+    // Not while one is still on its way: a second walk would race the first.
+    const recalibrable =
+      canRecalibrate(net.game) && deps.onRecalibrate !== undefined && deps.recalibrating?.() !== true;
+    const recalibrateButton = root.querySelector<HTMLButtonElement>('[data-recalibrate]');
+    if (recalibrateButton) recalibrateButton.hidden = !recalibrable;
+    set(
+      '[data-recalibrate-hint]',
+      !recalibrable
+        ? ''
+        : board()?.outline
+          ? 'Is your field in the wrong place? Recalibrate it: walk the corners of the dashed line again.'
+          : 'Is your field in the wrong place? Recalibrate it: walk its corners again.',
+    );
+    const recalibrateHint = root.querySelector<HTMLElement>('[data-recalibrate-hint]');
+    if (recalibrateHint) recalibrateHint.hidden = !recalibrable;
+    // Said until the game goes on: a resume, or an end.
+    if (rescaled !== null && net.game?.status !== 'suspended') rescaled = null;
+    const rescaledWords = rescaled === null ? null : rescaleNotice(rescaled.before, rescaled.after, units.get());
+    set('[data-rescaled]', rescaledWords ?? '');
+    const rescaledLine = root.querySelector<HTMLElement>('[data-rescaled]');
+    if (rescaledLine) rescaledLine.hidden = rescaledWords === null;
 
     paintEndings();
     paintWatch();
@@ -1525,9 +1616,12 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     paint();
     // The one place position leaves the phone outside a move, and it refuses far
     // more often than it accepts (see `offerPosition`).
-    const relayed = state.fix
-      ? deps.connection.offerPosition(state.fix, state.distanceM, state.distanceLeg)
-      : false;
+    // Not while a recalibration is on its way: a relay is a back-rank claim
+    // too, judged on the board the server still has.
+    const relayed =
+      state.fix && deps.recalibrating?.() !== true
+        ? deps.connection.offerPosition(state.fix, state.distanceM, state.distanceLeg)
+        : false;
     considerReady(relayed);
   });
   let leftForReview = false;
@@ -1537,6 +1631,9 @@ export function mountGame(root: HTMLElement, deps: GameViewDeps): () => void {
     // lapsed with a move; the server sends only the snapshot, so say which.
     const ended = offerEndedNotice(previousGame, state.game);
     if (ended) localNotice = { text: ended, at: Date.now() };
+    if (previousGame && state.game && rescaleNotice(previousGame, state.game) !== null) {
+      rescaled = { before: previousGame, after: state.game };
+    }
     if (state.game) previousGame = state.game;
     // Archived while this board was up: the review is where the game lives now.
     // Once, and after this subscriber returns, since it replaces this screen.

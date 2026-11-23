@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { myBoard, spotOnBoard } from '../src/client/my-board.js';
 import { type WebSocketLike, connectToGame } from '../src/client/net.js';
@@ -7,7 +7,17 @@ import { joinGame } from '../src/client/join.js';
 import { inviteShareData } from '../src/client/share.js';
 import { inviteFor } from '../src/client/views/invite.js';
 import { createGameBody, createRefusal, emptyDraft, reachNote } from '../src/client/views/create.js';
-import { remoteWords } from '../src/client/views/game.js';
+import { canRecalibrate, remoteWords, rescaleNotice } from '../src/client/views/game.js';
+import { recalibratePurpose } from '../src/client/views/calibrate.js';
+import { handshakeEpisode } from '../src/client/handshake.js';
+import {
+  forgetRecalibration,
+  pendingRecalibration,
+  recalibrationApplied,
+  rememberRecalibration,
+  sendRecalibration,
+} from '../src/client/recalibration.js';
+import type { GameSnapshot } from '../src/shared/protocol.js';
 import { remoteJoinRefusal, startingField } from '../src/client/views/remote-join.js';
 import { projectionFor } from '../src/client/render.js';
 import { DISCLOSURE_NEEDED, DISCLOSURE_TEXT, disclosureHtml } from '../src/client/disclosure.js';
@@ -200,6 +210,249 @@ describe('net: a remote opponent', () => {
   });
 });
 
+describe('net: a recalibration (stage 12.3)', () => {
+  it('puts the opponent on the same squares of my recalibrated field', () => {
+    const t = 50_000;
+    const { conn, socket } = connection(() => t);
+    const game = (f: ReturnType<typeof field>, squareM: number) => ({
+      t: 'state',
+      game: {
+        status: 'suspended',
+        you: 'w',
+        serverNow: 10_000,
+        field: f,
+        remote: { squareM },
+        players: { w: { pos: null }, b: { pos: null, spot: { spot: { file: 2, rank: 5 }, acc: 4, at: 9_000 } } },
+      },
+    });
+    socket.deliver(game(field(10, 10), 6));
+    const before = conn.state.opponent!;
+    // My field was walked again, twenty meters away and smaller: the shared
+    // square moves down with it.
+    const moved = field(5, 5, 30, fromLocal(A1, { e: 20, n: 0 }));
+    socket.deliver(game(moved, 5));
+    const after = conn.state.opponent!;
+    expect(after.lng).not.toBeCloseTo(before.lng, 6);
+    const at = toBoardIndex(myBoard(conn.state.game!).geo, after);
+    expect(at.file).toBeCloseTo(2, 6);
+    expect(at.rank).toBeCloseTo(5, 6);
+  });
+});
+
+describe('net: the opponent’s own board reshaped under them (stage 12.3)', () => {
+  const snapshot = (spot: unknown, serverNow: number) => ({
+    t: 'state',
+    game: {
+      status: 'suspended',
+      you: 'w',
+      serverNow,
+      field: field(10, 10),
+      remote: { squareM: 6 },
+      players: { w: { pos: null }, b: { pos: null, spot } },
+    },
+  });
+
+  it('takes the same fix on new squares, timed now, and ignores it repeated on the same ones', () => {
+    let t = 50_000;
+    const { conn, socket } = connection(() => t);
+    socket.deliver(snapshot(null, 10_000));
+    socket.deliver({ t: 'opp_spot', spot: { file: 3, rank: 4 }, acc: 4, at: 9_500 });
+    expect(conn.state.opponent!.at).toBe(50_000);
+    // The same fix again, as the next snapshot repeats it: nothing moves.
+    t = 60_000;
+    socket.deliver(snapshot({ spot: { file: 3, rank: 4 }, acc: 4, at: 9_500 }, 20_000));
+    expect(conn.state.opponent!.at).toBe(50_000);
+    // Their board was reshaped by a recalibration: the same fix is put on it
+    // again, and the dot goes there.
+    t = 61_000;
+    socket.deliver(snapshot({ spot: { file: 2.93, rank: 4.07 }, acc: 4, at: 9_500 }, 21_000));
+    const at = toBoardIndex(myBoard(conn.state.game!).geo, conn.state.opponent!);
+    expect(at.file).toBeCloseTo(2.93, 6);
+    expect(at.rank).toBeCloseTo(4.07, 6);
+    expect(conn.state.opponent!.at).toBe(61_000);
+  });
+});
+
+describe('sending a recalibration until it lands (stage 12.3, review rounds 1 and 2)', () => {
+  const spec0 = spec(8, 8, 30);
+  const sent = { ...spec0, version: 2 };
+  const applied = snapshotField(sent);
+  const old = snapshotField(spec0);
+  const snapshot = (field: unknown, status = 'suspended') => ({
+    t: 'state',
+    game: { status, result: null, you: 'b', serverNow: 1, field, remote: { squareM: 6 }, players: { w: { pos: null }, b: { pos: null } } },
+  });
+
+  /** A real connection on fake sockets that keep what they were sent. */
+  function wire() {
+    const sockets: (FakeSocket & { frames: string[] })[] = [];
+    const conn = connectToGame({
+      joinCode: 'A1B2C3',
+      origin: 'https://example.com',
+      probe: async () => 'unknown',
+      socketFactory: () => {
+        const socket = Object.assign(new FakeSocket(), { frames: [] as string[] });
+        (socket as { send: (data: string) => void }).send = (data: string) => void socket.frames.push(JSON.parse(data).t);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+    return { conn, sockets };
+  }
+
+  it('claims no back rank until it is applied: sync, then recalibrate after the snapshot, then ready', () => {
+    const { conn, sockets } = wire();
+    const done: string[] = [];
+    const recalibration = sendRecalibration(conn, sent, { onDone: (o) => done.push(o) });
+    // The board, as `considerReady` is: a ready on every update it is allowed one.
+    conn.subscribe((state) => {
+      if (state.status === 'open' && !recalibration.pending()) conn.send({ t: 'ready', pos: { lat: 0, lng: 0, acc: 3, ts: 0 } });
+    });
+    sockets[0]!.open();
+    expect(sockets[0]!.frames).toEqual(['sync']);
+    expect(recalibration.pending()).toBe(true);
+    sockets[0]!.deliver(snapshot(old));
+    expect(sockets[0]!.frames).toEqual(['sync', 'recalibrate']);
+    sockets[0]!.deliver(snapshot(applied));
+    expect(done).toEqual(['applied']);
+    expect(recalibration.pending()).toBe(false);
+    expect(sockets[0]!.frames).toEqual(['sync', 'recalibrate', 'ready']);
+  });
+
+  it('goes again on the next socket when the frame was lost with its socket, and still claims nothing first', () => {
+    vi.useFakeTimers();
+    try {
+      const { conn, sockets } = wire();
+      const recalibration = sendRecalibration(conn, sent);
+      conn.subscribe((state) => {
+        if (state.status === 'open' && !recalibration.pending()) conn.send({ t: 'ready', pos: { lat: 0, lng: 0, acc: 3, ts: 0 } });
+      });
+      sockets[0]!.open();
+      sockets[0]!.deliver(snapshot(old));
+      // Lost: the socket dies with the game still on the old field.
+      sockets[0]!.onclose?.({});
+      vi.advanceTimersByTime(1_000);
+      sockets[1]!.open();
+      expect(sockets[1]!.frames).toEqual(['sync']);
+      sockets[1]!.deliver(snapshot(old));
+      expect(sockets[1]!.frames).toEqual(['sync', 'recalibrate']);
+      sockets[1]!.deliver(snapshot(applied));
+      expect(recalibration.pending()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is not sent again when the copy before was applied and only its snapshot was lost', () => {
+    vi.useFakeTimers();
+    try {
+      const { conn, sockets } = wire();
+      const recalibration = sendRecalibration(conn, sent);
+      sockets[0]!.open();
+      sockets[0]!.deliver(snapshot(old));
+      sockets[0]!.onclose?.({});
+      vi.advanceTimersByTime(1_000);
+      sockets[1]!.open();
+      sockets[1]!.deliver(snapshot(applied));
+      expect(sockets[1]!.frames).toEqual(['sync']);
+      expect(recalibration.pending()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops, and frees the back rank, on a refusal or a game no longer suspended, and not on any other error', () => {
+    const { conn, sockets } = wire();
+    const done: string[] = [];
+    const recalibration = sendRecalibration(conn, sent, { onDone: (o) => done.push(o) });
+    sockets[0]!.open();
+    sockets[0]!.deliver(snapshot(old));
+    sockets[0]!.deliver({ t: 'error', code: 'out_of_reach', message: 'x' });
+    expect(done).toEqual([]);
+    sockets[0]!.deliver({ t: 'error', code: 'bad_field', message: 'That field is not usable.' });
+    expect(done).toEqual(['refused']);
+    expect(recalibration.pending()).toBe(false);
+
+    const second = wire();
+    const outcomes: string[] = [];
+    sendRecalibration(second.conn, sent, { onDone: (o) => outcomes.push(o) });
+    second.sockets[0]!.open();
+    second.sockets[0]!.deliver(snapshot(old, 'finished'));
+    expect(outcomes).toEqual(['over']);
+    expect(second.sockets[0]!.frames).toEqual(['sync']);
+  });
+
+  it('does not send an older walk over a newer one, and frees the board', () => {
+    const { conn, sockets } = wire();
+    const done: string[] = [];
+    const recalibration = sendRecalibration(conn, sent, { onDone: (o) => done.push(o) });
+    sockets[0]!.open();
+    // Another phone of this account applied version 3 meanwhile.
+    sockets[0]!.deliver(snapshot(snapshotField({ ...spec0, version: 3 })));
+    expect(sockets[0]!.frames).toEqual(['sync']);
+    expect(done).toEqual(['superseded']);
+    expect(recalibration.pending()).toBe(false);
+  });
+
+  it('knows its own field by id, version and corners', () => {
+    expect(recalibrationApplied({ field: applied }, sent)).toBe(true);
+    expect(recalibrationApplied({ field: old }, sent)).toBe(false);
+    expect(recalibrationApplied({ field: { ...applied, a1: { ...applied.a1, lat: applied.a1.lat + 1e-6 } } }, sent)).toBe(false);
+  });
+});
+
+describe('recalibrating in a pause (stage 12.3)', () => {
+  const mine = field(10, 10);
+  const snap = (over: Partial<GameSnapshot>): GameSnapshot =>
+    ({ status: 'suspended', result: null, field: mine, remote: { squareM: 6 }, suspension: { at: 5 }, ...over }) as GameSnapshot;
+
+  it('is offered only in a remote game, only while suspended, and never once it is over', () => {
+    expect(canRecalibrate(snap({}))).toBe(true);
+    expect(canRecalibrate(snap({ remote: undefined }))).toBe(false);
+    expect(canRecalibrate(snap({ status: 'active' }))).toBe(false);
+    expect(canRecalibrate(snap({ status: 'staging' }))).toBe(false);
+    expect(canRecalibrate(snap({ result: { outcome: '1-0', reason: 'abandoned', at: 1 } }))).toBe(false);
+    expect(canRecalibrate(null)).toBe(false);
+  });
+
+  it('says whose recalibration moved the squares, and nothing for a join or a same-field game', () => {
+    const before = snap({});
+    const recalibrated = snap({ field: { ...before.field, snapshotAt: before.field.snapshotAt + 1 }, remote: { squareM: 4 } });
+    expect(rescaleNotice(before, recalibrated)).toBe('Your field is recalibrated. The squares are now 4.0 m on both fields.');
+    const sameSize = snap({ field: { ...before.field, snapshotAt: before.field.snapshotAt + 1 } });
+    expect(rescaleNotice(before, sameSize)).toBe('Your field is recalibrated. The squares are still 6.0 m on both fields.');
+    const theirs = snap({ remote: { squareM: 8 } });
+    expect(rescaleNotice(before, theirs, 'us')).toBe('Your opponent recalibrated their field. The squares are now 26 ft on both fields.');
+    expect(rescaleNotice(before, snap({}))).toBeNull();
+    // The join moves the shared square too, and is nobody's recalibration.
+    expect(rescaleNotice(snap({ status: 'waiting' }), snap({ status: 'staging', remote: { squareM: 4 } }))).toBeNull();
+    expect(rescaleNotice(snap({ remote: undefined }), snap({ remote: undefined }))).toBeNull();
+  });
+
+  it('starts a new handshake episode when the board changes shape, and leaves a same-field episode as it was', () => {
+    const before = snap({});
+    const episode = handshakeEpisode(before, 0);
+    expect(handshakeEpisode(snap({}), 0)).toBe(episode);
+    expect(handshakeEpisode(snap({ remote: { squareM: 4 } }), 0)).not.toBe(episode);
+    expect(handshakeEpisode(snap({ field: { ...before.field, snapshotAt: 1 } }), 0)).not.toBe(episode);
+    // A same-field game's episode is the string it always was.
+    const same = snap({ remote: undefined });
+    expect(handshakeEpisode(same, 2)).toBe('suspended|2|5');
+    expect(handshakeEpisode(snap({ remote: undefined, field: field(5, 5) }), 2)).toBe('suspended|2|5');
+  });
+
+  it('tells the player which corners to walk, and that the other board may change', () => {
+    const shrunk = recalibratePurpose(true);
+    expect(shrunk.title).toBe('Recalibrate your field');
+    expect(shrunk.intro).toMatch(/just inside the dashed line/);
+    expect(shrunk.intro).toMatch(/not the smaller board inside it/);
+    expect(shrunk.intro).toMatch(/Your opponent's board may change size/);
+    const whole = recalibratePurpose(false);
+    expect(whole.intro).not.toMatch(/dashed/);
+    expect(whole.intro).toMatch(/Your opponent's board may change size/);
+  });
+});
+
 describe('the opponent track can be cleared', () => {
   it('draws nothing after clear, and the next fix appears where it is', () => {
     const track = new OpponentTrack();
@@ -346,5 +599,67 @@ describe('fitting a shrunk board with its field', () => {
     expect(projectionFor(shrunk, 'w', 400, 400, null).scale).toBe(projectionFor(shrunk, 'w', 400, 400).scale);
     // The field is 10/6 the board's size, so the board is drawn that much smaller.
     expect(projectionFor(shrunk, 'w', 400, 400, full).scale).toBeCloseTo(projectionFor(shrunk, 'w', 400, 400).scale * 0.6, 6);
+  });
+});
+
+describe('a recalibration kept on the phone until it lands (stage 12.3, review round 3)', () => {
+  const field = { ...spec(8, 8, 30), version: 2 };
+  const map = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  };
+
+  it('is read back for the same game and account only', () => {
+    const storage = map();
+    rememberRecalibration(storage, 'ABC123', 'sub-a', field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toEqual(field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-b')).toBeNull();
+    expect(pendingRecalibration(storage, 'ABC123', null)).toBeNull();
+    expect(pendingRecalibration(storage, 'XYZ789', 'sub-a')).toBeNull();
+  });
+
+  it('is forgotten at its ending, but not by an earlier one that a newer recalibration replaced', () => {
+    const storage = map();
+    rememberRecalibration(storage, 'ABC123', 'sub-a', field);
+    const newer = { ...field, version: 3 };
+    rememberRecalibration(storage, 'ABC123', 'sub-a', newer);
+    forgetRecalibration(storage, 'ABC123', field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toEqual(newer);
+    forgetRecalibration(storage, 'ABC123', newer);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toBeNull();
+  });
+
+  it('forgets nothing, and does not throw, over a record stored as null', () => {
+    const m = new Map<string, string>([['satchess.recalibrations', '{"ABC123":null}']]);
+    const storage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+    expect(() => forgetRecalibration(storage, 'ABC123', field)).not.toThrow();
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toBeNull();
+  });
+
+  it('reads back nothing from a record whose corners are not places', () => {
+    const storage = map();
+    rememberRecalibration(storage, 'ABC123', 'sub-a', { ...field, a1: undefined } as unknown as typeof field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toBeNull();
+    rememberRecalibration(storage, 'ABC123', 'sub-a', { ...field, h8: { lat: '1', lng: 2 } } as unknown as typeof field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toBeNull();
+    rememberRecalibration(storage, 'ABC123', 'sub-a', field);
+    expect(pendingRecalibration(storage, 'ABC123', 'sub-a')).toEqual(field);
+  });
+
+  it('never throws on a storage that refuses, holds rubbish, or is not there', () => {
+    const refusing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    };
+    expect(() => rememberRecalibration(refusing, 'ABC123', 'sub-a', field)).not.toThrow();
+    expect(pendingRecalibration(refusing, 'ABC123', 'sub-a')).toBeNull();
+    expect(() => forgetRecalibration(refusing, 'ABC123', field)).not.toThrow();
+    const rubbish = { getItem: () => '[1,2', setItem: () => undefined };
+    expect(pendingRecalibration(rubbish, 'ABC123', 'sub-a')).toBeNull();
+    expect(pendingRecalibration(null, 'ABC123', 'sub-a')).toBeNull();
   });
 });
