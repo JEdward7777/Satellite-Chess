@@ -5,7 +5,7 @@ files hold the history, and `reference/` holds everything that is simply true.*
 
 **Tree state**: clean. **Run 4 of the ratchet has finished its stages**
 (phase 12, remote play on two fields, O-32, decisions 0060–0063). **`12.1`,
-`12.2` and `12.3` are done and committed, not deployed** (`2026-11-01-01`,
+`12.2` and `12.3` are done, committed and deployed** (`2026-11-01-01`,
 `2026-11-17-01`, `2026-11-23-01`). The server side (12.1) holds a field per
 seat and one shared square `s`, shrinks the larger board about its center,
 and relays the opponent as squares. The phone (12.2) offers "Same field /
@@ -23,14 +23,14 @@ but `8.5` wait only on a real-phone check (`12.4`, `8.3.4`, `8.5.4.3`,
 `10.14.6`, `10.15.3`); `8.5` also has `8.5.5` and `8.5.6`.
 **Next action**: **the owner's `12.4`, a real-phone remote game between two
 places** (notes from 12.2 and 12.3 under it in `plan/12-remote.md`).
-**Deploying 12.1–12.3 is the owner's call: ask before deploying.** After that
+**12.1–12.3 are deployed** (2026-11-24, at the owner's request). After that
 the queue is **O-58** and other O-57 games, when the owner asks. Ports used by
 run 4 agents: 8861–8999 and 9011–9030, inspectors 9261–9430; a new
 `--persist-to` per server start (O-19).
 **Live**: `https://satellite-chess.hootowl7777-cloud.workers.dev`, version
-`0defd5fe`, at `8c50136` (through `10.10.4`), so 12.1–12.3 are not live. The
+`0430f1d5`, at `ad628c3` (through `12.3`), deployed 2026-11-24. The
 `ARCHIVE` KV namespace id (`fe6b455ea33c415f983eee0921c64cdc`) is pinned in
-`wrangler.jsonc`. Deploys were authorized for run 3; **for run 4, ask before
+`wrangler.jsonc`. Deploys were authorized for run 3; **for later runs, ask before
 deploying**.
 **1552 tests.** **The worker tests are load-sensitive on this machine**
 (2026-11-01): each worker test took 2–4 s, at the same speed on HEAD, so
